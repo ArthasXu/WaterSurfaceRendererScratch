@@ -1,0 +1,10 @@
+{
+    "dependencies":[
+        "glfw3",
+        "gml",
+        "spdlog",
+        "fftw3",
+        "imgui",
+        "stb"
+    ]
+}
