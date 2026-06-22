@@ -32,6 +32,7 @@ VkSwapchainKHR g_SwapChain = VK_NULL_HANDLE;                    // 交换链，�
 std::vector<VkImage> g_SwapChainImages;                         // 交换链图像，用于存储呈现到屏幕的图像缓冲区
 VkFormat g_SwapChainImageFormat;                                // 交换链图像格式，用于存储呈现到屏幕的图像缓冲区的格式
 VkExtent2D g_SwapChainExtent;                                   // 交换链图像大小，用于存储呈现到屏幕的图像缓冲区的大小
+std::vector<VkImageView> g_SwapChainImageViews;                 // 交换链图像视图，用于存储呈现到屏幕的图像缓冲区的视图
 
 const std::vector<const char*> g_ValidationLayers = {
     "VK_LAYER_KHRONOS_validation"
@@ -171,6 +172,7 @@ void initVulkan(){ // 初始化 Vulkan
     pickPhysicalDevice();   // 选择物理设备
     createLogicalDevice();  // 创建逻辑设备
     createSwapChain();      // 创建交换链
+    createImageViews();     // 创建图像视图
 }
 void mainLoop(){ // 主循环
     while(!glfwWindowShouldClose(g_Window)){
@@ -181,6 +183,9 @@ void mainLoop(){ // 主循环
     }
 }
 void cleanup(){  // 清理资源
+    for(auto imageView : g_SwapChainImageViews){ // 销毁图像视图
+        vkDestroyImageView(g_Device, imageView, nullptr);
+    }
     if(g_SwapChain != VK_NULL_HANDLE){
         vkDestroySwapchainKHR(g_Device, g_SwapChain, nullptr); // 销毁交换链
     }
@@ -688,7 +693,35 @@ VkExtent2D chooseSwapExtent(const VkSurfaceCapabilitiesKHR& capabilities){ // �
     return actualExtent; // 返回实际图像大小
 }
 
-void createImageViews(){}
+void createImageViews(){
+    g_SwapChainImageViews.resize(g_SwapChainImages.size()); // 调整交换链图像视图大小
+
+    for(size_t i = 0; i < g_SwapChainImages.size(); i++){ // 遍历交换链图像
+        VkImageViewCreateInfo createInfo{}; // 图像视图创建信息
+        createInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO; // 结构体类型
+        createInfo.image = g_SwapChainImages[i]; // 图像
+        createInfo.viewType = VK_IMAGE_VIEW_TYPE_2D; // 图像视图类型
+        createInfo.format = g_SwapChainImageFormat; // 图像格式
+
+        createInfo.components.r = VK_COMPONENT_SWIZZLE_IDENTITY; // 红色分量
+        createInfo.components.g = VK_COMPONENT_SWIZZLE_IDENTITY; // 绿色分量    
+        createInfo.components.b = VK_COMPONENT_SWIZZLE_IDENTITY; // 蓝色分量
+        createInfo.components.a = VK_COMPONENT_SWIZZLE_IDENTITY; // 透明度分量
+
+        createInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT; // 图像视图范围
+        createInfo.subresourceRange.baseMipLevel = 0; // 基础 mipmap 级别
+        createInfo.subresourceRange.levelCount = 1; // mipmap 级别数量
+        createInfo.subresourceRange.baseArrayLayer = 0; // 基础数组层
+        createInfo.subresourceRange.layerCount = 1; // 数组层数量
+
+        if(vkCreateImageView(g_Device, &createInfo, nullptr, &g_SwapChainImageViews[i]) != VK_SUCCESS){ // 创建图像视图
+            throw std::runtime_error("Failed to create image views!"); // 失败
+        }
+    }
+
+    std::cout << "Created image views: " << g_SwapChainImageViews.size() << "\n";
+    std::cout << "Image views: OK\n"; // 成功
+}
 void createRenderPass(){}
 void createGraphicsPipeline(){}
 void createFramebuffers(){}
