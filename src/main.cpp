@@ -105,12 +105,12 @@ int main(){
     //     const VkAllocationCallbacks* pAllocator,    // 自定义内存分配器，常为 nullptr
     //     VkInstance* pInstance                       // 输出：实例句柄
     // );
-    VkInstancCreateInfo createInfo{};
+    VkInstanceCreateInfo createInfo{};
     createInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
     createInfo.pApplicationInfo = &appInfo;
     if(hasValidationLayer){
         createInfo.enabledLayerCount = 1;
-        createInfo.ppEnabledExtensionNames = &validationLayerName;
+        createInfo.ppEnabledLayerNames = &validationLayerName;
     }
     VkInstance instance = VK_NULL_HANDLE;
     result = vkCreateInstance(&createInfo, nullptr, &instance);
@@ -130,5 +130,9 @@ int main(){
     glfwTerminate();
 
     std::cout << "Stage 0 check passed\n";
+
+    std::cout << "Press Enter to exit...";
+    std::cin.get();
+
     return 0;
 }
