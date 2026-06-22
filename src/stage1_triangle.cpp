@@ -18,10 +18,13 @@ GLFWwindow* g_Window = nullptr;
 //   ├── VkPhysicalDevice (GPU 选择)
 //   └── VkDevice (逻辑设备)
 //         └── VkSwapchainKHR (依赖 VkDevice 和 VkSurfaceKHR)
-VkInstance g_Instance = VK_NULL_HANDLE;
-VkDebugUtilsMessengerEXT g_DebugMessenger = VK_NULL_HANDLE;
-VkSurfaceKHR g_Surface = VK_NULL_HANDLE;
-VkPhysicalDevice g_PhysicalDevice = VK_NULL_HANDLE;
+VkInstance g_Instance = VK_NULL_HANDLE;                         // Vulkan 实例
+VkDebugUtilsMessengerEXT g_DebugMessenger = VK_NULL_HANDLE;     // 调试回调，用于接收来自 Vulkan 校验层和驱动的诊断消息
+VkSurfaceKHR g_Surface = VK_NULL_HANDLE;                        // 窗口表面，用于呈现图像到窗口
+VkPhysicalDevice g_PhysicalDevice = VK_NULL_HANDLE;             // 物理设备，即 GPU
+VkDevice g_Device = VK_NULL_HANDLE;                             // 逻辑设备，用于执行 Vulkan 命令
+VkQueue g_GraphicsQueue = VK_NULL_HANDLE;                       // 图形队列，用于执行图形命令
+VkQueue g_PresentQueue = VK_NULL_HANDLE;                        // 呈现队列，用于呈现图像到窗口
 
 const std::vector<const char*> g_ValidationLayers = {
     "VK_LAYER_KHRONOS_validation"
@@ -154,6 +157,7 @@ void initVulkan(){ // 初始化 Vulkan
     setupDebugMessenger();  // 设置调试回调
     createSurface();        // 创建窗口表面
     pickPhysicalDevice();   // 选择物理设备
+    createLogicalDevice();  // 创建逻辑设备
 }
 void mainLoop(){ // 主循环
     while(!glfwWindowShouldClose(g_Window)){
@@ -164,6 +168,9 @@ void mainLoop(){ // 主循环
     }
 }
 void cleanup(){  // 清理资源
+    if(g_Device != VK_NULL_HANDLE){
+        vkDestroyDevice(g_Device, nullptr); // 销毁逻辑设备, Device 必须早于 Surface/Instance 销毁
+    }
     if(g_Surface != VK_NULL_HANDLE){
         vkDestroySurfaceKHR(g_Instance, g_Surface, nullptr); // 销毁窗口表面
     }
@@ -423,12 +430,14 @@ SwapChainSupportDetails querySwapChainSupport(VkPhysicalDevice device){ // 查�
     vkGetPhysicalDeviceSurfaceFormatsKHR(device, g_Surface, &formatCount, nullptr); // 获取图像格式数量
     if(formatCount != 0){ // 如果图像格式数量不为 0
         details.formats.resize(formatCount); // 调整图像格式数组大小    
+        vkGetPhysicalDeviceSurfaceFormatsKHR(device, g_Surface, &formatCount, details.formats.data()); // 获取图像格式数组
     }    
     
     uint32_t presentModeCount = 0; // 呈现模式数量
     vkGetPhysicalDeviceSurfacePresentModesKHR(device, g_Surface, &presentModeCount, nullptr); // 获取呈现模式数量
     if(presentModeCount != 0){ // 如果呈现模式数量不为 0
         details.presentModes.resize(presentModeCount); // 调整呈现模式数组大小
+        vkGetPhysicalDeviceSurfacePresentModesKHR(device, g_Surface, &presentModeCount, details.presentModes.data()); // 获取呈现模式数组
     }
 
     return details; // 返回交换链支持信息
@@ -472,7 +481,64 @@ int rateDevice(VkPhysicalDevice device){ // 评分设备, 独显优先，核显�
 }
 
 
-void createLogicalDevice(){}
+void createLogicalDevice(){ // 创建逻辑设备 
+    QueueFamilyIndices indices = findQueueFamilies(g_PhysicalDevice); // 查找队列族索引
+
+    std::vector<VkDeviceQueueCreateInfo> queueCreateInfos; // 队列创建信息数组
+    std::set<uint32_t> uniqueQueueFamilies = {
+        indices.graphicsFamily.value(), 
+        indices.presentFamily.value()
+    }; // 唯一的队列族索引集合
+
+    float queuePriority = 1.0f; // 队列优先级
+
+    for(uint32_t queueFamily:uniqueQueueFamilies){ // 遍历唯一的队列族索引
+        VkDeviceQueueCreateInfo queueCreateInfo{}; // 队列创建信息
+        queueCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO; // 结构体类型    
+        queueCreateInfo.queueFamilyIndex = queueFamily; // 队列族索引
+        queueCreateInfo.queueCount = 1; // 队列数量
+        queueCreateInfo.pQueuePriorities = &queuePriority; // 队列优先级数组
+
+        queueCreateInfos.push_back(queueCreateInfo); // 添加队列创建信息
+    }
+
+    VkPhysicalDeviceFeatures deviceFeatures{}; // 设备特性
+
+    VkDeviceCreateInfo createInfo{}; // 设备创建信息
+    createInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO; // 结构体类型
+    createInfo.queueCreateInfoCount = static_cast<uint32_t>(queueCreateInfos.size()); // 队列创建信息数量
+    createInfo.pQueueCreateInfos = queueCreateInfos.data(); // 队列创建信息数组
+    createInfo.pEnabledFeatures = &deviceFeatures; // 设备特性
+
+    createInfo.enabledExtensionCount = static_cast<uint32_t>(g_DeviceExtensions.size()); // 启用的扩展数量
+    createInfo.ppEnabledExtensionNames = g_DeviceExtensions.data(); // 启用的扩展名称数组
+
+    if(g_EnableValidationLayers){ // 如果启用校验层
+        createInfo.enabledLayerCount = static_cast<uint32_t>(g_ValidationLayers.size()); // 启用的校验层数量
+        createInfo.ppEnabledLayerNames = g_ValidationLayers.data(); // 启用的校验层名称数组
+    }
+    else{
+        createInfo.enabledLayerCount = 0; // 启用的校验层数量为0
+    }
+
+    // VkResult vkCreateDevice(
+    //     VkPhysicalDevice                            physicalDevice,
+    //     const VkDeviceCreateInfo*                   pCreateInfo,
+    //     const VkAllocationCallbacks*                pAllocator,
+    //     VkDevice*                                   pDevice
+    // ); // 创建设备
+    if(vkCreateDevice(g_PhysicalDevice, &createInfo, nullptr, &g_Device) != VK_SUCCESS){ // 创建设备
+        throw std::runtime_error("Failed to create logical device!");
+    }
+
+    std::cout<<"Logical device created: OK\n";
+
+    vkGetDeviceQueue(g_Device, indices.graphicsFamily.value(), 0, &g_GraphicsQueue); // 获取图形队列
+    std::cout<<"Graphics queue: OK\n";
+
+    vkGetDeviceQueue(g_Device, indices.presentFamily.value(), 0, &g_PresentQueue); // 获取呈现队列
+    std::cout<<"Present queue: OK\n";
+}
 void createSwapChain(){}
 void createImageViews(){}
 void createRenderPass(){}
