@@ -9,9 +9,10 @@
 #include <stdexcept>
 #include <optional>
 #include <set> 
-#include <algorithm> // clamp
-#include <cstdint> // uint32_t
-#include <limits> // UINT32_MAX
+#include <algorithm>    // clamp
+#include <cstdint>      // uint32_t
+#include <limits>       // UINT32_MAX
+#include <fstream>      // 二进制读取 .spv
 
 
 GLFWwindow* g_Window = nullptr;
@@ -112,6 +113,9 @@ VkExtent2D chooseSwapExtent(const VkSurfaceCapabilitiesKHR& capabilities); // �
 void createImageViews();        // 创建图像视图
 void createRenderPass();        // 创建渲染通道
 void createGraphicsPipeline();  // 创建图形管线
+std::vector<char> readFile(const std::string& filename); // 读取文件
+VkShaderModule createShaderModule(const std::vector<char>& code); // 创建着色器模块
+
 void createFramebuffers();      // 创建帧缓冲区
 void createCommandPool();       // 创建命令池
 void createCommandBuffers();    // 创建命令缓冲区
@@ -167,14 +171,15 @@ void initWindow(){ // 初始化窗口
     }
 }
 void initVulkan(){ // 初始化 Vulkan
-    createInstance();       // 创建实例
-    setupDebugMessenger();  // 设置调试回调
-    createSurface();        // 创建窗口表面
-    pickPhysicalDevice();   // 选择物理设备
-    createLogicalDevice();  // 创建逻辑设备
-    createSwapChain();      // 创建交换链
-    createImageViews();     // 创建图像视图
-    createRenderPass();     // 创建渲染通道
+    createInstance();           // 创建实例
+    setupDebugMessenger();      // 设置调试回调
+    createSurface();            // 创建窗口表面
+    pickPhysicalDevice();       // 选择物理设备
+    createLogicalDevice();      // 创建逻辑设备
+    createSwapChain();          // 创建交换链
+    createImageViews();         // 创建图像视图
+    createRenderPass();         // 创建渲染通道
+    createGraphicsPipeline();   // 创建图形管线
 }
 void mainLoop(){ // 主循环
     while(!glfwWindowShouldClose(g_Window)){
@@ -794,7 +799,56 @@ void createRenderPass(){
 
     std::cout << "Created render pass: OK\n"; // 成功
 }
-void createGraphicsPipeline(){}
+void createGraphicsPipeline(){
+    // 临时采用绝对路径
+    auto vertShaderCode = readFile("D:/WaterSurfaceRendererScratch/shaders/stage1_triangle.vert.spv"); // 读取顶点着色器代码
+    auto fragShaderCode = readFile("D:/WaterSurfaceRendererScratch/shaders/stage1_triangle.frag.spv"); // 读取片元着色器代码
+
+    VkShaderModule vertShaderModule = createShaderModule(vertShaderCode); // 创建顶点着色器模块
+    VkShaderModule fragShaderModule = createShaderModule(fragShaderCode); // 创建片元着色器模块
+
+    std::cout << "Vertex shader module: OK\n";
+    std::cout << "Fragment shader module: OK\n";
+
+    vkDestroyShaderModule(g_Device, fragShaderModule, nullptr);
+    vkDestroyShaderModule(g_Device, vertShaderModule, nullptr);
+}
+std::vector<char> readFile(const std::string& filename){ // 读取文件
+    std::ifstream file(filename, std::ios::ate | std::ios::binary); // 以二进制模式打开文件，从末尾开始读取
+    if(!file.is_open()){ // 如果文件未打开
+        throw std::runtime_error("Failed to open file: " + filename); // 抛出异常
+    }
+
+    size_t fileSize = (size_t)file.tellg(); // 获取文件大小
+    std::vector<char> buffer(fileSize); // 创建缓冲区
+
+    file.seekg(0); // 从文件开头开始读取
+    file.read(buffer.data(), fileSize); // 读取文件
+    file.close(); // 关闭文件
+
+    return buffer; // 返回缓冲区
+}
+VkShaderModule createShaderModule(const std::vector<char>& code){ // 创建着色器模块
+    VkShaderModuleCreateInfo createInfo{}; // 着色器模块创建信息
+    createInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO; // 结构体类型
+    createInfo.codeSize = code.size(); // 着色器代码大小
+    createInfo.pCode = reinterpret_cast<const uint32_t*>(code.data()); // 着色器代码指针, pCode 要 uint32_t*，因为 SPIR-V 按 32-bit word 存储
+    
+    VkShaderModule shaderModule = VK_NULL_HANDLE; // 着色器模块
+
+    // VkResult vkCreateShaderModule(
+    //     VkDevice                                    device,          // 逻辑设备
+    //     const VkShaderModuleCreateInfo*             pCreateInfo,     // 着色器模块创建信息
+    //     const VkAllocationCallbacks*                pAllocator,      // 自定义内存分配器，常为 nullptr
+    //     VkShaderModule*                             pShaderModule    // 输出：着色器模块句柄
+    // );
+    if(vkCreateShaderModule(g_Device, &createInfo, nullptr, &shaderModule) != VK_SUCCESS){ // 创建着色器模块
+        throw std::runtime_error("Failed to create shader module!"); // 失败    
+    }
+
+    return shaderModule;
+}
+
 void createFramebuffers(){}
 void createCommandPool(){}
 void createCommandBuffers(){}
