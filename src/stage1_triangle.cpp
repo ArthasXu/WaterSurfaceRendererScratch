@@ -188,19 +188,19 @@ void initWindow(){ // 初始化窗口
 }
 void initVulkan(){ // 初始化 Vulkan
     // Instance  ──> Surface ──> Physical Device ──> Logical Device ──> SwapChain
-    //                                                                 │
-    //                         RenderPass 是规则  RenderPass <── ImageViews
-    //                                               │               │
-    //                                           GraphicsPipeline    │
-    //                                               │               │
-    //                                               └───> Framebuffers  Framebuffer 是实物绑定
-    //                                                               │
-    //                                                           CommandPool 依附于逻辑设备的图形队列族
-    //                                                               │
-    //                                                          CommandBuffers 录制的内容将引用 Framebuffers、RenderPass、GraphicsPipeline 等所有已创建的资源，将它们串联起来形成实际可执行的绘制命令
-    //                                                               │
-    //                                               SyncObjects (Semaphores + Fences) 用于同步命令缓冲区的执行
-    //                         RenderPass 定义“怎么渲染”，Framebuffer 定义“渲染到哪里”。
+    //                                                                      │
+    //                                RenderPass 是规则  RenderPass <── ImageViews
+    //                                                      │               │
+    //                                                  GraphicsPipeline    │
+    //                                                      │               │
+    //                                                      └───> Framebuffers  Framebuffer 是实物绑定
+    //                                                                      │
+    //                                                                  CommandPool 依附于逻辑设备的图形队列族
+    //                                                                      │
+    //                                                                 CommandBuffers 录制的内容将引用 Framebuffers、RenderPass、GraphicsPipeline 等所有已创建的资源，将它们串联起来形成实际可执行的绘制命令
+    //                                                                      │
+    //                                                      SyncObjects (Semaphores + Fences) 用于同步命令缓冲区的执行
+    //                                RenderPass 定义“怎么渲染”，Framebuffer 定义“渲染到哪里”。
     createInstance();           // 创建实例
     setupDebugMessenger();      // 设置调试回调
     createSurface();            // 创建窗口表面
@@ -229,14 +229,9 @@ void mainLoop(){ // 主循环
     vkDeviceWaitIdle(g_Device); // 等待设备空闲
 }
 void cleanup(){  // 清理资源
-    for(size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++){ // 销毁同步对象
-        vkDestroySemaphore(g_Device, g_ImageAvailableSemaphores[i], nullptr); // 销毁图像可用信号量
-        vkDestroySemaphore(g_Device, g_RenderFinishedSemaphores[i], nullptr); // 销毁渲染完成信号量
-        vkDestroyFence(g_Device, g_InFlightFences[i], nullptr); // 销毁并发帧信号量    
+    if(g_Device != VK_NULL_HANDLE){ // 确保没有 GPU 命令还在用 framebuffer/pipeline/swapchain
+        vkDeviceWaitIdle(g_Device); // 等待设备空闲
     }
-    if(g_CommandPool != VK_NULL_HANDLE){ // 销毁命令池
-        vkDestroyCommandPool(g_Device, g_CommandPool, nullptr);
-    } // 不需要手动 vkFreeCommandBuffers，销毁 command pool 会释放其 command buffers
 
     // for(auto framebuffer : g_SwapChainFramebuffers){ // 销毁帧缓冲区, framebuffer 引用 render pass 和 image view
     //     vkDestroyFramebuffer(g_Device, framebuffer, nullptr);
@@ -258,18 +253,28 @@ void cleanup(){  // 清理资源
     // }
     cleanupSwapChain(); // 清理交换链
 
+    for(size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++){ // 销毁同步对象
+        vkDestroySemaphore(g_Device, g_ImageAvailableSemaphores[i], nullptr); // 销毁图像可用信号量
+        vkDestroySemaphore(g_Device, g_RenderFinishedSemaphores[i], nullptr); // 销毁渲染完成信号量
+        vkDestroyFence(g_Device, g_InFlightFences[i], nullptr); // 销毁并发帧信号量    
+    }
+    if(g_CommandPool != VK_NULL_HANDLE){ // 销毁命令池
+        vkDestroyCommandPool(g_Device, g_CommandPool, nullptr);
+    } // 不需要手动 vkFreeCommandBuffers，销毁 command pool 会释放其 command buffers
+
     if(g_Device != VK_NULL_HANDLE){
         vkDestroyDevice(g_Device, nullptr); // 销毁逻辑设备, Device 必须早于 Surface/Instance 销毁
-    }
-    if(g_Surface != VK_NULL_HANDLE){
-        vkDestroySurfaceKHR(g_Instance, g_Surface, nullptr); // 销毁窗口表面
     }
     if(g_DebugMessenger != VK_NULL_HANDLE){
         destroyDebugUtilsMessengerEXT(g_Instance, g_DebugMessenger, nullptr); // 销毁调试回调
     }
+    if(g_Surface != VK_NULL_HANDLE){
+        vkDestroySurfaceKHR(g_Instance, g_Surface, nullptr); // 销毁窗口表面
+    }
     if(g_Instance != VK_NULL_HANDLE){
         vkDestroyInstance(g_Instance, nullptr); // 销毁实例
     }
+    
     glfwDestroyWindow(g_Window); // 销毁窗口
     glfwTerminate(); // 终止 GLFW
 }
