@@ -38,6 +38,10 @@ VkRenderPass g_RenderPass = VK_NULL_HANDLE;                     // 渲染通道�
 VkPipelineLayout g_PipelineLayout = VK_NULL_HANDLE;             // 管线布局，用于描述管线的输入和输出
 VkPipeline g_GraphicsPipeline = VK_NULL_HANDLE;                 // 图形管线，用于描述图形渲染过程
 std::vector<VkFramebuffer> g_SwapChainFramebuffers;             // 交换链帧缓冲区，用于存储呈现到屏幕的图像缓冲区的帧缓冲区
+VkCommandPool g_CommandPool = VK_NULL_HANDLE;                   // 命令池，用于分配命令缓冲区
+std::vector<VkCommandBuffer> g_CommandBuffers;                  // 命令缓冲区，用于存储 Vulkan 命令
+
+const int MAX_FRAMES_IN_FLIGHT = 2; // 最大并发帧数量，用于防止命令缓冲区重叠
 
 const std::vector<const char*> g_ValidationLayers = {
     "VK_LAYER_KHRONOS_validation"
@@ -181,6 +185,10 @@ void initVulkan(){ // 初始化 Vulkan
     //                                           GraphicsPipeline    │
     //                                               │               │
     //                                               └───> Framebuffers  Framebuffer 是实物绑定
+    //                                                               │
+    //                                                           CommandPool 依附于逻辑设备的图形队列族
+    //                                                               │
+    //                                                          CommandBuffers 录制的内容将引用 Framebuffers、RenderPass、GraphicsPipeline 等所有已创建的资源，将它们串联起来形成实际可执行的绘制命令
     //                         RenderPass 定义“怎么渲染”，Framebuffer 定义“渲染到哪里”。
     createInstance();           // 创建实例
     setupDebugMessenger();      // 设置调试回调
@@ -192,6 +200,8 @@ void initVulkan(){ // 初始化 Vulkan
     createRenderPass();         // 创建渲染通道
     createGraphicsPipeline();   // 创建图形管线
     createFramebuffers();       // 创建帧缓冲区
+    createCommandPool();        // 创建命令池
+    createCommandBuffers();     // 创建命令缓冲区
 }
 void mainLoop(){ // 主循环
     while(!glfwWindowShouldClose(g_Window)){
@@ -202,6 +212,9 @@ void mainLoop(){ // 主循环
     }
 }
 void cleanup(){  // 清理资源
+    if(g_CommandPool != VK_NULL_HANDLE){ // 销毁命令池
+        vkDestroyCommandPool(g_Device, g_CommandPool, nullptr);
+    } // 不需要手动 vkFreeCommandBuffers，销毁 command pool 会释放其 command buffers
     for(auto framebuffer : g_SwapChainFramebuffers){ // 销毁帧缓冲区, framebuffer 引用 render pass 和 image view
         vkDestroyFramebuffer(g_Device, framebuffer, nullptr);
     }
@@ -1058,8 +1071,35 @@ void createFramebuffers(){ // 创建帧缓冲区
 
     std::cout << "Created framebuffers: " << g_SwapChainFramebuffers.size() << "\n"; // 成功
 }
-void createCommandPool(){}
-void createCommandBuffers(){}
+void createCommandPool(){ // 创建命令池
+    QueueFamilyIndices queueFamilyIndices = findQueueFamilies(g_PhysicalDevice); // 队列族索引
+
+    VkCommandPoolCreateInfo poolInfo{}; // 命令池创建信息
+    poolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO; // 结构体类型
+    poolInfo.queueFamilyIndex = queueFamilyIndices.graphicsFamily.value(); // 队列族索引
+    poolInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT; // 命令缓冲区重置标志
+
+    if(vkCreateCommandPool(g_Device, &poolInfo, nullptr, &g_CommandPool) != VK_SUCCESS){ // 创建命令池
+        throw std::runtime_error("Failed to create command pool!"); // 失败
+    }
+
+    std::cout << "Created command pool: OK\n"; // 成功
+}
+void createCommandBuffers(){ // 创建命令缓冲区
+    g_CommandBuffers.resize(MAX_FRAMES_IN_FLIGHT); // 命令缓冲区大小
+
+    VkCommandBufferAllocateInfo allocInfo{}; // 命令缓冲区分配信息
+    allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO; // 结构体类型
+    allocInfo.commandPool = g_CommandPool; // 命令池
+    allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY; // 命令缓冲区级别
+    allocInfo.commandBufferCount = static_cast<uint32_t>(g_CommandBuffers.size()); // 命令缓冲区数量
+
+    if(vkAllocateCommandBuffers(g_Device, &allocInfo, g_CommandBuffers.data()) != VK_SUCCESS){ // 分配命令缓冲区
+        throw std::runtime_error("Failed to allocate command buffers!"); // 失败
+    }
+
+    std::cout << "Command buffers: " << g_CommandBuffers.size() << "\n";
+}
 void createSyncObjects(){}
 
 
