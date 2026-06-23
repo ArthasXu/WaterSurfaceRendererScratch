@@ -45,7 +45,8 @@ std::vector<VkSemaphore> g_RenderFinishedSemaphores;            // 渲染完成�
 std::vector<VkFence> g_InFlightFences;                          // 并发帧信号量，用于同步并发帧的完成, CPU 等它，表示上一轮使用这个 frame slot 的 GPU 工作已完成，可以安全重录 command buffer
 
 const int MAX_FRAMES_IN_FLIGHT = 2;                             // 最大并发帧数量，用于防止命令缓冲区重叠
-uint32_t g_CurrentFrame = 0;                                    // 当前帧索引，用于标识当前正在处理的帧          
+uint32_t g_CurrentFrame = 0;                                    // 当前帧索引，用于标识当前正在处理的帧
+bool g_FramebufferResized = false;                              // 帧缓冲区大小是否改变，用于标识帧缓冲区是否需要重新创建
 
 const std::vector<const char*> g_ValidationLayers = {
     "VK_LAYER_KHRONOS_validation"
@@ -135,6 +136,8 @@ void createSyncObjects();       // 创建同步对象
 void drawFrame();               // 绘制帧
 void recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t imageIndex);   // 记录命令缓冲区
 
+void framebufferResizeCallback(GLFWwindow* window, int width, int height); // 窗口大小改变回调
+
 void recreateSwapChain();       // 重新创建交换链
 void cleanupSwapChain();        // 清理交换链
 
@@ -180,6 +183,8 @@ void initWindow(){ // 初始化窗口
         glfwTerminate();
         std::exit(1);
     }
+
+    glfwSetFramebufferSizeCallback(g_Window, framebufferResizeCallback); // 设置窗口大小改变回调
 }
 void initVulkan(){ // 初始化 Vulkan
     // Instance  ──> Surface ──> Physical Device ──> Logical Device ──> SwapChain
@@ -213,10 +218,15 @@ void initVulkan(){ // 初始化 Vulkan
 void mainLoop(){ // 主循环
     while(!glfwWindowShouldClose(g_Window)){
         glfwPollEvents(); // 处理所有等待中的事件
+        
         if(glfwGetKey(g_Window, GLFW_KEY_ESCAPE) == GLFW_PRESS){ // 按下esc键
             glfwSetWindowShouldClose(g_Window, GLFW_TRUE);
         }
+
+        drawFrame(); // 绘制帧
     }
+
+    vkDeviceWaitIdle(g_Device); // 等待设备空闲
 }
 void cleanup(){  // 清理资源
     for(size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++){ // 销毁同步对象
@@ -1136,9 +1146,234 @@ void createSyncObjects(){ // 创建同步对象
 }
 
 
-void drawFrame(){}
-void recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t imageIndex){}
+void drawFrame(){ // 绘制帧
+    // drawFrame()
+    // ├── 1. vkWaitForFences
+    // │      等待 g_InFlightFences[g_CurrentFrame] 有信号
+    // │      → 确保当前飞行帧的 GPU 工作已全部完成，CPU 可以安全重用该帧的资源
+    // │
+    // ├── 2. vkAcquireNextImageKHR
+    // │      从交换链请求下一张可用的图像索引
+    // │      信号量：g_ImageAvailableSemaphores[g_CurrentFrame] 将在图像就绪时被触发
+    // │      ├── 如果返回 VK_ERROR_OUT_OF_DATE_KHR
+    // │      │     └── recreateSwapChain() → return
+    // │      └── 如果返回其他错误 (≠ VK_SUCCESS, ≠ VK_SUBOPTIMAL_KHR)
+    // │            └── 抛出异常
+    // │
+    // ├── 3. vkResetFences
+    // │      重置 g_InFlightFences[g_CurrentFrame] 为未发信号状态
+    // │      → 准备让本次提交再次使用该栅栏
+    // │
+    // ├── 4. vkResetCommandBuffer
+    // │      重置 g_CommandBuffers[g_CurrentFrame] 的内容
+    // │      → 清空旧命令，准备录制新一帧的绘制指令
+    // │
+    // ├── 5. recordCommandBuffer
+    // │      向 g_CommandBuffers[g_CurrentFrame] 录制绘制命令
+    // │      ├── 设置视口 (vkCmdSetViewport)
+    // │      ├── 设置裁剪矩形 (vkCmdSetScissor)
+    // │      ├── 开始渲染通道 (vkCmdBeginRenderPass)
+    // │      │     ├── 绑定帧缓冲 (对应 imageIndex)
+    // │      │     └── 清除颜色附件
+    // │      ├── 绑定图形管线 (vkCmdBindPipeline)
+    // │      └── 绘制 (vkCmdDraw)
+    // │            └── 结束渲染通道 (vkCmdEndRenderPass)
+    // │
+    // ├── 6. vkQueueSubmit
+    // │      将命令缓冲提交给图形队列
+    // │      等待信号量：g_ImageAvailableSemaphores[g_CurrentFrame]
+    // │      等待阶段：VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT
+    // │      发出信号量：g_RenderFinishedSemaphores[g_CurrentFrame]
+    // │      栅栏：g_InFlightFences[g_CurrentFrame]（GPU 完成提交后触发）
+    // │
+    // ├── 7. vkQueuePresentKHR
+    // │      将渲染结果提交给呈现队列进行显示
+    // │      等待信号量：g_RenderFinishedSemaphores[g_CurrentFrame]
+    // │      交换链：g_SwapChain
+    // │      图像索引：imageIndex
+    // │      ├── 如果返回 VK_ERROR_OUT_OF_DATE_KHR 或 VK_SUBOPTIMAL_KHR
+    // │      │     └── g_FramebufferResized = false → recreateSwapChain()
+    // │      ├── 如果 g_FramebufferResized 为真
+    // │      │     └── g_FramebufferResized = false → recreateSwapChain()
+    // │      └── 如果返回其他错误
+    // │            └── 抛出异常
+    // │
+    // └── 8. g_CurrentFrame = (g_CurrentFrame + 1) % MAX_FRAMES_IN_FLIGHT
+    //     推进到下一个飞行帧索引，下一轮使用另一组同步对象和命令缓冲
+    // VkResult vkWaitForFences(
+    //     VkDevice                                    device,      // 设备
+    //     uint32_t                                    fenceCount,  // 栅栏数量
+    //     const VkFence*                              pFences,     // 栅栏数组
+    //     VkBool32                                    waitAll,     // 是否等待所有栅栏
+    //     uint64_t                                    timeout      // 超时时间
+    // );
 
+    vkWaitForFences(g_Device, 1, &g_InFlightFences[g_CurrentFrame], VK_TRUE, UINT64_MAX); // 等待栅栏
+
+    uint32_t imageIndex = 0; // 图像索引
+    // VkResult vkAcquireNextImageKHR(
+    //     VkDevice                                    device,      // 设备
+    //     VkSwapchainKHR                              swapchain,   // 交换链
+    //     uint64_t                                    timeout,     // 超时时间
+    //     VkSemaphore                                 semaphore,   // 信号量
+    //     VkFence                                     fence,       // 栅栏
+    //     uint32_t*                                   pImageIndex  // 图像索引
+    // ); // 获取下一个图像
+    VkResult result = vkAcquireNextImageKHR(g_Device, g_SwapChain, UINT64_MAX, g_ImageAvailableSemaphores[g_CurrentFrame], VK_NULL_HANDLE, &imageIndex); // 等待图像可用
+
+    if(result == VK_ERROR_OUT_OF_DATE_KHR){ // 交换链已过期
+        recreateSwapChain(); // 重新创建交换链
+        return;    
+    }
+    else if(result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR){ // 其他错误
+        throw std::runtime_error("Failed to acquire swap chain image!"); // 失败
+    }
+
+    vkResetFences(g_Device, 1, &g_InFlightFences[g_CurrentFrame]); // 重置栅栏, 防止上一帧的栅栏未完成导致当前帧无法开始
+
+    vkResetCommandBuffer(g_CommandBuffers[g_CurrentFrame], 0); // 重置命令缓冲区
+    recordCommandBuffer(g_CommandBuffers[g_CurrentFrame], imageIndex); // 记录命令缓冲区
+
+
+
+    VkSemaphore waitSemaphores[] = {g_ImageAvailableSemaphores[g_CurrentFrame]}; // 等待信号量
+    VkPipelineStageFlags waitStages[] = {VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT}; // 等待阶段
+    VkSemaphore signalSemaphores[] = {g_RenderFinishedSemaphores[g_CurrentFrame]}; // 信号量
+
+    VkSubmitInfo submitInfo{}; // 提交信息
+    submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO; // 结构体类型
+    submitInfo.waitSemaphoreCount = 1; // 等待信号量数量
+    submitInfo.pWaitSemaphores = waitSemaphores; // 等待信号量数组
+    submitInfo.pWaitDstStageMask = waitStages; // 等待阶段数组
+    submitInfo.commandBufferCount = 1; // 命令缓冲区数量
+    submitInfo.pCommandBuffers = &g_CommandBuffers[g_CurrentFrame]; // 命令缓冲区数组
+    submitInfo.signalSemaphoreCount = 1; // 信号量数量
+    submitInfo.pSignalSemaphores = signalSemaphores; // 信号量数组
+
+    // VkResult vkQueueSubmit(
+    //     VkQueue                                     queue,       // 队列
+    //     uint32_t                                    submitCount, // 提交数量
+    //     const VkSubmitInfo*                         pSubmits,    // 提交信息数组
+    //     VkFence                                     fence        // 栅栏
+    // ); // 提交命令缓冲区
+    if(vkQueueSubmit(g_GraphicsQueue, 1, &submitInfo, g_InFlightFences[g_CurrentFrame]) != VK_SUCCESS){ // 提交命令缓冲区
+        throw std::runtime_error("Failed to submit draw command buffer!"); // 失败
+    }
+
+
+    
+    VkSwapchainKHR swapChains[] = {g_SwapChain}; // 交换链数组
+
+    VkPresentInfoKHR presentInfo{}; // 呈现信息
+    presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR; // 结构体类型
+    presentInfo.waitSemaphoreCount = 1; // 等待信号量数量
+    presentInfo.pWaitSemaphores = signalSemaphores; // 等待信号量数组
+    presentInfo.swapchainCount = 1; // 交换链数量
+    presentInfo.pSwapchains = swapChains; // 交换链数组
+    presentInfo.pImageIndices = &imageIndex; // 图像索引数组
+
+    // VkResult vkQueuePresentKHR(
+    //     VkQueue                                     queue,       // 队列
+    //     const VkPresentInfoKHR*                     pPresentInfo // 呈现信息
+    // );
+    result = vkQueuePresentKHR(g_PresentQueue, &presentInfo); // 呈现图像
+
+    if(result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR || g_FramebufferResized){ // 交换链已过期或子最优
+        g_FramebufferResized = false; // 重置帧缓冲区已调整大小
+        recreateSwapChain(); // 重新创建交换链
+    }
+    else if(result != VK_SUCCESS){ // 其他错误
+        throw std::runtime_error("Failed to present swap chain image!"); // 失败
+    }
+
+    g_CurrentFrame = (g_CurrentFrame + 1) % MAX_FRAMES_IN_FLIGHT; // 更新当前帧索引
+}
+void recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t imageIndex){ // 记录命令缓冲区
+    // begin command buffer
+    //         |
+    // begin render pass
+    //         |
+    // set dynamic viewport
+    //         |
+    // set dynamic scissor
+    //         |
+    // bind graphics pipeline
+    //         |
+    // draw 3 vertices
+    //         |
+    // end render pass
+    //         |
+    // end command buffer
+    VkCommandBufferBeginInfo beginInfo{}; // 命令缓冲区开始信息
+    beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO; // 结构体类型
+
+    if(vkBeginCommandBuffer(commandBuffer, &beginInfo) != VK_SUCCESS){ // 开始命令缓冲区
+        throw std::runtime_error("Failed to begin recording command buffer!"); // 失败
+    }
+
+    VkRenderPassBeginInfo renderPassInfo{}; // 渲染通道开始信息
+    renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO; // 结构体类型
+    renderPassInfo.renderPass = g_RenderPass; // 渲染通道
+    renderPassInfo.framebuffer = g_SwapChainFramebuffers[imageIndex]; // 帧缓冲区
+    renderPassInfo.renderArea.offset = {0, 0}; // 渲染区域偏移
+    renderPassInfo.renderArea.extent = g_SwapChainExtent; // 渲染区域大小
+
+    VkClearValue clearColor = {{{0.02f, 0.02f, 0.03f, 1.0f}}}; // 清除颜色
+    renderPassInfo.clearValueCount = 1; // 清除值数量
+    renderPassInfo.pClearValues = &clearColor; // 清除值数组
+
+    // void vkCmdBeginRenderPass(
+    //     VkCommandBuffer                             commandBuffer,       // 命令缓冲区
+    //     const VkRenderPassBeginInfo*                pRenderPassBegin,    // 渲染通道开始信息
+    //     VkSubpassContents                           contents             // 子通道内容
+    // ); // 开始渲染通道
+    vkCmdBeginRenderPass(commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE); // 开始渲染通道
+
+    VkViewport viewport{}; // 视口, 负责坐标系变换
+    // 定义裁剪空间后的 NDC 坐标如何映射到帧缓冲像素坐标
+    // 即把顶点着色器输出的几何体按 x, y, width, height 和 minDepth, maxDepth 缩放/偏移到实际渲染目标区域
+    viewport.x = 0.0f; // 视口 x
+    viewport.y = 0.0f; // 视口 y
+    viewport.width = static_cast<float>(g_SwapChainExtent.width); // 视口宽度
+    viewport.height = static_cast<float>(g_SwapChainExtent.height); // 视口高度
+    viewport.minDepth = 0.0f; // 视口最小深度
+    viewport.maxDepth = 1.0f; // 视口最大深度
+    vkCmdSetViewport(commandBuffer, 0, 1, &viewport); // 设置视口
+
+    VkRect2D scissor{}; // 裁剪矩形, 负责像素丢弃
+    scissor.offset = {0, 0}; // 视口偏移
+    scissor.extent = g_SwapChainExtent; // 视口大小
+    vkCmdSetScissor(commandBuffer, 0, 1, &scissor); // 设置视口
+
+    // void vkCmdBindPipeline(
+    //     VkCommandBuffer                             commandBuffer,       // 命令缓冲区
+    //     VkPipelineBindPoint                         pipelineBindPoint,   // 管线绑定点
+    //     VkPipeline                                  pipeline             // 管线
+    // ); // 绑定管线
+    vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, g_GraphicsPipeline); // 绑定管线
+
+    // void vkCmdDraw(
+    //     VkCommandBuffer                             commandBuffer,       // 命令缓冲区
+    //     uint32_t                                    vertexCount,         // 顶点数量
+    //     uint32_t                                    instanceCount,       // 实例数量
+    //     uint32_t                                    firstVertex,         // 第一个顶点
+    //     uint32_t                                    firstInstance        // 第一个实例
+    // ); // 绘制三角形
+    vkCmdDraw(commandBuffer, 3, 1, 0, 0); // 绘制三角形
+
+    // void vkCmdEndRenderPass(
+    //     VkCommandBuffer                             commandBuffer        // 命令缓冲区
+    // ); // 结束渲染通道
+    vkCmdEndRenderPass(commandBuffer); // 结束渲染通道
+
+    if(vkEndCommandBuffer(commandBuffer) != VK_SUCCESS){ // 结束命令缓冲区
+        throw std::runtime_error("Failed to record command buffer!"); // 失败
+    }
+}
+
+void framebufferResizeCallback(GLFWwindow* window, int width, int height){ // 窗口大小改变回调
+    g_FramebufferResized = true; // 帧缓冲区大小改变
+}
 
 void recreateSwapChain(){}
 void cleanupSwapChain(){}
