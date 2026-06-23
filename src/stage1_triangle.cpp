@@ -752,7 +752,7 @@ void createRenderPass(){
     //     VkImageLayout                   initialLayout;       // 附件初始布局
     //     VkImageLayout                   finalLayout;         // 附件最终布局
     // } VkAttachmentDescription; // 附件描述
-    VkAttachmentDescription colorAttachment{}; // 颜色附件描述, 定义“这是一张什么样的图像”
+    VkAttachmentDescription colorAttachment{}; // 颜色附件描述, 定义“有哪些图像资源会被这次渲染用到”，以及它们的格式、清屏/保存策略、初始/最终 layout
     colorAttachment.format = g_SwapChainImageFormat; // 颜色附件格式, 使用交换链的格式
     colorAttachment.samples = VK_SAMPLE_COUNT_1_BIT; // 颜色附件样本数, 无多重采样（1x）
     colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR; // 颜色附件加载操作, 开始时清除图像
@@ -766,12 +766,12 @@ void createRenderPass(){
     colorAttachmentRef.attachment = 0; // 颜色附件索引, 引用第 0 号附着（即上面的 colorAttachment）
     colorAttachmentRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL; // 颜色附件布局, 子过程内最佳布局
 
-    VkSubpassDescription subpass{}; // 子过程描述, 定义一个渲染子过程
+    VkSubpassDescription subpass{}; // 子过程描述, 定义“一次具体绘制步骤怎么使用 attachment”。这里 graphics pipeline 写入 attachment 0
     subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS; // 子过程绑定点, 图形管线
     subpass.colorAttachmentCount = 1; // 颜色附件数量, 一个
     subpass.pColorAttachments = &colorAttachmentRef; // 颜色附件引用, 上面的 colorAttachmentRef
 
-    VkSubpassDependency dependency{}; // 子过程依赖, 定义子过程之间或与外部（VK_SUBPASS_EXTERNAL）的同步关系
+    VkSubpassDependency dependency{}; // 子过程依赖, 定义“外部操作和 subpass 之间的同步与 layout transition”。这里保证写 color attachment 前，图像已进入正确状态
     dependency.srcSubpass = VK_SUBPASS_EXTERNAL; // 源子过程, 外部（即没有依赖的子过程）
     dependency.dstSubpass = 0; // 目标子过程, 第 0 号子过程
     dependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT; // 源阶段, 颜色附着输出
