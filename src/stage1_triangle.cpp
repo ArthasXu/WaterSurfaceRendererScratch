@@ -17,11 +17,35 @@
 
 GLFWwindow* g_Window = nullptr;
 
+// ------------------ Instance → Present 对象依赖图 -------------------------
 // VkInstance
-//   ├── VkSurfaceKHR (独立句柄，由平台窗口创建)
-//   ├── VkPhysicalDevice (GPU 选择)
-//   └── VkDevice (逻辑设备)
-//         └── VkSwapchainKHR (依赖 VkDevice 和 VkSurfaceKHR)
+//   ├── VkDebugUtilsMessengerEXT（调试信使，可选）
+//   ├── VkSurfaceKHR（窗口表面）
+//   │     └── 由 GLFW 窗口创建，依赖 VkInstance 和平台扩展
+//   ├── VkPhysicalDevice（物理设备列表）
+//   │     └── 用于查询队列族、表面支持、特性等
+//   └── VkDevice（逻辑设备）
+//         ├── VkQueue（图形队列）
+//         ├── VkQueue（呈现队列）
+//         ├── VkSwapchainKHR（交换链）
+//         │     ├── 依赖 VkDevice 和 VkSurfaceKHR
+//         │     ├── VkImage[]（交换链图像）
+//         │     └── VkImageView[]（图像视图）
+//         │           └── 每个视图对应一张交换链图像
+//         ├── VkRenderPass
+//         │     └── 描述附件格式、加载/存储操作、子过程布局转换
+//         ├── VkPipelineLayout（管线布局，描述资源绑定）
+//         ├── VkPipeline（图形管线）
+//         │     └── 绑定到 VkRenderPass 的特定子过程
+//         ├── VkFramebuffer[]（帧缓冲区）
+//         │     └── 每个帧缓冲区关联一个 VkImageView（颜色附件），并与 VkRenderPass 兼容
+//         ├── VkCommandPool（命令池，属于图形队列族）
+//         │     └── VkCommandBuffer[]（命令缓冲区，每飞行帧一个）
+//         └── 同步对象（每飞行帧一组）,飞行帧是指在同一时间内正在处理的帧
+//               ├── VkSemaphore（imageAvailableSemaphore）
+//               ├── VkSemaphore（renderFinishedSemaphore）
+//               └── VkFence（inFlightFence）
+// ------------------ Instance → Present 对象依赖图 -------------------------
 VkInstance g_Instance = VK_NULL_HANDLE;                         // Vulkan 实例
 VkDebugUtilsMessengerEXT g_DebugMessenger = VK_NULL_HANDLE;     // 调试回调，用于接收来自 Vulkan 校验层和驱动的诊断消息
 VkSurfaceKHR g_Surface = VK_NULL_HANDLE;                        // 窗口表面，用于呈现图像到窗口
@@ -59,7 +83,7 @@ struct QueueFamilyIndices{ // 用于存储队列族索引
     // Vulkan 将各种操作（图形、计算、传输、呈现）分配到不同的队列族上执行。每个 GPU 的队列族数量、能力都不同
     std::optional<uint32_t> graphicsFamily; // std::optional 是一个模板类，用于表示可能存在或不存在的值
     std::optional<uint32_t> presentFamily;
-    bool isComplete(){
+    bool isComplete() const {
         return graphicsFamily.has_value() && presentFamily.has_value(); // has_value() 方法用于检查 std::optional 对象是否包含值
     }
 };
@@ -253,11 +277,22 @@ void cleanup(){  // 清理资源
     // }
     cleanupSwapChain(); // 清理交换链
 
-    for(size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++){ // 销毁同步对象
-        vkDestroySemaphore(g_Device, g_ImageAvailableSemaphores[i], nullptr); // 销毁图像可用信号量
-        vkDestroySemaphore(g_Device, g_RenderFinishedSemaphores[i], nullptr); // 销毁渲染完成信号量
-        vkDestroyFence(g_Device, g_InFlightFences[i], nullptr); // 销毁并发帧信号量    
+    for(size_t i = 0; i < g_ImageAvailableSemaphores.size(); i++){ // 销毁图像可用信号量
+        if(g_ImageAvailableSemaphores[i] != VK_NULL_HANDLE){
+            vkDestroySemaphore(g_Device, g_ImageAvailableSemaphores[i], nullptr);
+        }
     }
+    for(size_t i = 0; i < g_RenderFinishedSemaphores.size(); i++){ // 销毁渲染完成信号量
+        if(g_RenderFinishedSemaphores[i] != VK_NULL_HANDLE){
+            vkDestroySemaphore(g_Device, g_RenderFinishedSemaphores[i], nullptr);
+        }
+    }
+    for(size_t i = 0; i < g_InFlightFences.size(); i++){ // 销毁并发帧信号量
+        if(g_InFlightFences[i] != VK_NULL_HANDLE){
+            vkDestroyFence(g_Device, g_InFlightFences[i], nullptr);
+        }
+    }
+
     if(g_CommandPool != VK_NULL_HANDLE){ // 销毁命令池
         vkDestroyCommandPool(g_Device, g_CommandPool, nullptr);
     } // 不需要手动 vkFreeCommandBuffers，销毁 command pool 会释放其 command buffers
@@ -274,8 +309,10 @@ void cleanup(){  // 清理资源
     if(g_Instance != VK_NULL_HANDLE){
         vkDestroyInstance(g_Instance, nullptr); // 销毁实例
     }
-    
-    glfwDestroyWindow(g_Window); // 销毁窗口
+
+    if(g_Window != nullptr){
+        glfwDestroyWindow(g_Window); // 销毁窗口
+    }
     glfwTerminate(); // 终止 GLFW
 }
 
@@ -385,7 +422,7 @@ void populateDebugMessengerCreateInfo(VkDebugUtilsMessengerCreateInfoEXT& create
     createInfo = {};
     createInfo.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT; // 结构体类型
     createInfo.messageSeverity =  // 消息严重程度
-        VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT |  // 详细消息
+        // VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT |  // 详细消息
         VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT |  // 警告消息
         VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;     // 错误消息
     createInfo.messageType = // 消息类型
@@ -695,7 +732,7 @@ void createSwapChain(){
     createInfo.oldSwapchain = VK_NULL_HANDLE; // 旧交换链
 
     if(vkCreateSwapchainKHR(g_Device, &createInfo, nullptr, &g_SwapChain) != VK_SUCCESS){ // 创建交换链
-        std::cerr << "Failed to create swap chain!\n"; // 失败
+        throw std::runtime_error("Failed to create swap chain!"); // 失败
     }
 
     vkGetSwapchainImagesKHR(g_Device, g_SwapChain, &imageCount, nullptr); // 获取交换链图像数量
@@ -864,9 +901,8 @@ void createRenderPass(){
     std::cout << "Created render pass: OK\n"; // 成功
 }
 void createGraphicsPipeline(){
-    // 临时采用绝对路径
-    auto vertShaderCode = readFile("D:/WaterSurfaceRendererScratch/shaders/stage1_triangle.vert.spv"); // 读取顶点着色器代码
-    auto fragShaderCode = readFile("D:/WaterSurfaceRendererScratch/shaders/stage1_triangle.frag.spv"); // 读取片元着色器代码
+    auto vertShaderCode = readFile("shaders/stage1_triangle.vert.spv"); // 读取顶点着色器代码
+    auto fragShaderCode = readFile("shaders/stage1_triangle.frag.spv"); // 读取片元着色器代码
 
     VkShaderModule vertShaderModule = createShaderModule(vertShaderCode); // 创建顶点着色器模块
     VkShaderModule fragShaderModule = createShaderModule(fragShaderCode); // 创建片元着色器模块
