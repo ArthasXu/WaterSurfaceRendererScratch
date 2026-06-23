@@ -44,7 +44,7 @@ std::vector<VkSemaphore> g_ImageAvailableSemaphores;            // 图像可用�
 std::vector<VkSemaphore> g_RenderFinishedSemaphores;            // 渲染完成信号量，用于同步图像的呈现完成, present queue 等它，表示渲染已结束，可以拿去显示
 std::vector<VkFence> g_InFlightFences;                          // 并发帧信号量，用于同步并发帧的完成, CPU 等它，表示上一轮使用这个 frame slot 的 GPU 工作已完成，可以安全重录 command buffer
 
-const int MAX_FRAMES_IN_FLIGHT = 2;                             // 最大并发帧数量，用于防止命令缓冲区重叠
+const int MAX_FRAMES_IN_FLIGHT = 3;                             // 最大并发帧数量，用于防止命令缓冲区重叠
 uint32_t g_CurrentFrame = 0;                                    // 当前帧索引，用于标识当前正在处理的帧
 bool g_FramebufferResized = false;                              // 帧缓冲区大小是否改变，用于标识帧缓冲区是否需要重新创建
 
@@ -237,24 +237,27 @@ void cleanup(){  // 清理资源
     if(g_CommandPool != VK_NULL_HANDLE){ // 销毁命令池
         vkDestroyCommandPool(g_Device, g_CommandPool, nullptr);
     } // 不需要手动 vkFreeCommandBuffers，销毁 command pool 会释放其 command buffers
-    for(auto framebuffer : g_SwapChainFramebuffers){ // 销毁帧缓冲区, framebuffer 引用 render pass 和 image view
-        vkDestroyFramebuffer(g_Device, framebuffer, nullptr);
-    }
-    if(g_GraphicsPipeline != VK_NULL_HANDLE){
-        vkDestroyPipeline(g_Device, g_GraphicsPipeline, nullptr); // 销毁图形管线
-    }
-    if(g_PipelineLayout != VK_NULL_HANDLE){
-        vkDestroyPipelineLayout(g_Device, g_PipelineLayout, nullptr); // 销毁管线布局
-    }
-    if(g_RenderPass != VK_NULL_HANDLE){
-        vkDestroyRenderPass(g_Device, g_RenderPass, nullptr); // 销毁渲染通道
-    }
-    for(auto imageView : g_SwapChainImageViews){ // 销毁图像视图
-        vkDestroyImageView(g_Device, imageView, nullptr);
-    }
-    if(g_SwapChain != VK_NULL_HANDLE){
-        vkDestroySwapchainKHR(g_Device, g_SwapChain, nullptr); // 销毁交换链
-    }
+
+    // for(auto framebuffer : g_SwapChainFramebuffers){ // 销毁帧缓冲区, framebuffer 引用 render pass 和 image view
+    //     vkDestroyFramebuffer(g_Device, framebuffer, nullptr);
+    // }
+    // if(g_GraphicsPipeline != VK_NULL_HANDLE){
+    //     vkDestroyPipeline(g_Device, g_GraphicsPipeline, nullptr); // 销毁图形管线
+    // }
+    // if(g_PipelineLayout != VK_NULL_HANDLE){
+    //     vkDestroyPipelineLayout(g_Device, g_PipelineLayout, nullptr); // 销毁管线布局
+    // }
+    // if(g_RenderPass != VK_NULL_HANDLE){
+    //     vkDestroyRenderPass(g_Device, g_RenderPass, nullptr); // 销毁渲染通道
+    // }
+    // for(auto imageView : g_SwapChainImageViews){ // 销毁图像视图
+    //     vkDestroyImageView(g_Device, imageView, nullptr);
+    // }
+    // if(g_SwapChain != VK_NULL_HANDLE){
+    //     vkDestroySwapchainKHR(g_Device, g_SwapChain, nullptr); // 销毁交换链
+    // }
+    cleanupSwapChain(); // 清理交换链
+
     if(g_Device != VK_NULL_HANDLE){
         vkDestroyDevice(g_Device, nullptr); // 销毁逻辑设备, Device 必须早于 Surface/Instance 销毁
     }
@@ -1278,7 +1281,9 @@ void drawFrame(){ // 绘制帧
     // );
     result = vkQueuePresentKHR(g_PresentQueue, &presentInfo); // 呈现图像
 
-    if(result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR || g_FramebufferResized){ // 交换链已过期或子最优
+    if(result == VK_ERROR_OUT_OF_DATE_KHR || // 交换链已过期
+        result == VK_SUBOPTIMAL_KHR || // 交换链已被调整大小或不支持的格式
+        g_FramebufferResized){ // 帧缓冲区已调整大小
         g_FramebufferResized = false; // 重置帧缓冲区已调整大小
         recreateSwapChain(); // 重新创建交换链
     }
@@ -1375,5 +1380,55 @@ void framebufferResizeCallback(GLFWwindow* window, int width, int height){ // �
     g_FramebufferResized = true; // 帧缓冲区大小改变
 }
 
-void recreateSwapChain(){}
-void cleanupSwapChain(){}
+void recreateSwapChain(){ // 重新创建交换链
+    int width = 0, height = 0; // 窗口宽度和高度
+    glfwGetFramebufferSize(g_Window, &width, &height); // 获取窗口宽度和高度
+
+    while(width == 0 || height == 0){ // 如果窗口宽度或高度为 0
+        glfwGetFramebufferSize(g_Window, &width, &height); // 获取窗口宽度和高度
+        glfwWaitEvents(); // 等待事件
+    }
+
+    vkDeviceWaitIdle(g_Device); // 等待设备空闲
+
+    cleanupSwapChain(); // 清理交换链
+
+    createSwapChain(); // 创建交换链
+    createImageViews(); // 创建图像视图
+    createRenderPass(); // 创建渲染通道
+    createGraphicsPipeline(); // 创建图形管线
+    createFramebuffers(); // 创建帧缓冲区
+
+    std::cout << "Swapchain recreated\n";
+}
+void cleanupSwapChain(){ // 清理交换链
+    for(auto framebuffer : g_SwapChainFramebuffers){ // 销毁帧缓冲区
+        vkDestroyFramebuffer(g_Device, framebuffer, nullptr); // 销毁帧缓冲区    
+    }
+    g_SwapChainFramebuffers.clear(); // 清空帧缓冲区数组
+
+    if(g_GraphicsPipeline != VK_NULL_HANDLE){ // 销毁图形管线
+        vkDestroyPipeline(g_Device, g_GraphicsPipeline, nullptr); // 销毁图形管线
+        g_GraphicsPipeline = VK_NULL_HANDLE; // 置空图形管线
+    }
+
+    if(g_PipelineLayout != VK_NULL_HANDLE){ // 销毁管线布局
+        vkDestroyPipelineLayout(g_Device, g_PipelineLayout, nullptr); // 销毁管线布局
+        g_PipelineLayout = VK_NULL_HANDLE; // 置空管线布局
+    }
+
+    if(g_RenderPass != VK_NULL_HANDLE){ // 销毁渲染通道
+        vkDestroyRenderPass(g_Device, g_RenderPass, nullptr); // 销毁渲染通道
+        g_RenderPass = VK_NULL_HANDLE; // 置空渲染通道
+    }
+
+    for(auto imageView : g_SwapChainImageViews){ // 销毁图像视图
+        vkDestroyImageView(g_Device, imageView, nullptr); // 销毁图像视图
+    }
+    g_SwapChainImageViews.clear(); // 清空图像视图数组
+
+    if(g_SwapChain != VK_NULL_HANDLE){ // 销毁交换链
+        vkDestroySwapchainKHR(g_Device, g_SwapChain, nullptr); // 销毁交换链
+        g_SwapChain = VK_NULL_HANDLE; // 置空交换链
+    }
+}
