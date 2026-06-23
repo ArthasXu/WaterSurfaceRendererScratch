@@ -37,6 +37,7 @@ std::vector<VkImageView> g_SwapChainImageViews;                 // 交换链图�
 VkRenderPass g_RenderPass = VK_NULL_HANDLE;                     // 渲染通道，用于描述渲染过程
 VkPipelineLayout g_PipelineLayout = VK_NULL_HANDLE;             // 管线布局，用于描述管线的输入和输出
 VkPipeline g_GraphicsPipeline = VK_NULL_HANDLE;                 // 图形管线，用于描述图形渲染过程
+std::vector<VkFramebuffer> g_SwapChainFramebuffers;             // 交换链帧缓冲区，用于存储呈现到屏幕的图像缓冲区的帧缓冲区
 
 const std::vector<const char*> g_ValidationLayers = {
     "VK_LAYER_KHRONOS_validation"
@@ -173,6 +174,14 @@ void initWindow(){ // 初始化窗口
     }
 }
 void initVulkan(){ // 初始化 Vulkan
+    // Instance  ──> Surface ──> Physical Device ──> Logical Device ──> SwapChain
+    //                                                                 │
+    //                         RenderPass 是规则  RenderPass <── ImageViews
+    //                                               │               │
+    //                                           GraphicsPipeline    │
+    //                                               │               │
+    //                                               └───> Framebuffers  Framebuffer 是实物绑定
+    //                         RenderPass 定义“怎么渲染”，Framebuffer 定义“渲染到哪里”。
     createInstance();           // 创建实例
     setupDebugMessenger();      // 设置调试回调
     createSurface();            // 创建窗口表面
@@ -182,6 +191,7 @@ void initVulkan(){ // 初始化 Vulkan
     createImageViews();         // 创建图像视图
     createRenderPass();         // 创建渲染通道
     createGraphicsPipeline();   // 创建图形管线
+    createFramebuffers();       // 创建帧缓冲区
 }
 void mainLoop(){ // 主循环
     while(!glfwWindowShouldClose(g_Window)){
@@ -192,6 +202,9 @@ void mainLoop(){ // 主循环
     }
 }
 void cleanup(){  // 清理资源
+    for(auto framebuffer : g_SwapChainFramebuffers){ // 销毁帧缓冲区, framebuffer 引用 render pass 和 image view
+        vkDestroyFramebuffer(g_Device, framebuffer, nullptr);
+    }
     if(g_GraphicsPipeline != VK_NULL_HANDLE){
         vkDestroyPipeline(g_Device, g_GraphicsPipeline, nullptr); // 销毁图形管线
     }
@@ -1021,7 +1034,30 @@ VkShaderModule createShaderModule(const std::vector<char>& code){ // 创建着�
     return shaderModule;
 }
 
-void createFramebuffers(){}
+void createFramebuffers(){ // 创建帧缓冲区
+    g_SwapChainFramebuffers.resize(g_SwapChainImageViews.size()); // 帧缓冲区大小
+
+    for(size_t i = 0; i < g_SwapChainImageViews.size(); i++){ // 遍历交换链图像视图
+        VkImageView attachments[] = { // 帧缓冲区附件
+            g_SwapChainImageViews[i] // 交换链图像视图
+        };
+        
+        VkFramebufferCreateInfo framebufferInfo{}; // 帧缓冲区创建信息
+        framebufferInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO; // 结构体类型
+        framebufferInfo.renderPass = g_RenderPass; // 渲染通道
+        framebufferInfo.attachmentCount = 1; // 附件数量
+        framebufferInfo.pAttachments = attachments; // 附件数组
+        framebufferInfo.width = g_SwapChainExtent.width; // 帧缓冲区宽度
+        framebufferInfo.height = g_SwapChainExtent.height; // 帧缓冲区高度
+        framebufferInfo.layers = 1; // 层数量
+
+        if(vkCreateFramebuffer(g_Device, &framebufferInfo, nullptr, &g_SwapChainFramebuffers[i]) != VK_SUCCESS){ // 创建帧缓冲区
+            throw std::runtime_error("Failed to create framebuffer!"); // 失败
+        }
+    }
+
+    std::cout << "Created framebuffers: " << g_SwapChainFramebuffers.size() << "\n"; // 成功
+}
 void createCommandPool(){}
 void createCommandBuffers(){}
 void createSyncObjects(){}
