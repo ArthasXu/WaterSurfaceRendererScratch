@@ -40,8 +40,12 @@ VkPipeline g_GraphicsPipeline = VK_NULL_HANDLE;                 // 图形管线�
 std::vector<VkFramebuffer> g_SwapChainFramebuffers;             // 交换链帧缓冲区，用于存储呈现到屏幕的图像缓冲区的帧缓冲区
 VkCommandPool g_CommandPool = VK_NULL_HANDLE;                   // 命令池，用于分配命令缓冲区
 std::vector<VkCommandBuffer> g_CommandBuffers;                  // 命令缓冲区，用于存储 Vulkan 命令
+std::vector<VkSemaphore> g_ImageAvailableSemaphores;            // 图像可用信号量，用于同步图像的可用性, GPU 等它，表示 swapchain image 已 acquire，可以开始写
+std::vector<VkSemaphore> g_RenderFinishedSemaphores;            // 渲染完成信号量，用于同步图像的呈现完成, present queue 等它，表示渲染已结束，可以拿去显示
+std::vector<VkFence> g_InFlightFences;                          // 并发帧信号量，用于同步并发帧的完成, CPU 等它，表示上一轮使用这个 frame slot 的 GPU 工作已完成，可以安全重录 command buffer
 
-const int MAX_FRAMES_IN_FLIGHT = 2; // 最大并发帧数量，用于防止命令缓冲区重叠
+const int MAX_FRAMES_IN_FLIGHT = 2;                             // 最大并发帧数量，用于防止命令缓冲区重叠
+uint32_t g_CurrentFrame = 0;                                    // 当前帧索引，用于标识当前正在处理的帧          
 
 const std::vector<const char*> g_ValidationLayers = {
     "VK_LAYER_KHRONOS_validation"
@@ -189,6 +193,8 @@ void initVulkan(){ // 初始化 Vulkan
     //                                                           CommandPool 依附于逻辑设备的图形队列族
     //                                                               │
     //                                                          CommandBuffers 录制的内容将引用 Framebuffers、RenderPass、GraphicsPipeline 等所有已创建的资源，将它们串联起来形成实际可执行的绘制命令
+    //                                                               │
+    //                                               SyncObjects (Semaphores + Fences) 用于同步命令缓冲区的执行
     //                         RenderPass 定义“怎么渲染”，Framebuffer 定义“渲染到哪里”。
     createInstance();           // 创建实例
     setupDebugMessenger();      // 设置调试回调
@@ -202,6 +208,7 @@ void initVulkan(){ // 初始化 Vulkan
     createFramebuffers();       // 创建帧缓冲区
     createCommandPool();        // 创建命令池
     createCommandBuffers();     // 创建命令缓冲区
+    createSyncObjects();        // 创建同步对象
 }
 void mainLoop(){ // 主循环
     while(!glfwWindowShouldClose(g_Window)){
@@ -212,6 +219,11 @@ void mainLoop(){ // 主循环
     }
 }
 void cleanup(){  // 清理资源
+    for(size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++){ // 销毁同步对象
+        vkDestroySemaphore(g_Device, g_ImageAvailableSemaphores[i], nullptr); // 销毁图像可用信号量
+        vkDestroySemaphore(g_Device, g_RenderFinishedSemaphores[i], nullptr); // 销毁渲染完成信号量
+        vkDestroyFence(g_Device, g_InFlightFences[i], nullptr); // 销毁并发帧信号量    
+    }
     if(g_CommandPool != VK_NULL_HANDLE){ // 销毁命令池
         vkDestroyCommandPool(g_Device, g_CommandPool, nullptr);
     } // 不需要手动 vkFreeCommandBuffers，销毁 command pool 会释放其 command buffers
@@ -1100,7 +1112,28 @@ void createCommandBuffers(){ // 创建命令缓冲区
 
     std::cout << "Command buffers: " << g_CommandBuffers.size() << "\n";
 }
-void createSyncObjects(){}
+void createSyncObjects(){ // 创建同步对象
+    g_ImageAvailableSemaphores.resize(MAX_FRAMES_IN_FLIGHT); // 图像可用信号量大小
+    g_RenderFinishedSemaphores.resize(MAX_FRAMES_IN_FLIGHT); // 渲染完成信号量大小
+    g_InFlightFences.resize(MAX_FRAMES_IN_FLIGHT); // 并发帧信号量大小
+
+    VkSemaphoreCreateInfo semaphoreInfo{}; // 信号量创建信息
+    semaphoreInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO; // 结构体类型
+
+    VkFenceCreateInfo fenceInfo{}; // 栅栏创建信息
+    fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO; // 结构体类型
+    fenceInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT; // 栅栏标志
+
+    for(size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++){ // 遍历并发帧信号量
+        if(vkCreateSemaphore(g_Device, &semaphoreInfo, nullptr, &g_ImageAvailableSemaphores[i]) != VK_SUCCESS || // 创建图像可用信号量
+           vkCreateSemaphore(g_Device, &semaphoreInfo, nullptr, &g_RenderFinishedSemaphores[i]) != VK_SUCCESS || // 创建渲染完成信号量
+           vkCreateFence(g_Device, &fenceInfo, nullptr, &g_InFlightFences[i]) != VK_SUCCESS){ // 创建并发帧信号量
+            throw std::runtime_error("Failed to create synchronization objects for a frame!"); // 失败
+        }    
+    }
+
+    std::cout << "Sync objects: " << MAX_FRAMES_IN_FLIGHT << " frames\n";
+}
 
 
 void drawFrame(){}
