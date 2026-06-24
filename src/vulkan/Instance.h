@@ -6,28 +6,29 @@
 
 namespace vkp
 {
-    class Instance{
-    public:
-        explicit Instance(bool enableValidationLayers); // 禁止编译器进行隐式类型转换
-        ~Instance();
+// 将原始 Vulkan API 包装成更安全、更符合 C++ 习惯的 RAII 对象 
+class Instance{
+public:
+    explicit Instance(bool enableValidationLayers);             // 禁止编译器进行隐式类型转换
+    ~Instance();                                                // 析构函数
 
-        Instance(const Instance&) = delete; // 禁止拷贝构造函数，拷贝构造是浅拷贝，会导致两个对象指向同一块内存
-        Instance& operator=(const Instance&) = delete; // 禁止赋值运算符
+    Instance(const Instance&) = delete;                         // 禁止拷贝构造函数，拷贝构造是浅拷贝，会导致两个对象指向同一块内存
+    Instance& operator=(const Instance&) = delete;              // 禁止赋值运算符
 
-        operator VkInstance() const; // 隐式类型转换，用于将 Instance 转换为 VkInstance
-        VkInstance get() const;
-    
-    private:
-        void createInstance(); // 创建 Vulkan 实例
-        void setupDebugMessenger(); // 设置调试回调
+    operator VkInstance() const;                                // 隐式类型转换，用于将 Instance 转换为 VkInstance
+    VkInstance get() const;                                     // 获取 Vulkan 实例
 
-        bool checkValidationLayerSupport() const; // 检查是否支持校验层
-        std::vector<const char*> getRequiredExtensions() const; // 获取所需的扩展
-        void populateDebugMessengerCreateInfo(VkDebugUtilsMessengerCreateInfoEXT& createInfo) const; // 填充 VkDebugUtilsMessengerCreateInfoEXT 结构体
+private:
+    void createInstance();                                      // 创建 Vulkan 实例
+    void setupDebugMessenger();                                 // 设置调试回调
 
-    private:
-        VkInstance m_Instance = VK_NULL_HANDLE;                     // Vulkan 实例
-        VkDebugUtilsMessengerEXT m_DebugMessenger = VK_NULL_HANDLE; // 调试消息传递对象
-        bool m_EnableValidationLayers = false;                      // 是否启用校验层
-    };
+    bool checkValidationLayerSupport() const;                   // 检查是否支持校验层
+    std::vector<const char*> getRequiredExtensions() const;     // 获取所需的扩展
+    void populateDebugMessengerCreateInfo(VkDebugUtilsMessengerCreateInfoEXT& createInfo) const; // 填充 VkDebugUtilsMessengerCreateInfoEXT 结构体
+
+private:
+    VkInstance m_Instance = VK_NULL_HANDLE;                     // Vulkan 实例
+    VkDebugUtilsMessengerEXT m_DebugMessenger = VK_NULL_HANDLE; // 调试消息传递对象
+    bool m_EnableValidationLayers = false;                      // 是否启用校验层
+};
 }

@@ -1,4 +1,5 @@
 #include "vulkan/Instance.h"
+#include "vulkan/Surface.h"
 
 #include <vulkan/vulkan.h>
 #include <GLFW/glfw3.h>
@@ -50,8 +51,8 @@ GLFWwindow* g_Window = nullptr;
 //               └── VkFence（inFlightFence）
 // ------------------ Instance → Present 对象依赖图 -------------------------
 std::unique_ptr<vkp::Instance> g_Instance;                      // Vulkan 实例
+std::unique_ptr<vkp::Surface> g_Surface;                        // 窗口表面，用于呈现图像到窗口
 
-VkSurfaceKHR g_Surface = VK_NULL_HANDLE;                        // 窗口表面，用于呈现图像到窗口
 VkPhysicalDevice g_PhysicalDevice = VK_NULL_HANDLE;             // 物理设备，即 GPU
 VkDevice g_Device = VK_NULL_HANDLE;                             // 逻辑设备，用于执行 Vulkan 命令
 VkQueue g_GraphicsQueue = VK_NULL_HANDLE;                       // 图形队列，用于执行图形命令
@@ -107,8 +108,6 @@ void initWindow();  // 初始化窗口
 void initVulkan();  // 初始化 Vulkan
 void mainLoop();    // 主循环
 void cleanup();     // 清理资源
-
-void createSurface();           // 创建窗口表面
 
 void pickPhysicalDevice();      // 选择物理设备
 bool isDeviceSuitable(VkPhysicalDevice device); // 判断设备是否适合
@@ -204,8 +203,8 @@ void initVulkan(){ // 初始化 Vulkan
     //                                                      SyncObjects (Semaphores + Fences) 用于同步命令缓冲区的执行
     //                                RenderPass 定义“怎么渲染”，Framebuffer 定义“渲染到哪里”。
     g_Instance = std::make_unique<vkp::Instance>(g_EnableValidationLayers); // 创建实例
+    g_Surface = std::make_unique<vkp::Surface>(*g_Instance, g_Window);      // 创建窗口表面
 
-    createSurface();            // 创建窗口表面
     pickPhysicalDevice();       // 选择物理设备
     createLogicalDevice();      // 创建逻辑设备
     createSwapChain();          // 创建交换链
@@ -278,28 +277,14 @@ void cleanup(){  // 清理资源
     if(g_Device != VK_NULL_HANDLE){
         vkDestroyDevice(g_Device, nullptr); // 销毁逻辑设备, Device 必须早于 Surface/Instance 销毁
     }
-    if(g_Surface != VK_NULL_HANDLE){
-        vkDestroySurfaceKHR(*g_Instance, g_Surface, nullptr); // 销毁窗口表面
-    }
+
+    g_Surface.reset();  // 销毁窗口表面
     g_Instance.reset(); // std::unique_ptr 的 reset() 会先释放其所有权，即调用当前所指向的 vkp::Instance 的析构函数
 
     if(g_Window != nullptr){
         glfwDestroyWindow(g_Window); // 销毁窗口
     }
     glfwTerminate(); // 终止 GLFW
-}
-
-void createSurface(){ // 创建窗口表面
-    // VkResult glfwCreateWindowSurface(
-    //     VkInstance instance,                // Vulkan 实例
-    //     GLFWwindow* window,                 // GLFW 窗口
-    //     const VkAllocationCallbacks* allocator, // 内存分配器（常为 nullptr）
-    //     VkSurfaceKHR* surface               // 输出：创建的 Surface 句柄
-    // ); // glfw 做好了封装
-    if(glfwCreateWindowSurface(*g_Instance, g_Window, nullptr, &g_Surface) != VK_SUCCESS){ // 创建窗口表面
-        throw std::runtime_error("Failed to create window surface!");
-    }
-    std::cout<<"Window surface created: OK\n";
 }
 
 void pickPhysicalDevice(){ // 选择物理设备
@@ -359,7 +344,7 @@ QueueFamilyIndices findQueueFamilies(VkPhysicalDevice device){ // 为指定的�
             indices.graphicsFamily = i; // 记录图形队列族索引
         }
         VkBool32 presentSupport = false; // 记录是否支持呈现
-        vkGetPhysicalDeviceSurfaceSupportKHR(device, i, g_Surface, &presentSupport); // 获取是否支持呈现
+        vkGetPhysicalDeviceSurfaceSupportKHR(device, i, *g_Surface, &presentSupport); // 获取是否支持呈现
         if(presentSupport){ // 如果支持呈现
             indices.presentFamily = i; // 记录呈现队列族索引
         }
@@ -386,20 +371,20 @@ bool checkDeviceExtensionSupport(VkPhysicalDevice device){ // 检查设备扩展
 SwapChainSupportDetails querySwapChainSupport(VkPhysicalDevice device){ // 查询交换链支持
     SwapChainSupportDetails details; // 交换链支持信息
 
-    vkGetPhysicalDeviceSurfaceCapabilitiesKHR(device, g_Surface, &details.capabilities); // 获取交换链能力
+    vkGetPhysicalDeviceSurfaceCapabilitiesKHR(device, *g_Surface, &details.capabilities); // 获取交换链能力
     
     uint32_t formatCount = 0; // 图像格式数量
-    vkGetPhysicalDeviceSurfaceFormatsKHR(device, g_Surface, &formatCount, nullptr); // 获取图像格式数量
+    vkGetPhysicalDeviceSurfaceFormatsKHR(device, *g_Surface, &formatCount, nullptr); // 获取图像格式数量
     if(formatCount != 0){ // 如果图像格式数量不为 0
         details.formats.resize(formatCount); // 调整图像格式数组大小    
-        vkGetPhysicalDeviceSurfaceFormatsKHR(device, g_Surface, &formatCount, details.formats.data()); // 获取图像格式数组
+        vkGetPhysicalDeviceSurfaceFormatsKHR(device, *g_Surface, &formatCount, details.formats.data()); // 获取图像格式数组
     }    
     
     uint32_t presentModeCount = 0; // 呈现模式数量
-    vkGetPhysicalDeviceSurfacePresentModesKHR(device, g_Surface, &presentModeCount, nullptr); // 获取呈现模式数量
+    vkGetPhysicalDeviceSurfacePresentModesKHR(device, *g_Surface, &presentModeCount, nullptr); // 获取呈现模式数量
     if(presentModeCount != 0){ // 如果呈现模式数量不为 0
         details.presentModes.resize(presentModeCount); // 调整呈现模式数组大小
-        vkGetPhysicalDeviceSurfacePresentModesKHR(device, g_Surface, &presentModeCount, details.presentModes.data()); // 获取呈现模式数组
+        vkGetPhysicalDeviceSurfacePresentModesKHR(device, *g_Surface, &presentModeCount, details.presentModes.data()); // 获取呈现模式数组
     }
 
     return details; // 返回交换链支持信息
@@ -520,7 +505,7 @@ void createSwapChain(){
 
     VkSwapchainCreateInfoKHR createInfo{}; // 交换链创建信息
     createInfo.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR; // 结构体类型
-    createInfo.surface = g_Surface; // 表面
+    createInfo.surface = *g_Surface; // 表面
     createInfo.minImageCount = imageCount; // 图像数量
     createInfo.imageFormat = surfaceFormat.format; // 图像格式
     createInfo.imageColorSpace = surfaceFormat.colorSpace; // 图像颜色空间
