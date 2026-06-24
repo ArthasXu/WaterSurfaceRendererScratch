@@ -2,6 +2,7 @@
 #include "vulkan/Surface.h"
 #include "vulkan/PhysicalDevice.h"
 #include "vulkan/Device.h"
+#include "vulkan/ImageView.h"
 
 #include <vulkan/vulkan.h>
 #include <GLFW/glfw3.h>
@@ -52,16 +53,16 @@ GLFWwindow* g_Window = nullptr;
 //               ├── VkSemaphore（renderFinishedSemaphore）
 //               └── VkFence（inFlightFence）
 // ------------------ Instance → Present 对象依赖图 -------------------------
-std::unique_ptr<vkp::Instance> g_Instance;                      // Vulkan 实例
-std::unique_ptr<vkp::Surface> g_Surface;                        // 窗口表面，用于呈现图像到窗口
-std::unique_ptr<vkp::PhysicalDevice> g_PhysicalDevice;          // 物理设备，GPU
-std::unique_ptr<vkp::Device> g_Device;                          // 逻辑设备，用于执行 Vulkan 命令
+std::unique_ptr<vkp::Instance> g_Instance;                          // Vulkan 实例
+std::unique_ptr<vkp::Surface> g_Surface;                            // 窗口表面，用于呈现图像到窗口
+std::unique_ptr<vkp::PhysicalDevice> g_PhysicalDevice;              // 物理设备，GPU
+std::unique_ptr<vkp::Device> g_Device;                              // 逻辑设备，用于执行 Vulkan 命令
+std::vector<std::unique_ptr<vkp::ImageView>> g_SwapChainImageViews; // 交换链图像视图，用于存储呈现到屏幕的图像缓冲区的视图
 
 VkSwapchainKHR g_SwapChain = VK_NULL_HANDLE;                    // 交换链，用于管理呈现到屏幕的图像缓冲区序列
 std::vector<VkImage> g_SwapChainImages;                         // 交换链图像，用于存储呈现到屏幕的图像缓冲区
 VkFormat g_SwapChainImageFormat;                                // 交换链图像格式，用于存储呈现到屏幕的图像缓冲区的格式
 VkExtent2D g_SwapChainExtent;                                   // 交换链图像大小，用于存储呈现到屏幕的图像缓冲区的大小
-std::vector<VkImageView> g_SwapChainImageViews;                 // 交换链图像视图，用于存储呈现到屏幕的图像缓冲区的视图
 VkRenderPass g_RenderPass = VK_NULL_HANDLE;                     // 渲染通道，用于描述渲染过程
 VkPipelineLayout g_PipelineLayout = VK_NULL_HANDLE;             // 管线布局，用于描述管线的输入和输出
 VkPipeline g_GraphicsPipeline = VK_NULL_HANDLE;                 // 图形管线，用于描述图形渲染过程
@@ -229,7 +230,7 @@ void cleanup(){  // 清理资源
     if(g_CommandPool != VK_NULL_HANDLE){ // 销毁命令池
         vkDestroyCommandPool(*g_Device, g_CommandPool, nullptr);
     } // 不需要手动 vkFreeCommandBuffers，销毁 command pool 会释放其 command buffers
-    
+
 
     g_Device.reset();           // 销毁逻辑设备, Device 必须早于 Surface/Instance 销毁
     g_PhysicalDevice.reset();   // PhysicalDevice 不拥有 Vulkan 资源，不用销毁。但为顺序清晰，在 device 销毁后 reset
@@ -375,29 +376,14 @@ VkExtent2D chooseSwapExtent(const VkSurfaceCapabilitiesKHR& capabilities){ // �
 }
 
 void createImageViews(){
-    g_SwapChainImageViews.resize(g_SwapChainImages.size()); // 调整交换链图像视图大小
+    g_SwapChainImageViews.clear(); // 清空交换链图像视图
+    g_SwapChainImageViews.reserve(g_SwapChainImages.size()); // 调整交换链图像视图大小
+    // resize(n)：真的创建 n 个元素； reserve(n)：只预留容量，不创建元素
 
     for(size_t i = 0; i < g_SwapChainImages.size(); i++){ // 遍历交换链图像
-        VkImageViewCreateInfo createInfo{}; // 图像视图创建信息
-        createInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO; // 结构体类型
-        createInfo.image = g_SwapChainImages[i]; // 图像
-        createInfo.viewType = VK_IMAGE_VIEW_TYPE_2D; // 图像视图类型
-        createInfo.format = g_SwapChainImageFormat; // 图像格式
-
-        createInfo.components.r = VK_COMPONENT_SWIZZLE_IDENTITY; // 红色分量
-        createInfo.components.g = VK_COMPONENT_SWIZZLE_IDENTITY; // 绿色分量    
-        createInfo.components.b = VK_COMPONENT_SWIZZLE_IDENTITY; // 蓝色分量
-        createInfo.components.a = VK_COMPONENT_SWIZZLE_IDENTITY; // 透明度分量
-
-        createInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT; // 图像视图范围
-        createInfo.subresourceRange.baseMipLevel = 0; // 基础 mipmap 级别
-        createInfo.subresourceRange.levelCount = 1; // mipmap 级别数量
-        createInfo.subresourceRange.baseArrayLayer = 0; // 基础数组层
-        createInfo.subresourceRange.layerCount = 1; // 数组层数量
-
-        if(vkCreateImageView(*g_Device, &createInfo, nullptr, &g_SwapChainImageViews[i]) != VK_SUCCESS){ // 创建图像视图
-            throw std::runtime_error("Failed to create image views!"); // 失败
-        }
+        g_SwapChainImageViews.push_back(
+            std::make_unique<vkp::ImageView>(*g_Device, g_SwapChainImages[i], g_SwapChainImageFormat)
+        ); // 创建交换链图像视图
     }
 
     std::cout << "Created image views: " << g_SwapChainImageViews.size() << "\n";
@@ -688,7 +674,7 @@ void createFramebuffers(){ // 创建帧缓冲区
 
     for(size_t i = 0; i < g_SwapChainImageViews.size(); i++){ // 遍历交换链图像视图
         VkImageView attachments[] = { // 帧缓冲区附件
-            g_SwapChainImageViews[i] // 交换链图像视图
+            *g_SwapChainImageViews[i] // 交换链图像视图
         };
         
         VkFramebufferCreateInfo framebufferInfo{}; // 帧缓冲区创建信息
@@ -1033,10 +1019,7 @@ void cleanupSwapChain(){ // 清理交换链
         g_RenderPass = VK_NULL_HANDLE; // 置空渲染通道
     }
 
-    for(auto imageView : g_SwapChainImageViews){ // 销毁图像视图
-        vkDestroyImageView(*g_Device, imageView, nullptr); // 销毁图像视图
-    }
-    g_SwapChainImageViews.clear(); // 清空图像视图数组
+    g_SwapChainImageViews.clear(); // 清空图像视图数组，unique_ptr 析构 ImageView 并销毁 VkImageView
 
     if(g_SwapChain != VK_NULL_HANDLE){ // 销毁交换链
         vkDestroySwapchainKHR(*g_Device, g_SwapChain, nullptr); // 销毁交换链
