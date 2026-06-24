@@ -1,5 +1,6 @@
 #include "vulkan/Instance.h"
 #include "vulkan/Surface.h"
+#include "vulkan/PhysicalDevice.h"
 
 #include <vulkan/vulkan.h>
 #include <GLFW/glfw3.h>
@@ -52,8 +53,8 @@ GLFWwindow* g_Window = nullptr;
 // ------------------ Instance → Present 对象依赖图 -------------------------
 std::unique_ptr<vkp::Instance> g_Instance;                      // Vulkan 实例
 std::unique_ptr<vkp::Surface> g_Surface;                        // 窗口表面，用于呈现图像到窗口
+std::unique_ptr<vkp::PhysicalDevice> g_PhysicalDevice;          // 物理设备，GPU
 
-VkPhysicalDevice g_PhysicalDevice = VK_NULL_HANDLE;             // 物理设备，即 GPU
 VkDevice g_Device = VK_NULL_HANDLE;                             // 逻辑设备，用于执行 Vulkan 命令
 VkQueue g_GraphicsQueue = VK_NULL_HANDLE;                       // 图形队列，用于执行图形命令
 VkQueue g_PresentQueue = VK_NULL_HANDLE;                        // 呈现队列，用于呈现图像到窗口
@@ -83,21 +84,6 @@ const std::vector<const char*> g_DeviceExtensions = {
     VK_KHR_SWAPCHAIN_EXTENSION_NAME // VK_KHR_SWAPCHAIN_EXTENSION_NAME 是一个宏，定义为 "VK_KHR_swapchain"
 };
 
-struct QueueFamilyIndices{ // 用于存储队列族索引
-    // Vulkan 将各种操作（图形、计算、传输、呈现）分配到不同的队列族上执行。每个 GPU 的队列族数量、能力都不同
-    std::optional<uint32_t> graphicsFamily; // std::optional 是一个模板类，用于表示可能存在或不存在的值
-    std::optional<uint32_t> presentFamily;
-    bool isComplete() const {
-        return graphicsFamily.has_value() && presentFamily.has_value(); // has_value() 方法用于检查 std::optional 对象是否包含值
-    }
-};
-
-struct SwapChainSupportDetails{ // 用于存储交换链支持信息, 负责管理呈现到屏幕的图像缓冲区序列 
-    VkSurfaceCapabilitiesKHR capabilities;      // 交换链的能力, 如最小和最大图像数量、支持的图像格式和大小等
-    std::vector<VkSurfaceFormatKHR> formats;    // 支持的图像格式, 如颜色深度和通道数
-    std::vector<VkPresentModeKHR> presentModes; // 支持的呈现模式, 如立即呈现、双缓冲等
-};
-
 #ifdef NDEBUG
 const bool g_EnableValidationLayers = false;
 #else
@@ -109,12 +95,6 @@ void initVulkan();  // 初始化 Vulkan
 void mainLoop();    // 主循环
 void cleanup();     // 清理资源
 
-void pickPhysicalDevice();      // 选择物理设备
-bool isDeviceSuitable(VkPhysicalDevice device); // 判断设备是否适合
-QueueFamilyIndices findQueueFamilies(VkPhysicalDevice device); // 查找队列族索引
-bool checkDeviceExtensionSupport(VkPhysicalDevice device); // 检查设备扩展支持
-SwapChainSupportDetails querySwapChainSupport(VkPhysicalDevice device); // 查询交换链支持信息
-int rateDevice(VkPhysicalDevice device); // 评分设备
 
 void createLogicalDevice();     // 创建逻辑设备
 
@@ -202,10 +182,10 @@ void initVulkan(){ // 初始化 Vulkan
     //                                                                      │
     //                                                      SyncObjects (Semaphores + Fences) 用于同步命令缓冲区的执行
     //                                RenderPass 定义“怎么渲染”，Framebuffer 定义“渲染到哪里”。
-    g_Instance = std::make_unique<vkp::Instance>(g_EnableValidationLayers); // 创建实例
-    g_Surface = std::make_unique<vkp::Surface>(*g_Instance, g_Window);      // 创建窗口表面
+    g_Instance = std::make_unique<vkp::Instance>(g_EnableValidationLayers);             // 创建实例
+    g_Surface = std::make_unique<vkp::Surface>(*g_Instance, g_Window);                  // 创建窗口表面
+    g_PhysicalDevice = std::make_unique<vkp::PhysicalDevice>(*g_Instance, *g_Surface);  // 选择物理设备
 
-    pickPhysicalDevice();       // 选择物理设备
     createLogicalDevice();      // 创建逻辑设备
     createSwapChain();          // 创建交换链
     createImageViews();         // 创建图像视图
@@ -278,8 +258,9 @@ void cleanup(){  // 清理资源
         vkDestroyDevice(g_Device, nullptr); // 销毁逻辑设备, Device 必须早于 Surface/Instance 销毁
     }
 
-    g_Surface.reset();  // 销毁窗口表面
-    g_Instance.reset(); // std::unique_ptr 的 reset() 会先释放其所有权，即调用当前所指向的 vkp::Instance 的析构函数
+    g_PhysicalDevice.reset();   // PhysicalDevice 不拥有 Vulkan 资源，不用销毁。但为顺序清晰，在 device 销毁后 reset
+    g_Surface.reset();          // 销毁窗口表面
+    g_Instance.reset();         // std::unique_ptr 的 reset() 会先释放其所有权，即调用当前所指向的 vkp::Instance 的析构函数
 
     if(g_Window != nullptr){
         glfwDestroyWindow(g_Window); // 销毁窗口
@@ -287,149 +268,10 @@ void cleanup(){  // 清理资源
     glfwTerminate(); // 终止 GLFW
 }
 
-void pickPhysicalDevice(){ // 选择物理设备
-    uint32_t deviceCount = 0; // 设备数量
-    vkEnumeratePhysicalDevices(*g_Instance, &deviceCount, nullptr); // 获取设备数量
-
-    if(deviceCount == 0){ // 如果设备数量为 0
-        throw std::runtime_error("Failed to find GPUs with Vulkan support!"); // 抛出异常
-    }
-
-    std::vector<VkPhysicalDevice> devices(deviceCount); // 设备数组
-    vkEnumeratePhysicalDevices(*g_Instance, &deviceCount, devices.data()); // 获取设备数组
-    std::cout<<"Physical devices: "<<deviceCount<<"\n";
-
-    VkPhysicalDevice bestDevice = VK_NULL_HANDLE; // 最佳设备句柄
-    int bestScore = 0; // 最佳评分
-
-    for(const auto& device:devices){ // 遍历设备
-        VkPhysicalDeviceProperties deviceProperties; // 设备属性
-        vkGetPhysicalDeviceProperties(device, &deviceProperties); // 获取设备属性
-        
-        std::cout<<"  "<<deviceProperties.deviceName<<"\n"; // 输出设备名称
-
-        int score = rateDevice(device); // 评分
-        if(score > bestScore){ // 如果评分大于最佳评分
-            bestScore = score; // 更新最佳评分
-            bestDevice = device; // 更新物理设备句柄
-        }
-    }
-
-    if(bestDevice == VK_NULL_HANDLE){ // 如果最佳设备句柄为空
-        throw std::runtime_error("Failed to find a suitable GPU!"); // 抛出异常
-    }
-
-    g_PhysicalDevice = bestDevice; // 更新物理设备句柄
-
-    VkPhysicalDeviceProperties selectedProperties{}; // 设备属性
-    vkGetPhysicalDeviceProperties(g_PhysicalDevice, &selectedProperties); // 获取设备属性
-
-    QueueFamilyIndices indices = findQueueFamilies(g_PhysicalDevice); // 查找队列族索引
-
-    std::cout << "\nSelected GPU:\n";
-    std::cout << "  " << selectedProperties.deviceName << "\n\n";
-    std::cout << "Graphics queue family: " << indices.graphicsFamily.value() << "\n";
-    std::cout << "Present queue family: " << indices.presentFamily.value() << "\n";
-    std::cout << "Swapchain support: OK\n";
-}
-QueueFamilyIndices findQueueFamilies(VkPhysicalDevice device){ // 为指定的物理设备查找所需的队列族索引（图形、呈现），并返回一个包含索引的结构体
-    QueueFamilyIndices indices; // 队列族索引
-    uint32_t queueFamilyCount = 0; // 队列族数量
-    vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount, nullptr); // 获取队列族数量
-    std::vector<VkQueueFamilyProperties> queueFamilies(queueFamilyCount); // 队列族属性数组
-    vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount, queueFamilies.data()); // 获取队列族属性
-
-    for(uint32_t i = 0; i < queueFamilyCount; ++i){ // 遍历队列族
-        if(queueFamilies[i].queueFlags & VK_QUEUE_GRAPHICS_BIT){ // 如果队列族支持图形
-            indices.graphicsFamily = i; // 记录图形队列族索引
-        }
-        VkBool32 presentSupport = false; // 记录是否支持呈现
-        vkGetPhysicalDeviceSurfaceSupportKHR(device, i, *g_Surface, &presentSupport); // 获取是否支持呈现
-        if(presentSupport){ // 如果支持呈现
-            indices.presentFamily = i; // 记录呈现队列族索引
-        }
-        if(indices.isComplete()){ // 如果队列族索引完整
-            break;
-        }
-    }
-
-    return indices; // 返回队列族索引
-}
-bool checkDeviceExtensionSupport(VkPhysicalDevice device){ // 检查设备扩展支持
-    uint32_t extensionCount = 0; // 扩展数量
-    vkEnumerateDeviceExtensionProperties(device, nullptr, &extensionCount, nullptr); // 获取扩展数量
-    std::vector<VkExtensionProperties> availableExtensions(extensionCount); // 扩展属性数组
-    vkEnumerateDeviceExtensionProperties(device, nullptr, &extensionCount, availableExtensions.data()); // 获取扩展属性
-
-    std::set<std::string> requiredExtensions(g_DeviceExtensions.begin(), g_DeviceExtensions.end()); // 所需扩展集合
-    for(const auto& extension:availableExtensions){ // 遍历扩展
-        requiredExtensions.erase(extension.extensionName); // 从所需扩展集合中删除已支持的扩展
-    }
-
-    return requiredExtensions.empty(); // 如果所需扩展集合为空，则表示所有扩展都已支持
-}
-SwapChainSupportDetails querySwapChainSupport(VkPhysicalDevice device){ // 查询交换链支持
-    SwapChainSupportDetails details; // 交换链支持信息
-
-    vkGetPhysicalDeviceSurfaceCapabilitiesKHR(device, *g_Surface, &details.capabilities); // 获取交换链能力
-    
-    uint32_t formatCount = 0; // 图像格式数量
-    vkGetPhysicalDeviceSurfaceFormatsKHR(device, *g_Surface, &formatCount, nullptr); // 获取图像格式数量
-    if(formatCount != 0){ // 如果图像格式数量不为 0
-        details.formats.resize(formatCount); // 调整图像格式数组大小    
-        vkGetPhysicalDeviceSurfaceFormatsKHR(device, *g_Surface, &formatCount, details.formats.data()); // 获取图像格式数组
-    }    
-    
-    uint32_t presentModeCount = 0; // 呈现模式数量
-    vkGetPhysicalDeviceSurfacePresentModesKHR(device, *g_Surface, &presentModeCount, nullptr); // 获取呈现模式数量
-    if(presentModeCount != 0){ // 如果呈现模式数量不为 0
-        details.presentModes.resize(presentModeCount); // 调整呈现模式数组大小
-        vkGetPhysicalDeviceSurfacePresentModesKHR(device, *g_Surface, &presentModeCount, details.presentModes.data()); // 获取呈现模式数组
-    }
-
-    return details; // 返回交换链支持信息
-}
-bool isDeviceSuitable(VkPhysicalDevice device){ // 检查设备是否适合
-    QueueFamilyIndices indices = findQueueFamilies(device); // 查找队列族索引
-    
-    bool extensionSupported = checkDeviceExtensionSupport(device); // 检查设备扩展支持
-
-    bool swapChainAdequate = false; // 记录交换链是否适合
-    if(extensionSupported){ // 如果设备扩展支持
-        SwapChainSupportDetails swapChainSupport = querySwapChainSupport(device); // 查询交换链支持    
-        swapChainAdequate = 
-            !swapChainSupport.formats.empty() && 
-            !swapChainSupport.presentModes.empty(); // 如果交换链支持信息不为空，则表示交换链适合
-    }
-
-    // 如果队列族索引完整、设备扩展支持、交换链适合，则表示设备适合
-    return indices.isComplete() && extensionSupported && swapChainAdequate;
-}
-int rateDevice(VkPhysicalDevice device){ // 评分设备, 独显优先，核显其次
-    if(!isDeviceSuitable(device)){ // 如果设备不适合
-        return 0; // 返回 0
-    }
-
-    VkPhysicalDeviceProperties deviceProperties{}; // 设备属性, VkPhysicalDeviceProperties 结构体包含了设备的基本信息，如设备类型、名称、供应商 ID 等
-    VkPhysicalDeviceFeatures deviceFeatures{}; // 设备特性, VkPhysicalDeviceFeatures 结构体包含了设备支持的特性，如是否支持多视图渲染、是否支持几何着色器等
-
-    vkGetPhysicalDeviceProperties(device, &deviceProperties); // 获取设备属性, vkGetPhysicalDeviceProperties 函数用于获取设备的基本信息
-    vkGetPhysicalDeviceFeatures(device, &deviceFeatures); // 获取设备特性, vkGetPhysicalDeviceFeatures 函数用于获取设备支持的特性
-
-    if(deviceProperties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU){ // 如果设备类型为离散 GPU
-        return 1000; // 返回 1000    
-    }
-    
-    if(deviceProperties.deviceType == VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU){ // 如果设备类型为集成 GPU
-        return 100; // 返回 100
-    }
-
-    return 10; // 返回 10
-}
 
 
 void createLogicalDevice(){ // 创建逻辑设备 
-    QueueFamilyIndices indices = findQueueFamilies(g_PhysicalDevice); // 查找队列族索引
+    vkp::QueueFamilyIndices indices = g_PhysicalDevice->GetQueueFamilyIndices(); // 查找队列族索引
 
     std::vector<VkDeviceQueueCreateInfo> queueCreateInfos; // 队列创建信息数组
     std::set<uint32_t> uniqueQueueFamilies = {
@@ -475,7 +317,7 @@ void createLogicalDevice(){ // 创建逻辑设备
     //     const VkAllocationCallbacks*                pAllocator,
     //     VkDevice*                                   pDevice
     // ); // 创建设备
-    if(vkCreateDevice(g_PhysicalDevice, &createInfo, nullptr, &g_Device) != VK_SUCCESS){ // 创建设备
+    if(vkCreateDevice(*g_PhysicalDevice, &createInfo, nullptr, &g_Device) != VK_SUCCESS){ // 创建设备
         throw std::runtime_error("Failed to create logical device!");
     }
 
@@ -489,7 +331,7 @@ void createLogicalDevice(){ // 创建逻辑设备
 }
 
 void createSwapChain(){
-    SwapChainSupportDetails swapChainSupport = querySwapChainSupport(g_PhysicalDevice); // 查询交换链支持信息
+    vkp::SwapChainSupportDetails swapChainSupport = g_PhysicalDevice->QuerySwapChainSupport(); // 查询交换链支持信息
 
     VkSurfaceFormatKHR surfaceFormat = chooseSwapSurfaceFormat(swapChainSupport.formats); // 选择交换链图像格式
     VkPresentModeKHR presentMode = chooseSwapPresentMode(swapChainSupport.presentModes); // 选择交换链呈现模式
@@ -513,7 +355,7 @@ void createSwapChain(){
     createInfo.imageArrayLayers = 1; // 图像数组层数
     createInfo.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT; // 图像使用方式
 
-    QueueFamilyIndices indices = findQueueFamilies(g_PhysicalDevice); // 查找队列族索引
+    vkp::QueueFamilyIndices indices = g_PhysicalDevice->GetQueueFamilyIndices(); // 查找队列族索引
     uint32_t queueFamilyIndices[] = {
         indices.graphicsFamily.value(), 
         indices.presentFamily.value()
@@ -953,7 +795,7 @@ void createFramebuffers(){ // 创建帧缓冲区
     std::cout << "Created framebuffers: " << g_SwapChainFramebuffers.size() << "\n"; // 成功
 }
 void createCommandPool(){ // 创建命令池
-    QueueFamilyIndices queueFamilyIndices = findQueueFamilies(g_PhysicalDevice); // 队列族索引
+    vkp::QueueFamilyIndices queueFamilyIndices = g_PhysicalDevice->GetQueueFamilyIndices(); // 队列族索引
 
     VkCommandPoolCreateInfo poolInfo{}; // 命令池创建信息
     poolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO; // 结构体类型
