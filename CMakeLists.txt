@@ -29,3 +29,17 @@ target_link_libraries(stage1_triangle PRIVATE
     glfw
     glm::glm
 )
+
+add_executable(stage2_triangle
+    src/stage2_triangle.cpp
+    src/vulkan/Instance.cpp
+    src/vulkan/Surface.cpp
+)
+
+target_compile_features(stage2_triangle PRIVATE cxx_std_17)
+
+target_link_libraries(stage2_triangle PRIVATE
+    Vulkan::Vulkan
+    glfw
+    glm::glm
+)
