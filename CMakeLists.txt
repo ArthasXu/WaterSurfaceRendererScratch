@@ -41,6 +41,7 @@ add_executable(stage2_triangle
     src/vulkan/Instance.cpp
     src/vulkan/Surface.cpp
     src/vulkan/PhysicalDevice.cpp
+    src/vulkan/Device.cpp
 )
 
 target_compile_features(stage2_triangle PRIVATE cxx_std_17)

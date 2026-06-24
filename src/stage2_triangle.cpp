@@ -1,6 +1,7 @@
 #include "vulkan/Instance.h"
 #include "vulkan/Surface.h"
 #include "vulkan/PhysicalDevice.h"
+#include "vulkan/Device.h"
 
 #include <vulkan/vulkan.h>
 #include <GLFW/glfw3.h>
@@ -54,10 +55,8 @@ GLFWwindow* g_Window = nullptr;
 std::unique_ptr<vkp::Instance> g_Instance;                      // Vulkan 实例
 std::unique_ptr<vkp::Surface> g_Surface;                        // 窗口表面，用于呈现图像到窗口
 std::unique_ptr<vkp::PhysicalDevice> g_PhysicalDevice;          // 物理设备，GPU
+std::unique_ptr<vkp::Device> g_Device;                          // 逻辑设备，用于执行 Vulkan 命令
 
-VkDevice g_Device = VK_NULL_HANDLE;                             // 逻辑设备，用于执行 Vulkan 命令
-VkQueue g_GraphicsQueue = VK_NULL_HANDLE;                       // 图形队列，用于执行图形命令
-VkQueue g_PresentQueue = VK_NULL_HANDLE;                        // 呈现队列，用于呈现图像到窗口
 VkSwapchainKHR g_SwapChain = VK_NULL_HANDLE;                    // 交换链，用于管理呈现到屏幕的图像缓冲区序列
 std::vector<VkImage> g_SwapChainImages;                         // 交换链图像，用于存储呈现到屏幕的图像缓冲区
 VkFormat g_SwapChainImageFormat;                                // 交换链图像格式，用于存储呈现到屏幕的图像缓冲区的格式
@@ -80,9 +79,6 @@ bool g_FramebufferResized = false;                              // 帧缓冲区�
 const std::vector<const char*> g_ValidationLayers = {
     "VK_LAYER_KHRONOS_validation"
 };
-const std::vector<const char*> g_DeviceExtensions = {
-    VK_KHR_SWAPCHAIN_EXTENSION_NAME // VK_KHR_SWAPCHAIN_EXTENSION_NAME 是一个宏，定义为 "VK_KHR_swapchain"
-};
 
 #ifdef NDEBUG
 const bool g_EnableValidationLayers = false;
@@ -95,8 +91,6 @@ void initVulkan();  // 初始化 Vulkan
 void mainLoop();    // 主循环
 void cleanup();     // 清理资源
 
-
-void createLogicalDevice();     // 创建逻辑设备
 
 void createSwapChain();         // 创建交换链
 VkSurfaceFormatKHR chooseSwapSurfaceFormat(const std::vector<VkSurfaceFormatKHR>& availableFormats); // 选择交换链图像格式
@@ -185,8 +179,8 @@ void initVulkan(){ // 初始化 Vulkan
     g_Instance = std::make_unique<vkp::Instance>(g_EnableValidationLayers);             // 创建实例
     g_Surface = std::make_unique<vkp::Surface>(*g_Instance, g_Window);                  // 创建窗口表面
     g_PhysicalDevice = std::make_unique<vkp::PhysicalDevice>(*g_Instance, *g_Surface);  // 选择物理设备
+    g_Device = std::make_unique<vkp::Device>(*g_PhysicalDevice, g_PhysicalDevice->GetQueueFamilyIndices()); // 创建逻辑设备
 
-    createLogicalDevice();      // 创建逻辑设备
     createSwapChain();          // 创建交换链
     createImageViews();         // 创建图像视图
     createRenderPass();         // 创建渲染通道
@@ -207,57 +201,37 @@ void mainLoop(){ // 主循环
         drawFrame(); // 绘制帧
     }
 
-    vkDeviceWaitIdle(g_Device); // 等待设备空闲
+    vkDeviceWaitIdle(*g_Device); // 等待设备空闲
 }
 void cleanup(){  // 清理资源
-    if(g_Device != VK_NULL_HANDLE){ // 确保没有 GPU 命令还在用 framebuffer/pipeline/swapchain
-        vkDeviceWaitIdle(g_Device); // 等待设备空闲
+    if(*g_Device != VK_NULL_HANDLE){ // 确保没有 GPU 命令还在用 framebuffer/pipeline/swapchain
+        vkDeviceWaitIdle(*g_Device); // 等待设备空闲
     }
 
-    // for(auto framebuffer : g_SwapChainFramebuffers){ // 销毁帧缓冲区, framebuffer 引用 render pass 和 image view
-    //     vkDestroyFramebuffer(g_Device, framebuffer, nullptr);
-    // }
-    // if(g_GraphicsPipeline != VK_NULL_HANDLE){
-    //     vkDestroyPipeline(g_Device, g_GraphicsPipeline, nullptr); // 销毁图形管线
-    // }
-    // if(g_PipelineLayout != VK_NULL_HANDLE){
-    //     vkDestroyPipelineLayout(g_Device, g_PipelineLayout, nullptr); // 销毁管线布局
-    // }
-    // if(g_RenderPass != VK_NULL_HANDLE){
-    //     vkDestroyRenderPass(g_Device, g_RenderPass, nullptr); // 销毁渲染通道
-    // }
-    // for(auto imageView : g_SwapChainImageViews){ // 销毁图像视图
-    //     vkDestroyImageView(g_Device, imageView, nullptr);
-    // }
-    // if(g_SwapChain != VK_NULL_HANDLE){
-    //     vkDestroySwapchainKHR(g_Device, g_SwapChain, nullptr); // 销毁交换链
-    // }
     cleanupSwapChain(); // 清理交换链
 
     for(size_t i = 0; i < g_ImageAvailableSemaphores.size(); i++){ // 销毁图像可用信号量
         if(g_ImageAvailableSemaphores[i] != VK_NULL_HANDLE){
-            vkDestroySemaphore(g_Device, g_ImageAvailableSemaphores[i], nullptr);
+            vkDestroySemaphore(*g_Device, g_ImageAvailableSemaphores[i], nullptr);
         }
     }
     for(size_t i = 0; i < g_RenderFinishedSemaphores.size(); i++){ // 销毁渲染完成信号量
         if(g_RenderFinishedSemaphores[i] != VK_NULL_HANDLE){
-            vkDestroySemaphore(g_Device, g_RenderFinishedSemaphores[i], nullptr);
+            vkDestroySemaphore(*g_Device, g_RenderFinishedSemaphores[i], nullptr);
         }
     }
     for(size_t i = 0; i < g_InFlightFences.size(); i++){ // 销毁并发帧信号量
         if(g_InFlightFences[i] != VK_NULL_HANDLE){
-            vkDestroyFence(g_Device, g_InFlightFences[i], nullptr);
+            vkDestroyFence(*g_Device, g_InFlightFences[i], nullptr);
         }
     }
 
     if(g_CommandPool != VK_NULL_HANDLE){ // 销毁命令池
-        vkDestroyCommandPool(g_Device, g_CommandPool, nullptr);
+        vkDestroyCommandPool(*g_Device, g_CommandPool, nullptr);
     } // 不需要手动 vkFreeCommandBuffers，销毁 command pool 会释放其 command buffers
+    
 
-    if(g_Device != VK_NULL_HANDLE){
-        vkDestroyDevice(g_Device, nullptr); // 销毁逻辑设备, Device 必须早于 Surface/Instance 销毁
-    }
-
+    g_Device.reset();           // 销毁逻辑设备, Device 必须早于 Surface/Instance 销毁
     g_PhysicalDevice.reset();   // PhysicalDevice 不拥有 Vulkan 资源，不用销毁。但为顺序清晰，在 device 销毁后 reset
     g_Surface.reset();          // 销毁窗口表面
     g_Instance.reset();         // std::unique_ptr 的 reset() 会先释放其所有权，即调用当前所指向的 vkp::Instance 的析构函数
@@ -268,67 +242,6 @@ void cleanup(){  // 清理资源
     glfwTerminate(); // 终止 GLFW
 }
 
-
-
-void createLogicalDevice(){ // 创建逻辑设备 
-    vkp::QueueFamilyIndices indices = g_PhysicalDevice->GetQueueFamilyIndices(); // 查找队列族索引
-
-    std::vector<VkDeviceQueueCreateInfo> queueCreateInfos; // 队列创建信息数组
-    std::set<uint32_t> uniqueQueueFamilies = {
-        indices.graphicsFamily.value(), 
-        indices.presentFamily.value()
-    }; // 唯一的队列族索引集合
-
-    float queuePriority = 1.0f; // 队列优先级
-
-    for(uint32_t queueFamily:uniqueQueueFamilies){ // 遍历唯一的队列族索引
-        VkDeviceQueueCreateInfo queueCreateInfo{}; // 队列创建信息
-        queueCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO; // 结构体类型    
-        queueCreateInfo.queueFamilyIndex = queueFamily; // 队列族索引
-        queueCreateInfo.queueCount = 1; // 队列数量
-        queueCreateInfo.pQueuePriorities = &queuePriority; // 队列优先级数组
-
-        queueCreateInfos.push_back(queueCreateInfo); // 添加队列创建信息
-    }
-
-    VkPhysicalDeviceFeatures deviceFeatures{}; // 设备特性
-
-    VkDeviceCreateInfo createInfo{}; // 设备创建信息
-    createInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO; // 结构体类型
-    createInfo.queueCreateInfoCount = static_cast<uint32_t>(queueCreateInfos.size()); // 队列创建信息数量
-    createInfo.pQueueCreateInfos = queueCreateInfos.data(); // 队列创建信息数组
-    createInfo.pEnabledFeatures = &deviceFeatures; // 设备特性
-
-    createInfo.enabledExtensionCount = static_cast<uint32_t>(g_DeviceExtensions.size()); // 启用的扩展数量
-    createInfo.ppEnabledExtensionNames = g_DeviceExtensions.data(); // 启用的扩展名称数组
-
-    // if(g_EnableValidationLayers){ // 如果启用校验层
-    //     createInfo.enabledLayerCount = static_cast<uint32_t>(g_ValidationLayers.size()); // 启用的校验层数量
-    //     createInfo.ppEnabledLayerNames = g_ValidationLayers.data(); // 启用的校验层名称数组
-    // }
-    // else{
-    //     createInfo.enabledLayerCount = 0; // 启用的校验层数量为0
-    // }
-    createInfo.enabledLayerCount = 0; // device layer 已废弃。validation layer 只在 VkInstanceCreateInfo 开启
-
-    // VkResult vkCreateDevice(
-    //     VkPhysicalDevice                            physicalDevice,
-    //     const VkDeviceCreateInfo*                   pCreateInfo,
-    //     const VkAllocationCallbacks*                pAllocator,
-    //     VkDevice*                                   pDevice
-    // ); // 创建设备
-    if(vkCreateDevice(*g_PhysicalDevice, &createInfo, nullptr, &g_Device) != VK_SUCCESS){ // 创建设备
-        throw std::runtime_error("Failed to create logical device!");
-    }
-
-    std::cout<<"Logical device created: OK\n";
-
-    vkGetDeviceQueue(g_Device, indices.graphicsFamily.value(), 0, &g_GraphicsQueue); // 获取图形队列
-    std::cout<<"Graphics queue: OK\n";
-
-    vkGetDeviceQueue(g_Device, indices.presentFamily.value(), 0, &g_PresentQueue); // 获取呈现队列
-    std::cout<<"Present queue: OK\n";
-}
 
 void createSwapChain(){
     vkp::SwapChainSupportDetails swapChainSupport = g_PhysicalDevice->QuerySwapChainSupport(); // 查询交换链支持信息
@@ -388,13 +301,13 @@ void createSwapChain(){
     createInfo.clipped = VK_TRUE; // 裁剪
     createInfo.oldSwapchain = VK_NULL_HANDLE; // 旧交换链
 
-    if(vkCreateSwapchainKHR(g_Device, &createInfo, nullptr, &g_SwapChain) != VK_SUCCESS){ // 创建交换链
+    if(vkCreateSwapchainKHR(*g_Device, &createInfo, nullptr, &g_SwapChain) != VK_SUCCESS){ // 创建交换链
         throw std::runtime_error("Failed to create swap chain!"); // 失败
     }
 
-    vkGetSwapchainImagesKHR(g_Device, g_SwapChain, &imageCount, nullptr); // 获取交换链图像数量
+    vkGetSwapchainImagesKHR(*g_Device, g_SwapChain, &imageCount, nullptr); // 获取交换链图像数量
     g_SwapChainImages.resize(imageCount); // 调整交换链图像大小
-    vkGetSwapchainImagesKHR(g_Device, g_SwapChain, &imageCount, g_SwapChainImages.data()); // 获取交换链图像
+    vkGetSwapchainImagesKHR(*g_Device, g_SwapChain, &imageCount, g_SwapChainImages.data()); // 获取交换链图像
 
     g_SwapChainImageFormat = surfaceFormat.format; // 交换链图像格式
     g_SwapChainExtent = extent; // 交换链图像大小
@@ -482,7 +395,7 @@ void createImageViews(){
         createInfo.subresourceRange.baseArrayLayer = 0; // 基础数组层
         createInfo.subresourceRange.layerCount = 1; // 数组层数量
 
-        if(vkCreateImageView(g_Device, &createInfo, nullptr, &g_SwapChainImageViews[i]) != VK_SUCCESS){ // 创建图像视图
+        if(vkCreateImageView(*g_Device, &createInfo, nullptr, &g_SwapChainImageViews[i]) != VK_SUCCESS){ // 创建图像视图
             throw std::runtime_error("Failed to create image views!"); // 失败
         }
     }
@@ -551,7 +464,7 @@ void createRenderPass(){
     renderPassInfo.dependencyCount = 1; // 子过程依赖数量, 一个
     renderPassInfo.pDependencies = &dependency; // 子过程依赖, 上面的 dependency
 
-    if(vkCreateRenderPass(g_Device, &renderPassInfo, nullptr, &g_RenderPass) != VK_SUCCESS){ // 创建呈现过程
+    if(vkCreateRenderPass(*g_Device, &renderPassInfo, nullptr, &g_RenderPass) != VK_SUCCESS){ // 创建呈现过程
         throw std::runtime_error("Failed to create render pass!"); // 失败    
     }
 
@@ -682,7 +595,7 @@ void createGraphicsPipeline(){
     pipelineLayoutInfo.pSetLayouts = nullptr; // 布局数组, 无
     pipelineLayoutInfo.pushConstantRangeCount = 0; // 推送常量范围数量, 无
 
-    if(vkCreatePipelineLayout(g_Device, &pipelineLayoutInfo, nullptr, &g_PipelineLayout) != VK_SUCCESS){ // 创建管线布局
+    if(vkCreatePipelineLayout(*g_Device, &pipelineLayoutInfo, nullptr, &g_PipelineLayout) != VK_SUCCESS){ // 创建管线布局
         throw std::runtime_error("Failed to create pipeline layout!"); // 失败
     }
 
@@ -725,12 +638,12 @@ void createGraphicsPipeline(){
     pipelineInfo.basePipelineHandle = VK_NULL_HANDLE; // 基础管线, 无
     pipelineInfo.basePipelineIndex = -1; // 基础管线索引, -1
 
-    if(vkCreateGraphicsPipelines(g_Device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &g_GraphicsPipeline) != VK_SUCCESS){ // 创建管线
+    if(vkCreateGraphicsPipelines(*g_Device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &g_GraphicsPipeline) != VK_SUCCESS){ // 创建管线
         throw std::runtime_error("Failed to create graphics pipeline!"); // 失败    
     }
 
-    vkDestroyShaderModule(g_Device, fragShaderModule, nullptr);
-    vkDestroyShaderModule(g_Device, vertShaderModule, nullptr);
+    vkDestroyShaderModule(*g_Device, fragShaderModule, nullptr);
+    vkDestroyShaderModule(*g_Device, vertShaderModule, nullptr);
 
     std::cout << "Created graphics pipeline: OK\n"; // 成功
 }
@@ -763,7 +676,7 @@ VkShaderModule createShaderModule(const std::vector<char>& code){ // 创建着�
     //     const VkAllocationCallbacks*                pAllocator,      // 自定义内存分配器，常为 nullptr
     //     VkShaderModule*                             pShaderModule    // 输出：着色器模块句柄
     // );
-    if(vkCreateShaderModule(g_Device, &createInfo, nullptr, &shaderModule) != VK_SUCCESS){ // 创建着色器模块
+    if(vkCreateShaderModule(*g_Device, &createInfo, nullptr, &shaderModule) != VK_SUCCESS){ // 创建着色器模块
         throw std::runtime_error("Failed to create shader module!"); // 失败    
     }
 
@@ -787,7 +700,7 @@ void createFramebuffers(){ // 创建帧缓冲区
         framebufferInfo.height = g_SwapChainExtent.height; // 帧缓冲区高度
         framebufferInfo.layers = 1; // 层数量
 
-        if(vkCreateFramebuffer(g_Device, &framebufferInfo, nullptr, &g_SwapChainFramebuffers[i]) != VK_SUCCESS){ // 创建帧缓冲区
+        if(vkCreateFramebuffer(*g_Device, &framebufferInfo, nullptr, &g_SwapChainFramebuffers[i]) != VK_SUCCESS){ // 创建帧缓冲区
             throw std::runtime_error("Failed to create framebuffer!"); // 失败
         }
     }
@@ -799,10 +712,10 @@ void createCommandPool(){ // 创建命令池
 
     VkCommandPoolCreateInfo poolInfo{}; // 命令池创建信息
     poolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO; // 结构体类型
-    poolInfo.queueFamilyIndex = queueFamilyIndices.graphicsFamily.value(); // 队列族索引
+    poolInfo.queueFamilyIndex = g_Device->GetGraphicsQueueFamily(); // 队列族索引
     poolInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT; // 命令缓冲区重置标志
 
-    if(vkCreateCommandPool(g_Device, &poolInfo, nullptr, &g_CommandPool) != VK_SUCCESS){ // 创建命令池
+    if(vkCreateCommandPool(*g_Device, &poolInfo, nullptr, &g_CommandPool) != VK_SUCCESS){ // 创建命令池
         throw std::runtime_error("Failed to create command pool!"); // 失败
     }
 
@@ -817,7 +730,7 @@ void createCommandBuffers(){ // 创建命令缓冲区
     allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY; // 命令缓冲区级别
     allocInfo.commandBufferCount = static_cast<uint32_t>(g_CommandBuffers.size()); // 命令缓冲区数量
 
-    if(vkAllocateCommandBuffers(g_Device, &allocInfo, g_CommandBuffers.data()) != VK_SUCCESS){ // 分配命令缓冲区
+    if(vkAllocateCommandBuffers(*g_Device, &allocInfo, g_CommandBuffers.data()) != VK_SUCCESS){ // 分配命令缓冲区
         throw std::runtime_error("Failed to allocate command buffers!"); // 失败
     }
 
@@ -836,9 +749,9 @@ void createSyncObjects(){ // 创建同步对象
     fenceInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT; // 栅栏标志
 
     for(size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++){ // 遍历并发帧信号量
-        if(vkCreateSemaphore(g_Device, &semaphoreInfo, nullptr, &g_ImageAvailableSemaphores[i]) != VK_SUCCESS || // 创建图像可用信号量
-           vkCreateSemaphore(g_Device, &semaphoreInfo, nullptr, &g_RenderFinishedSemaphores[i]) != VK_SUCCESS || // 创建渲染完成信号量
-           vkCreateFence(g_Device, &fenceInfo, nullptr, &g_InFlightFences[i]) != VK_SUCCESS){ // 创建并发帧信号量
+        if(vkCreateSemaphore(*g_Device, &semaphoreInfo, nullptr, &g_ImageAvailableSemaphores[i]) != VK_SUCCESS || // 创建图像可用信号量
+           vkCreateSemaphore(*g_Device, &semaphoreInfo, nullptr, &g_RenderFinishedSemaphores[i]) != VK_SUCCESS || // 创建渲染完成信号量
+           vkCreateFence(*g_Device, &fenceInfo, nullptr, &g_InFlightFences[i]) != VK_SUCCESS){ // 创建并发帧信号量
             throw std::runtime_error("Failed to create synchronization objects for a frame!"); // 失败
         }    
     }
@@ -909,7 +822,7 @@ void drawFrame(){ // 绘制帧
     //     uint64_t                                    timeout      // 超时时间
     // );
 
-    vkWaitForFences(g_Device, 1, &g_InFlightFences[g_CurrentFrame], VK_TRUE, UINT64_MAX); // 等待栅栏
+    vkWaitForFences(*g_Device, 1, &g_InFlightFences[g_CurrentFrame], VK_TRUE, UINT64_MAX); // 等待栅栏
 
     uint32_t imageIndex = 0; // 图像索引
     // VkResult vkAcquireNextImageKHR(
@@ -920,7 +833,7 @@ void drawFrame(){ // 绘制帧
     //     VkFence                                     fence,       // 栅栏
     //     uint32_t*                                   pImageIndex  // 图像索引
     // ); // 获取下一个图像
-    VkResult result = vkAcquireNextImageKHR(g_Device, g_SwapChain, UINT64_MAX, g_ImageAvailableSemaphores[g_CurrentFrame], VK_NULL_HANDLE, &imageIndex); // 等待图像可用
+    VkResult result = vkAcquireNextImageKHR(*g_Device, g_SwapChain, UINT64_MAX, g_ImageAvailableSemaphores[g_CurrentFrame], VK_NULL_HANDLE, &imageIndex); // 等待图像可用
 
     if(result == VK_ERROR_OUT_OF_DATE_KHR){ // 交换链已过期
         recreateSwapChain(); // 重新创建交换链
@@ -930,7 +843,7 @@ void drawFrame(){ // 绘制帧
         throw std::runtime_error("Failed to acquire swap chain image!"); // 失败
     }
 
-    vkResetFences(g_Device, 1, &g_InFlightFences[g_CurrentFrame]); // 重置栅栏, 防止上一帧的栅栏未完成导致当前帧无法开始
+    vkResetFences(*g_Device, 1, &g_InFlightFences[g_CurrentFrame]); // 重置栅栏, 防止上一帧的栅栏未完成导致当前帧无法开始
 
     vkResetCommandBuffer(g_CommandBuffers[g_CurrentFrame], 0); // 重置命令缓冲区
     recordCommandBuffer(g_CommandBuffers[g_CurrentFrame], imageIndex); // 记录命令缓冲区
@@ -957,7 +870,7 @@ void drawFrame(){ // 绘制帧
     //     const VkSubmitInfo*                         pSubmits,    // 提交信息数组
     //     VkFence                                     fence        // 栅栏
     // ); // 提交命令缓冲区
-    if(vkQueueSubmit(g_GraphicsQueue, 1, &submitInfo, g_InFlightFences[g_CurrentFrame]) != VK_SUCCESS){ // 提交命令缓冲区
+    if(vkQueueSubmit(g_Device->GetGraphicsQueue(), 1, &submitInfo, g_InFlightFences[g_CurrentFrame]) != VK_SUCCESS){ // 提交命令缓冲区
         throw std::runtime_error("Failed to submit draw command buffer!"); // 失败
     }
 
@@ -977,7 +890,7 @@ void drawFrame(){ // 绘制帧
     //     VkQueue                                     queue,       // 队列
     //     const VkPresentInfoKHR*                     pPresentInfo // 呈现信息
     // );
-    result = vkQueuePresentKHR(g_PresentQueue, &presentInfo); // 呈现图像
+    result = vkQueuePresentKHR(g_Device->GetPresentQueue(), &presentInfo); // 呈现图像
 
     if(result == VK_ERROR_OUT_OF_DATE_KHR || // 交换链已过期
         result == VK_SUBOPTIMAL_KHR || // 交换链已被调整大小或不支持的格式
@@ -1087,7 +1000,7 @@ void recreateSwapChain(){ // 重新创建交换链
         glfwWaitEvents(); // 等待事件
     }
 
-    vkDeviceWaitIdle(g_Device); // 等待设备空闲
+    vkDeviceWaitIdle(*g_Device); // 等待设备空闲
 
     cleanupSwapChain(); // 清理交换链
 
@@ -1101,32 +1014,32 @@ void recreateSwapChain(){ // 重新创建交换链
 }
 void cleanupSwapChain(){ // 清理交换链
     for(auto framebuffer : g_SwapChainFramebuffers){ // 销毁帧缓冲区
-        vkDestroyFramebuffer(g_Device, framebuffer, nullptr); // 销毁帧缓冲区    
+        vkDestroyFramebuffer(*g_Device, framebuffer, nullptr); // 销毁帧缓冲区    
     }
     g_SwapChainFramebuffers.clear(); // 清空帧缓冲区数组
 
     if(g_GraphicsPipeline != VK_NULL_HANDLE){ // 销毁图形管线
-        vkDestroyPipeline(g_Device, g_GraphicsPipeline, nullptr); // 销毁图形管线
+        vkDestroyPipeline(*g_Device, g_GraphicsPipeline, nullptr); // 销毁图形管线
         g_GraphicsPipeline = VK_NULL_HANDLE; // 置空图形管线
     }
 
     if(g_PipelineLayout != VK_NULL_HANDLE){ // 销毁管线布局
-        vkDestroyPipelineLayout(g_Device, g_PipelineLayout, nullptr); // 销毁管线布局
+        vkDestroyPipelineLayout(*g_Device, g_PipelineLayout, nullptr); // 销毁管线布局
         g_PipelineLayout = VK_NULL_HANDLE; // 置空管线布局
     }
 
     if(g_RenderPass != VK_NULL_HANDLE){ // 销毁渲染通道
-        vkDestroyRenderPass(g_Device, g_RenderPass, nullptr); // 销毁渲染通道
+        vkDestroyRenderPass(*g_Device, g_RenderPass, nullptr); // 销毁渲染通道
         g_RenderPass = VK_NULL_HANDLE; // 置空渲染通道
     }
 
     for(auto imageView : g_SwapChainImageViews){ // 销毁图像视图
-        vkDestroyImageView(g_Device, imageView, nullptr); // 销毁图像视图
+        vkDestroyImageView(*g_Device, imageView, nullptr); // 销毁图像视图
     }
     g_SwapChainImageViews.clear(); // 清空图像视图数组
 
     if(g_SwapChain != VK_NULL_HANDLE){ // 销毁交换链
-        vkDestroySwapchainKHR(g_Device, g_SwapChain, nullptr); // 销毁交换链
+        vkDestroySwapchainKHR(*g_Device, g_SwapChain, nullptr); // 销毁交换链
         g_SwapChain = VK_NULL_HANDLE; // 置空交换链
     }
 }
