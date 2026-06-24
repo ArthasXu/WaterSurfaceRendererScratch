@@ -43,6 +43,7 @@ add_executable(stage2_triangle
     src/vulkan/PhysicalDevice.cpp
     src/vulkan/Device.cpp
     src/vulkan/ImageView.cpp
+    src/vulkan/RenderPass.cpp
 )
 
 target_compile_features(stage2_triangle PRIVATE cxx_std_17)

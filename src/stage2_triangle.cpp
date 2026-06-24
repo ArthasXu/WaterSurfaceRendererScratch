@@ -3,6 +3,8 @@
 #include "vulkan/PhysicalDevice.h"
 #include "vulkan/Device.h"
 #include "vulkan/ImageView.h"
+#include "vulkan/RenderPass.h"
+
 
 #include <vulkan/vulkan.h>
 #include <GLFW/glfw3.h>
@@ -58,12 +60,12 @@ std::unique_ptr<vkp::Surface> g_Surface;                            // 窗口表
 std::unique_ptr<vkp::PhysicalDevice> g_PhysicalDevice;              // 物理设备，GPU
 std::unique_ptr<vkp::Device> g_Device;                              // 逻辑设备，用于执行 Vulkan 命令
 std::vector<std::unique_ptr<vkp::ImageView>> g_SwapChainImageViews; // 交换链图像视图，用于存储呈现到屏幕的图像缓冲区的视图
+std::unique_ptr<vkp::RenderPass> g_RenderPass;                      // 渲染通道，用于描述渲染过程
 
 VkSwapchainKHR g_SwapChain = VK_NULL_HANDLE;                    // 交换链，用于管理呈现到屏幕的图像缓冲区序列
 std::vector<VkImage> g_SwapChainImages;                         // 交换链图像，用于存储呈现到屏幕的图像缓冲区
 VkFormat g_SwapChainImageFormat;                                // 交换链图像格式，用于存储呈现到屏幕的图像缓冲区的格式
 VkExtent2D g_SwapChainExtent;                                   // 交换链图像大小，用于存储呈现到屏幕的图像缓冲区的大小
-VkRenderPass g_RenderPass = VK_NULL_HANDLE;                     // 渲染通道，用于描述渲染过程
 VkPipelineLayout g_PipelineLayout = VK_NULL_HANDLE;             // 管线布局，用于描述管线的输入和输出
 VkPipeline g_GraphicsPipeline = VK_NULL_HANDLE;                 // 图形管线，用于描述图形渲染过程
 std::vector<VkFramebuffer> g_SwapChainFramebuffers;             // 交换链帧缓冲区，用于存储呈现到屏幕的图像缓冲区的帧缓冲区
@@ -391,70 +393,7 @@ void createImageViews(){
 }
 
 void createRenderPass(){
-    // VkRenderPassCreateInfo
-    // ├── pAttachments → [ VkAttachmentDescription ]   (第 0 个：颜色附件)
-    // │
-    // ├── pSubpasses → [ VkSubpassDescription ]
-    // │                 └── pColorAttachments → [ VkAttachmentReference ]
-    // │                         └── attachment = 0     (指向 pAttachments[0])
-    // │                             layout = COLOR_ATTACHMENT_OPTIMAL
-    // │
-    // └── pDependencies → [ VkSubpassDependency ]
-    //                     srcSubpass = EXTERNAL
-    //                     dstSubpass = 0
-    //                     (确保外部操作完成后才开始子过程 0)
-    // typedef struct VkAttachmentDescription {
-    //     VkAttachmentDescriptionFlags    flags;               // 附件标志
-    //     VkFormat                        format;              // 附件格式
-    //     VkSampleCountFlagBits           samples;             // 附件样本数
-    //     VkAttachmentLoadOp              loadOp;              // 附件加载操作
-    //     VkAttachmentStoreOp             storeOp;             // 附件存储操作
-    //     VkAttachmentLoadOp              stencilLoadOp;       // 附件深度/模板加载操作
-    //     VkAttachmentStoreOp             stencilStoreOp;      // 附件深度/模板存储操作
-    //     VkImageLayout                   initialLayout;       // 附件初始布局
-    //     VkImageLayout                   finalLayout;         // 附件最终布局
-    // } VkAttachmentDescription; // 附件描述
-    VkAttachmentDescription colorAttachment{}; // 颜色附件描述, 定义“有哪些图像资源会被这次渲染用到”，以及它们的格式、清屏/保存策略、初始/最终 layout
-    colorAttachment.format = g_SwapChainImageFormat; // 颜色附件格式, 使用交换链的格式
-    colorAttachment.samples = VK_SAMPLE_COUNT_1_BIT; // 颜色附件样本数, 无多重采样（1x）
-    colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR; // 颜色附件加载操作, 开始时清除图像
-    colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE; // 颜色附件存储操作, 结束时保存结果
-    colorAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE; // 颜色附件深度/模板加载操作, 不用模板缓冲
-    colorAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE; // 颜色附件深度/模板存储操作
-    colorAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED; // 颜色附件初始布局, 开始前布局无所谓
-    colorAttachment.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR; // 颜色附件最终布局, 结束后适合呈现
-
-    VkAttachmentReference colorAttachmentRef{}; // 颜色附件引用, “子过程要用到 pAttachments 中的哪一个附件，以什么布局使用”
-    colorAttachmentRef.attachment = 0; // 颜色附件索引, 引用第 0 号附着（即上面的 colorAttachment）
-    colorAttachmentRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL; // 颜色附件布局, 子过程内最佳布局
-
-    VkSubpassDescription subpass{}; // 子过程描述, 定义“一次具体绘制步骤怎么使用 attachment”。这里 graphics pipeline 写入 attachment 0
-    subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS; // 子过程绑定点, 图形管线
-    subpass.colorAttachmentCount = 1; // 颜色附件数量, 一个
-    subpass.pColorAttachments = &colorAttachmentRef; // 颜色附件引用, 上面的 colorAttachmentRef
-
-    VkSubpassDependency dependency{}; // 子过程依赖, 定义“外部操作和 subpass 之间的同步与 layout transition”。这里保证写 color attachment 前，图像已进入正确状态
-    dependency.srcSubpass = VK_SUBPASS_EXTERNAL; // 源子过程, 外部（即没有依赖的子过程）
-    dependency.dstSubpass = 0; // 目标子过程, 第 0 号子过程
-    dependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT; // 源阶段, 颜色附着输出
-    dependency.srcAccessMask = 0; // 源访问, 无
-    dependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT; // 目标阶段, 颜色附着输出
-    dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT; // 目标访问, 颜色附着写入
-
-    VkRenderPassCreateInfo renderPassInfo{}; // 呈现过程创建信息, 把所有部分打包成一个完整的渲染通道对象
-    renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO; // 结构体类型
-    renderPassInfo.attachmentCount = 1; // 附件数量, 一个
-    renderPassInfo.pAttachments = &colorAttachment; // 附件描述, 上面的 colorAttachment
-    renderPassInfo.subpassCount = 1; // 子过程数量, 一个
-    renderPassInfo.pSubpasses = &subpass; // 子过程描述, 上面的 subpass
-    renderPassInfo.dependencyCount = 1; // 子过程依赖数量, 一个
-    renderPassInfo.pDependencies = &dependency; // 子过程依赖, 上面的 dependency
-
-    if(vkCreateRenderPass(*g_Device, &renderPassInfo, nullptr, &g_RenderPass) != VK_SUCCESS){ // 创建呈现过程
-        throw std::runtime_error("Failed to create render pass!"); // 失败    
-    }
-
-    std::cout << "Created render pass: OK\n"; // 成功
+    g_RenderPass = std::make_unique<vkp::RenderPass>(*g_Device, g_SwapChainImageFormat); // 创建渲染通道
 }
 void createGraphicsPipeline(){
     auto vertShaderCode = readFile("shaders/stage1_triangle.vert.spv"); // 读取顶点着色器代码
@@ -619,7 +558,7 @@ void createGraphicsPipeline(){
     pipelineInfo.pColorBlendState = &colorBlending; // 颜色混合信息, 上面的 colorBlending, 片段着色器输出如何与帧缓冲现有颜色混合
     pipelineInfo.pDynamicState = &dynamicState; // 动态状态信息, 上面的 dynamicState, 指定哪些状态可以在不重建管线的情况下动态更改
     pipelineInfo.layout = g_PipelineLayout; // 管线布局, 上面的 g_PipelineLayout, 管线布局决定了着色器如何访问资源
-    pipelineInfo.renderPass = g_RenderPass; // 渲染通道, 上面的 g_RenderPass, 渲染通道决定了管线如何与帧缓冲交互
+    pipelineInfo.renderPass = *g_RenderPass; // 渲染通道, 上面的 g_RenderPass, 渲染通道决定了管线如何与帧缓冲交互
     pipelineInfo.subpass = 0; // 子通道, 0
     pipelineInfo.basePipelineHandle = VK_NULL_HANDLE; // 基础管线, 无
     pipelineInfo.basePipelineIndex = -1; // 基础管线索引, -1
@@ -679,7 +618,7 @@ void createFramebuffers(){ // 创建帧缓冲区
         
         VkFramebufferCreateInfo framebufferInfo{}; // 帧缓冲区创建信息
         framebufferInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO; // 结构体类型
-        framebufferInfo.renderPass = g_RenderPass; // 渲染通道
+        framebufferInfo.renderPass = *g_RenderPass; // 渲染通道
         framebufferInfo.attachmentCount = 1; // 附件数量
         framebufferInfo.pAttachments = attachments; // 附件数组
         framebufferInfo.width = g_SwapChainExtent.width; // 帧缓冲区宽度
@@ -915,7 +854,7 @@ void recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t imageIndex){ //
 
     VkRenderPassBeginInfo renderPassInfo{}; // 渲染通道开始信息
     renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO; // 结构体类型
-    renderPassInfo.renderPass = g_RenderPass; // 渲染通道
+    renderPassInfo.renderPass = *g_RenderPass; // 渲染通道
     renderPassInfo.framebuffer = g_SwapChainFramebuffers[imageIndex]; // 帧缓冲区
     renderPassInfo.renderArea.offset = {0, 0}; // 渲染区域偏移
     renderPassInfo.renderArea.extent = g_SwapChainExtent; // 渲染区域大小
@@ -1014,11 +953,7 @@ void cleanupSwapChain(){ // 清理交换链
         g_PipelineLayout = VK_NULL_HANDLE; // 置空管线布局
     }
 
-    if(g_RenderPass != VK_NULL_HANDLE){ // 销毁渲染通道
-        vkDestroyRenderPass(*g_Device, g_RenderPass, nullptr); // 销毁渲染通道
-        g_RenderPass = VK_NULL_HANDLE; // 置空渲染通道
-    }
-
+    g_RenderPass.reset(); // unique_ptr 析构 RenderPass 并销毁 VkRenderPass
     g_SwapChainImageViews.clear(); // 清空图像视图数组，unique_ptr 析构 ImageView 并销毁 VkImageView
 
     if(g_SwapChain != VK_NULL_HANDLE){ // 销毁交换链
