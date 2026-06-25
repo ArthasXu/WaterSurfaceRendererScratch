@@ -22,6 +22,7 @@
 #include "vulkan/RenderPass.h"
 #include "vulkan/Pipeline.h"
 #include "vulkan/SwapChain.h"
+#include "vulkan/CommandPool.h"
 
 
 GLFWwindow* g_Window = nullptr;
@@ -62,8 +63,8 @@ std::unique_ptr<vkp::Device> g_Device;                              // 逻辑设
 std::unique_ptr<vkp::RenderPass> g_RenderPass;                      // 渲染通道，用于描述渲染过程
 std::unique_ptr<vkp::Pipeline> g_GraphicsPipeline;                  // 图形管线，用于描述图形渲染过程
 std::unique_ptr<vkp::SwapChain> g_SwapChain;                        // 交换链资源，用于管理呈现到屏幕的图像缓冲区序列
+std::unique_ptr<vkp::CommandPool> g_CommandPool;                    // 命令池，用于分配和管理命令缓冲区
 
-VkCommandPool g_CommandPool = VK_NULL_HANDLE;                   // 命令池，用于分配命令缓冲区
 std::vector<VkCommandBuffer> g_CommandBuffers;                  // 命令缓冲区，用于存储 Vulkan 命令
 std::vector<VkSemaphore> g_ImageAvailableSemaphores;            // 图像可用信号量，用于同步图像的可用性, GPU 等它，表示 swapchain image 已 acquire，可以开始写
 std::vector<VkSemaphore> g_RenderFinishedSemaphores;            // 渲染完成信号量，用于同步图像的呈现完成, present queue 等它，表示渲染已结束，可以拿去显示
@@ -213,11 +214,7 @@ void cleanup(){  // 清理资源
         }
     }
 
-    if(g_CommandPool != VK_NULL_HANDLE){ // 销毁命令池
-        vkDestroyCommandPool(*g_Device, g_CommandPool, nullptr);
-    } // 不需要手动 vkFreeCommandBuffers，销毁 command pool 会释放其 command buffers
-
-
+    g_CommandPool.reset();      // 销毁命令缓冲区
     g_Device.reset();           // 销毁逻辑设备, Device 必须早于 Surface/Instance 销毁
     g_PhysicalDevice.reset();   // PhysicalDevice 不拥有 Vulkan 资源，不用销毁。但为顺序清晰，在 device 销毁后 reset
     g_Surface.reset();          // 销毁窗口表面
@@ -250,29 +247,22 @@ void createGraphicsPipeline(){
         *g_RenderPass,
         "shaders/stage1_triangle.vert.spv",
         "shaders/stage1_triangle.frag.spv"
-    ); // 创建图形管线
+    );
 }
 
 void createCommandPool(){ // 创建命令池
-    vkp::QueueFamilyIndices queueFamilyIndices = g_PhysicalDevice->GetQueueFamilyIndices(); // 队列族索引
-
-    VkCommandPoolCreateInfo poolInfo{}; // 命令池创建信息
-    poolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO; // 结构体类型
-    poolInfo.queueFamilyIndex = g_Device->GetGraphicsQueueFamily(); // 队列族索引
-    poolInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT; // 命令缓冲区重置标志
-
-    if(vkCreateCommandPool(*g_Device, &poolInfo, nullptr, &g_CommandPool) != VK_SUCCESS){ // 创建命令池
-        throw std::runtime_error("Failed to create command pool!"); // 失败
-    }
-
-    std::cout << "Created command pool: OK\n"; // 成功
+    g_CommandPool = std::make_unique<vkp::CommandPool>(
+        *g_Device, 
+        g_Device->GetGraphicsQueueFamily()
+    ); // 创建命令池
 }
+
 void createCommandBuffers(){ // 创建命令缓冲区
     g_CommandBuffers.resize(MAX_FRAMES_IN_FLIGHT); // 命令缓冲区大小
 
     VkCommandBufferAllocateInfo allocInfo{}; // 命令缓冲区分配信息
     allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO; // 结构体类型
-    allocInfo.commandPool = g_CommandPool; // 命令池
+    allocInfo.commandPool = *g_CommandPool; // 命令池
     allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY; // 命令缓冲区级别
     allocInfo.commandBufferCount = static_cast<uint32_t>(g_CommandBuffers.size()); // 命令缓冲区数量
 
@@ -391,10 +381,8 @@ void drawFrame(){ // 绘制帧
 
     vkResetFences(*g_Device, 1, &g_InFlightFences[g_CurrentFrame]); // 重置栅栏, 防止上一帧的栅栏未完成导致当前帧无法开始
 
-    vkResetCommandBuffer(g_CommandBuffers[g_CurrentFrame], 0); // 重置命令缓冲区
-    recordCommandBuffer(g_CommandBuffers[g_CurrentFrame], imageIndex); // 记录命令缓冲区
-
-
+    vkResetCommandBuffer(g_CommandBuffers[g_CurrentFrame], 0); // 重置命令缓冲区, 防止上一帧的命令缓冲区未完成导致当前帧无法开始
+    recordCommandBuffer(g_CommandBuffers[g_CurrentFrame], imageIndex); // 记录命令缓冲区, 更新命令缓冲区
 
     VkSemaphore waitSemaphores[] = {g_ImageAvailableSemaphores[g_CurrentFrame]}; // 等待信号量
     VkPipelineStageFlags waitStages[] = {VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT}; // 等待阶段
@@ -452,6 +440,9 @@ void recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t imageIndex){ //
     // end render pass
     //         |
     // end command buffer
+    // 不能把所有事情都写在 CommandBuffer 里
+    // 根本上是因为 CommandBuffer 是动态的执行指令流
+    // 而 RenderPass 和 Pipeline 是静态的硬件配置与优化契约
     VkCommandBufferBeginInfo beginInfo{}; // 命令缓冲区开始信息
     beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO; // 结构体类型
 
