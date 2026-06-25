@@ -23,6 +23,7 @@
 #include "vulkan/Pipeline.h"
 #include "vulkan/SwapChain.h"
 #include "vulkan/CommandPool.h"
+#include "vulkan/CommandBuffer.h"
 
 
 GLFWwindow* g_Window = nullptr;
@@ -64,8 +65,8 @@ std::unique_ptr<vkp::RenderPass> g_RenderPass;                      // 渲染通
 std::unique_ptr<vkp::Pipeline> g_GraphicsPipeline;                  // 图形管线，用于描述图形渲染过程
 std::unique_ptr<vkp::SwapChain> g_SwapChain;                        // 交换链资源，用于管理呈现到屏幕的图像缓冲区序列
 std::unique_ptr<vkp::CommandPool> g_CommandPool;                    // 命令池，用于分配和管理命令缓冲区
+std::vector<std::unique_ptr<vkp::CommandBuffer>> g_CommandBuffers;  // 命令缓冲区，用于记录和提交 Vulkan 命令
 
-std::vector<VkCommandBuffer> g_CommandBuffers;                  // 命令缓冲区，用于存储 Vulkan 命令
 std::vector<VkSemaphore> g_ImageAvailableSemaphores;            // 图像可用信号量，用于同步图像的可用性, GPU 等它，表示 swapchain image 已 acquire，可以开始写
 std::vector<VkSemaphore> g_RenderFinishedSemaphores;            // 渲染完成信号量，用于同步图像的呈现完成, present queue 等它，表示渲染已结束，可以拿去显示
 std::vector<VkFence> g_InFlightFences;                          // 并发帧信号量，用于同步并发帧的完成, CPU 等它，表示上一轮使用这个 frame slot 的 GPU 工作已完成，可以安全重录 command buffer
@@ -214,6 +215,7 @@ void cleanup(){  // 清理资源
         }
     }
 
+    g_CommandBuffers.clear();   // 销毁命令缓冲区
     g_CommandPool.reset();      // 销毁命令缓冲区
     g_Device.reset();           // 销毁逻辑设备, Device 必须早于 Surface/Instance 销毁
     g_PhysicalDevice.reset();   // PhysicalDevice 不拥有 Vulkan 资源，不用销毁。但为顺序清晰，在 device 销毁后 reset
@@ -258,16 +260,13 @@ void createCommandPool(){ // 创建命令池
 }
 
 void createCommandBuffers(){ // 创建命令缓冲区
-    g_CommandBuffers.resize(MAX_FRAMES_IN_FLIGHT); // 命令缓冲区大小
+    g_CommandBuffers.clear(); // 清空命令缓冲区
+    g_CommandBuffers.reserve(MAX_FRAMES_IN_FLIGHT); // 预留空间
 
-    VkCommandBufferAllocateInfo allocInfo{}; // 命令缓冲区分配信息
-    allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO; // 结构体类型
-    allocInfo.commandPool = *g_CommandPool; // 命令池
-    allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY; // 命令缓冲区级别
-    allocInfo.commandBufferCount = static_cast<uint32_t>(g_CommandBuffers.size()); // 命令缓冲区数量
-
-    if(vkAllocateCommandBuffers(*g_Device, &allocInfo, g_CommandBuffers.data()) != VK_SUCCESS){ // 分配命令缓冲区
-        throw std::runtime_error("Failed to allocate command buffers!"); // 失败
+    for(size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++){ // 创建命令缓冲区
+        g_CommandBuffers.push_back(
+            std::make_unique<vkp::CommandBuffer>(*g_Device, *g_CommandPool)
+        );
     }
 
     std::cout << "Command buffers: " << g_CommandBuffers.size() << "\n";
@@ -381,8 +380,8 @@ void drawFrame(){ // 绘制帧
 
     vkResetFences(*g_Device, 1, &g_InFlightFences[g_CurrentFrame]); // 重置栅栏, 防止上一帧的栅栏未完成导致当前帧无法开始
 
-    vkResetCommandBuffer(g_CommandBuffers[g_CurrentFrame], 0); // 重置命令缓冲区, 防止上一帧的命令缓冲区未完成导致当前帧无法开始
-    recordCommandBuffer(g_CommandBuffers[g_CurrentFrame], imageIndex); // 记录命令缓冲区, 更新命令缓冲区
+    g_CommandBuffers[g_CurrentFrame]->Reset(); // 重置命令缓冲区, 防止上一帧的命令缓冲区未完成导致当前帧无法开始
+    recordCommandBuffer(*g_CommandBuffers[g_CurrentFrame], imageIndex); // 记录命令缓冲区, 更新命令缓冲区
 
     VkSemaphore waitSemaphores[] = {g_ImageAvailableSemaphores[g_CurrentFrame]}; // 等待信号量
     VkPipelineStageFlags waitStages[] = {VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT}; // 等待阶段
@@ -394,7 +393,14 @@ void drawFrame(){ // 绘制帧
     submitInfo.pWaitSemaphores = waitSemaphores; // 等待信号量数组
     submitInfo.pWaitDstStageMask = waitStages; // 等待阶段数组
     submitInfo.commandBufferCount = 1; // 命令缓冲区数量
-    submitInfo.pCommandBuffers = &g_CommandBuffers[g_CurrentFrame]; // 命令缓冲区数组
+    // 1. g_CommandBuffers 是 std::vector<std::unique_ptr<vkp::CommandBuffer>>
+    // 2. g_CommandBuffers[g_CurrentFrame] 拿到的是 std::unique_ptr<vkp::CommandBuffer>&（智能指针引用），它内部保存着指向 vkp::CommandBuffer 的原始指针
+    // 3. *g_CommandBuffers[g_CurrentFrame] 解引用智能指针，拿到 vkp::CommandBuffer&（你的包装类对象的引用）
+    // 4. VkCommandBuffer commandBuffer = *...; —— 隐式类型转换，将 vkp::CommandBuffer& 转换为 VkCommandBuffer
+    // 5. VkSubmitInfo::pCommandBuffers 的类型是 const VkCommandBuffer*，它期望一个指向 VkCommandBuffer 的指针数组
+    // 6. commandBuffer 是一个 VkCommandBuffer 局部变量，&commandBuffer 是它的地址（类型 VkCommandBuffer*），可以安全地赋值给 pCommandBuffers
+    VkCommandBuffer commandBuffer = *g_CommandBuffers[g_CurrentFrame]; // 命令缓冲区
+    submitInfo.pCommandBuffers = &commandBuffer; // 命令缓冲区数组
     submitInfo.signalSemaphoreCount = 1; // 信号量数量
     submitInfo.pSignalSemaphores = signalSemaphores; // 信号量数组
 
