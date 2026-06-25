@@ -4,7 +4,7 @@
 #include "vulkan/Device.h"
 #include "vulkan/ImageView.h"
 #include "vulkan/RenderPass.h"
-#include "vulkan/ShaderModule.h"
+#include "vulkan/Pipeline.h"    
 
 
 #include <vulkan/vulkan.h>
@@ -62,13 +62,12 @@ std::unique_ptr<vkp::PhysicalDevice> g_PhysicalDevice;              // 物理设
 std::unique_ptr<vkp::Device> g_Device;                              // 逻辑设备，用于执行 Vulkan 命令
 std::vector<std::unique_ptr<vkp::ImageView>> g_SwapChainImageViews; // 交换链图像视图，用于存储呈现到屏幕的图像缓冲区的视图
 std::unique_ptr<vkp::RenderPass> g_RenderPass;                      // 渲染通道，用于描述渲染过程
+std::unique_ptr<vkp::Pipeline> g_GraphicsPipeline;                  // 图形管线，用于描述图形渲染过程
 
 VkSwapchainKHR g_SwapChain = VK_NULL_HANDLE;                    // 交换链，用于管理呈现到屏幕的图像缓冲区序列
 std::vector<VkImage> g_SwapChainImages;                         // 交换链图像，用于存储呈现到屏幕的图像缓冲区
 VkFormat g_SwapChainImageFormat;                                // 交换链图像格式，用于存储呈现到屏幕的图像缓冲区的格式
 VkExtent2D g_SwapChainExtent;                                   // 交换链图像大小，用于存储呈现到屏幕的图像缓冲区的大小
-VkPipelineLayout g_PipelineLayout = VK_NULL_HANDLE;             // 管线布局，用于描述管线的输入和输出
-VkPipeline g_GraphicsPipeline = VK_NULL_HANDLE;                 // 图形管线，用于描述图形渲染过程
 std::vector<VkFramebuffer> g_SwapChainFramebuffers;             // 交换链帧缓冲区，用于存储呈现到屏幕的图像缓冲区的帧缓冲区
 VkCommandPool g_CommandPool = VK_NULL_HANDLE;                   // 命令池，用于分配命令缓冲区
 std::vector<VkCommandBuffer> g_CommandBuffers;                  // 命令缓冲区，用于存储 Vulkan 命令
@@ -395,175 +394,12 @@ void createRenderPass(){
     g_RenderPass = std::make_unique<vkp::RenderPass>(*g_Device, g_SwapChainImageFormat); // 创建渲染通道
 }
 void createGraphicsPipeline(){
-    vkp::ShaderModule vertShaderModule(*g_Device, "shaders/stage1_triangle.vert.spv"); // 创建顶点着色器模块
-    vkp::ShaderModule fragShaderModule(*g_Device, "shaders/stage1_triangle.frag.spv"); // 创建片元着色器模块
-
-    VkPipelineShaderStageCreateInfo vertShaderStageInfo{}; // 顶点着色器阶段信息
-    vertShaderStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO; // 结构体类型
-    vertShaderStageInfo.stage = VK_SHADER_STAGE_VERTEX_BIT; // 着色器阶段, 顶点着色器
-    vertShaderStageInfo.module = vertShaderModule; // 着色器模块, 顶点着色器模块
-    vertShaderStageInfo.pName = "main"; // 着色器入口点, main
-
-    VkPipelineShaderStageCreateInfo fragShaderStageInfo{}; // 片元着色器阶段信息
-    fragShaderStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO; // 结构体类型
-    fragShaderStageInfo.stage = VK_SHADER_STAGE_FRAGMENT_BIT; // 着色器阶段, 片元着色器
-    fragShaderStageInfo.module = fragShaderModule; // 着色器模块, 片元着色器模块
-    fragShaderStageInfo.pName = "main"; // 着色器入口点, main
-
-    // typedef struct VkPipelineShaderStageCreateInfo {
-    //     VkStructureType                     sType;   // 结构体类型
-    //     const void*                         pNext;   // 扩展链指针，常为 nullptr
-    //     VkPipelineShaderStageCreateFlags    flags;   // 创建标志，常为 0
-    //     VkShaderStageFlagBits               stage;   // 着色器阶段
-    //     VkShaderModule                      module;  // 着色器模块
-    //     const char*                         pName;   // 着色器入口点
-    //     const VkSpecializationInfo*         pSpecializationInfo; // 着色器特殊化信息，常为 nullptr
-    // } VkPipelineShaderStageCreateInfo;
-    VkPipelineShaderStageCreateInfo shaderStages[] = {
-        vertShaderStageInfo, 
-        fragShaderStageInfo
-    }; // 着色器阶段信息数组
-
-    // typedef struct VkVertexInputBindingDescription {
-    //     uint32_t             binding;    // 绑定点
-    //     uint32_t             stride;     // 顶点数据的步长
-    //     VkVertexInputRate    inputRate;  // 顶点输入速率
-    // } VkVertexInputBindingDescription;   // 顶点绑定描述，每个元素描述一个顶点缓冲区绑定
-    // typedef struct VkVertexInputAttributeDescription {
-    //     uint32_t    location;            // 着色器中的位置
-    //     uint32_t    binding;             // 绑定点
-    //     VkFormat    format;              // 数据格式
-    //     uint32_t    offset;              // 数据偏移
-    // } VkVertexInputAttributeDescription; // 顶点属性描述, 如位置、颜色、法线、UV
-    // typedef struct VkPipelineVertexInputStateCreateInfo {
-    //     VkStructureType                             sType;   // 结构体类型
-    //     const void*                                 pNext;   // 扩展链指针，常为 nullptr
-    //     VkPipelineVertexInputStateCreateFlags       flags;   // 创建标志，常为 0
-    //     uint32_t                                    vertexBindingDescriptionCount;   // 顶点绑定描述数量
-    //     const VkVertexInputBindingDescription*      pVertexBindingDescriptions;      // 顶点绑定描述数组
-    //     uint32_t                                    vertexAttributeDescriptionCount; // 顶点属性描述数量
-    //     const VkVertexInputAttributeDescription*    pVertexAttributeDescriptions;    // 顶点属性描述数组
-    // } VkPipelineVertexInputStateCreateInfo;
-    VkPipelineVertexInputStateCreateInfo vertexInputInfo{}; // 顶点输入信息
-    vertexInputInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO; // 结构体类型
-    vertexInputInfo.vertexBindingDescriptionCount = 0; // 顶点绑定描述数量, 无
-    vertexInputInfo.pVertexBindingDescriptions = nullptr; // 顶点绑定描述数组, 无
-    vertexInputInfo.vertexAttributeDescriptionCount = 0; // 顶点属性描述数量, 无
-    vertexInputInfo.pVertexAttributeDescriptions = nullptr; // 顶点属性描述数组, 无
-
-    // typedef struct VkPipelineInputAssemblyStateCreateInfo {
-    //     VkStructureType                            sType;    // 结构体类型
-    //     const void*                                pNext;    // 扩展链指针，常为 nullptr
-    //     VkPipelineInputAssemblyStateCreateFlags    flags;    // 创建标志，常为 0
-    //     VkPrimitiveTopology                        topology; // 图元拓扑
-    //     VkBool32                                   primitiveRestartEnable; // 图元重启
-    // } VkPipelineInputAssemblyStateCreateInfo; // 输入装配信息
-    VkPipelineInputAssemblyStateCreateInfo inputAssembly{}; // 输入装配信息
-    inputAssembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO; // 结构体类型
-    inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST; // 图元拓扑, 三角形列表
-    inputAssembly.primitiveRestartEnable = VK_FALSE; // 图元重启, 禁用
-
-    VkPipelineViewportStateCreateInfo viewportState{}; // 视口状态信息
-    viewportState.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO; // 结构体类型
-    viewportState.viewportCount = 1; // 视口数量, 一个
-    viewportState.pViewports = nullptr; // 视口数组, 无
-    viewportState.scissorCount = 1; // 裁剪区域数量, 一个
-    viewportState.pScissors = nullptr; // 裁剪区域数组, 无
-
-    VkPipelineRasterizationStateCreateInfo rasterizer{}; // 光栅化信息
-    rasterizer.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO; // 结构体类型
-    rasterizer.depthClampEnable = VK_FALSE; // 深度剪裁, 禁用
-    rasterizer.rasterizerDiscardEnable = VK_FALSE; // 光栅化丢弃, 禁用
-    rasterizer.polygonMode = VK_POLYGON_MODE_FILL; // 多边形模式, 填充
-    rasterizer.lineWidth = 1.0f; // 线宽, 1.0
-    rasterizer.cullMode = VK_CULL_MODE_NONE; // 剔除模式, 无
-    rasterizer.frontFace = VK_FRONT_FACE_CLOCKWISE; // 正面朝向, 顺时针
-    rasterizer.depthBiasEnable = VK_FALSE; // 深度偏移, 禁用
-
-    VkPipelineMultisampleStateCreateInfo multisampling{}; // 多重采样信息
-    multisampling.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO; // 结构体类型
-    multisampling.sampleShadingEnable = VK_FALSE; // 样本着色, 禁用
-    multisampling.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT; // 样本数, 1x
-
-    VkPipelineColorBlendAttachmentState colorBlendAttachment{}; // 颜色混合附着描述
-    colorBlendAttachment.colorWriteMask = 
-        VK_COLOR_COMPONENT_R_BIT | 
-        VK_COLOR_COMPONENT_G_BIT | 
-        VK_COLOR_COMPONENT_B_BIT | 
-        VK_COLOR_COMPONENT_A_BIT; // 颜色写入掩码, RGBA
-    colorBlendAttachment.blendEnable = VK_FALSE; // 混合启用, 禁用
-
-    VkPipelineColorBlendStateCreateInfo colorBlending{}; // 颜色混合信息
-    colorBlending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO; // 结构体类型
-    colorBlending.logicOpEnable = VK_FALSE; // 逻辑操作启用, 禁用
-    colorBlending.logicOp = VK_LOGIC_OP_COPY; // 逻辑操作, 复制
-    colorBlending.attachmentCount = 1; // 附着数量, 一个
-    colorBlending.pAttachments = &colorBlendAttachment; // 附着描述, 上面的 colorBlendAttachment
-
-    std::vector<VkDynamicState> dynamicStates = {
-        VK_DYNAMIC_STATE_VIEWPORT, // 视口
-        VK_DYNAMIC_STATE_SCISSOR // 裁剪区域
-    };
-
-    VkPipelineDynamicStateCreateInfo dynamicState{}; // 动态状态信息
-    dynamicState.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO; // 结构体类型
-    dynamicState.dynamicStateCount = static_cast<uint32_t>(dynamicStates.size()); // 动态状态数量
-    dynamicState.pDynamicStates = dynamicStates.data(); // 动态状态数组
-
-    VkPipelineLayoutCreateInfo pipelineLayoutInfo{}; // 管线布局信息
-    pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO; // 结构体类型
-    pipelineLayoutInfo.setLayoutCount = 0; // 布局数量, 无
-    pipelineLayoutInfo.pSetLayouts = nullptr; // 布局数组, 无
-    pipelineLayoutInfo.pushConstantRangeCount = 0; // 推送常量范围数量, 无
-
-    if(vkCreatePipelineLayout(*g_Device, &pipelineLayoutInfo, nullptr, &g_PipelineLayout) != VK_SUCCESS){ // 创建管线布局
-        throw std::runtime_error("Failed to create pipeline layout!"); // 失败
-    }
-
-    // typedef struct VkGraphicsPipelineCreateInfo {
-    //     VkStructureType                                  sType;                  // 结构体类型
-    //     const void*                                      pNext;                  // 扩展链指针，常为 nullptr
-    //     VkPipelineCreateFlags                            flags;                  // 创建标志，常为 0
-    //     uint32_t                                         stageCount;             // 着色器阶段数量
-    //     const VkPipelineShaderStageCreateInfo*           pStages;                // 着色器阶段数组
-    //     const VkPipelineVertexInputStateCreateInfo*      pVertexInputState;      // 顶点输入信息
-    //     const VkPipelineInputAssemblyStateCreateInfo*    pInputAssemblyState;    // 输入装配信息
-    //     const VkPipelineTessellationStateCreateInfo*     pTessellationState;     // 细分控制信息
-    //     const VkPipelineViewportStateCreateInfo*         pViewportState;         // 视口状态信息
-    //     const VkPipelineRasterizationStateCreateInfo*    pRasterizationState;    // 光栅化信息
-    //     const VkPipelineMultisampleStateCreateInfo*      pMultisampleState;      // 多重采样信息
-    //     const VkPipelineDepthStencilStateCreateInfo*     pDepthStencilState;     // 深度模板状态信息
-    //     const VkPipelineColorBlendStateCreateInfo*       pColorBlendState;       // 颜色混合信息
-    //     const VkPipelineDynamicStateCreateInfo*          pDynamicState;          // 动态状态信息
-    //     VkPipelineLayout                                 layout;                 // 管线布局
-    //     VkRenderPass                                     renderPass;             // 渲染通道
-    //     uint32_t                                         subpass;                // 子通道
-    //     VkPipeline                                       basePipelineHandle;     // 基础管线
-    //     int32_t                                          basePipelineIndex;      // 基础管线索引
-    // } VkGraphicsPipelineCreateInfo;  // 图形管线创建信息
-    VkGraphicsPipelineCreateInfo pipelineInfo{}; // 管线信息
-    pipelineInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO; // 结构体类型
-    pipelineInfo.stageCount = 2; // 着色器阶段数量, 两个
-    pipelineInfo.pStages = shaderStages; // 着色器阶段数组, 上面的 shaderStages
-    pipelineInfo.pVertexInputState = &vertexInputInfo; // 顶点输入信息, 上面的 vertexInputInfo
-    pipelineInfo.pInputAssemblyState = &inputAssembly; // 输入装配信息, 上面的 inputAssembly, 指定顶点以什么方式连接
-    pipelineInfo.pViewportState = &viewportState; // 视口状态信息, 上面的 viewportState
-    pipelineInfo.pRasterizationState = &rasterizer; // 光栅化信息, 上面的 rasterizer
-    pipelineInfo.pMultisampleState = &multisampling; // 多重采样信息, 上面的 multisampling, 多重采样抗锯齿（MSAA）
-    pipelineInfo.pDepthStencilState = nullptr; // 深度模板状态信息, 无, 深度测试和模板测试
-    pipelineInfo.pColorBlendState = &colorBlending; // 颜色混合信息, 上面的 colorBlending, 片段着色器输出如何与帧缓冲现有颜色混合
-    pipelineInfo.pDynamicState = &dynamicState; // 动态状态信息, 上面的 dynamicState, 指定哪些状态可以在不重建管线的情况下动态更改
-    pipelineInfo.layout = g_PipelineLayout; // 管线布局, 上面的 g_PipelineLayout, 管线布局决定了着色器如何访问资源
-    pipelineInfo.renderPass = *g_RenderPass; // 渲染通道, 上面的 g_RenderPass, 渲染通道决定了管线如何与帧缓冲交互
-    pipelineInfo.subpass = 0; // 子通道, 0
-    pipelineInfo.basePipelineHandle = VK_NULL_HANDLE; // 基础管线, 无
-    pipelineInfo.basePipelineIndex = -1; // 基础管线索引, -1
-
-    if(vkCreateGraphicsPipelines(*g_Device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &g_GraphicsPipeline) != VK_SUCCESS){ // 创建管线
-        throw std::runtime_error("Failed to create graphics pipeline!"); // 失败    
-    }
-
-    std::cout << "Created graphics pipeline: OK\n"; // 成功
+    g_GraphicsPipeline = std::make_unique<vkp::Pipeline>(
+        *g_Device, 
+        *g_RenderPass,
+        "shaders/stage1_triangle.vert.spv",
+        "shaders/stage1_triangle.frag.spv"
+    ); // 创建图形管线
 }
 
 void createFramebuffers(){ // 创建帧缓冲区
@@ -849,7 +685,7 @@ void recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t imageIndex){ //
     //     VkPipelineBindPoint                         pipelineBindPoint,   // 管线绑定点
     //     VkPipeline                                  pipeline             // 管线
     // ); // 绑定管线
-    vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, g_GraphicsPipeline); // 绑定管线
+    vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, *g_GraphicsPipeline); // 绑定管线
 
     // void vkCmdDraw(
     //     VkCommandBuffer                             commandBuffer,       // 命令缓冲区
@@ -901,16 +737,7 @@ void cleanupSwapChain(){ // 清理交换链
     }
     g_SwapChainFramebuffers.clear(); // 清空帧缓冲区数组
 
-    if(g_GraphicsPipeline != VK_NULL_HANDLE){ // 销毁图形管线
-        vkDestroyPipeline(*g_Device, g_GraphicsPipeline, nullptr); // 销毁图形管线
-        g_GraphicsPipeline = VK_NULL_HANDLE; // 置空图形管线
-    }
-
-    if(g_PipelineLayout != VK_NULL_HANDLE){ // 销毁管线布局
-        vkDestroyPipelineLayout(*g_Device, g_PipelineLayout, nullptr); // 销毁管线布局
-        g_PipelineLayout = VK_NULL_HANDLE; // 置空管线布局
-    }
-
+    g_GraphicsPipeline.reset(); // unique_ptr 析构 GraphicsPipeline 并销毁 VkPipeline 和 VkPipelineLayout
     g_RenderPass.reset(); // unique_ptr 析构 RenderPass 并销毁 VkRenderPass
     g_SwapChainImageViews.clear(); // 清空图像视图数组，unique_ptr 析构 ImageView 并销毁 VkImageView
 

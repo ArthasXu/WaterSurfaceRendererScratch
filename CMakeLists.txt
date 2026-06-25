@@ -45,6 +45,7 @@ add_executable(stage2_triangle
     src/vulkan/ImageView.cpp
     src/vulkan/RenderPass.cpp
     src/vulkan/ShaderModule.cpp
+    src/vulkan/Pipeline.cpp
 )
 
 target_compile_features(stage2_triangle PRIVATE cxx_std_17)
