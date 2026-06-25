@@ -1,16 +1,3 @@
-#include "vulkan/Instance.h"
-#include "vulkan/Surface.h"
-#include "vulkan/PhysicalDevice.h"
-#include "vulkan/Device.h"
-#include "vulkan/ImageView.h"
-#include "vulkan/RenderPass.h"
-#include "vulkan/Pipeline.h"    
-
-
-#include <vulkan/vulkan.h>
-#include <GLFW/glfw3.h>
-#include <glm/glm.hpp>
-
 #include <cstring>
 #include <iostream>
 #include <vector>
@@ -23,6 +10,18 @@
 #include <limits>       // UINT32_MAX
 #include <fstream>      // 二进制读取 .spv
 #include <memory>       // unique_ptr
+
+#include <vulkan/vulkan.h>
+#include <GLFW/glfw3.h>
+#include <glm/glm.hpp>
+
+#include "vulkan/Instance.h"
+#include "vulkan/Surface.h"
+#include "vulkan/PhysicalDevice.h"
+#include "vulkan/Device.h"
+#include "vulkan/RenderPass.h"
+#include "vulkan/Pipeline.h"
+#include "vulkan/SwapChain.h"
 
 
 GLFWwindow* g_Window = nullptr;
@@ -60,15 +59,10 @@ std::unique_ptr<vkp::Instance> g_Instance;                          // Vulkan �
 std::unique_ptr<vkp::Surface> g_Surface;                            // 窗口表面，用于呈现图像到窗口
 std::unique_ptr<vkp::PhysicalDevice> g_PhysicalDevice;              // 物理设备，GPU
 std::unique_ptr<vkp::Device> g_Device;                              // 逻辑设备，用于执行 Vulkan 命令
-std::vector<std::unique_ptr<vkp::ImageView>> g_SwapChainImageViews; // 交换链图像视图，用于存储呈现到屏幕的图像缓冲区的视图
 std::unique_ptr<vkp::RenderPass> g_RenderPass;                      // 渲染通道，用于描述渲染过程
 std::unique_ptr<vkp::Pipeline> g_GraphicsPipeline;                  // 图形管线，用于描述图形渲染过程
+std::unique_ptr<vkp::SwapChain> g_SwapChain;                        // 交换链资源，用于管理呈现到屏幕的图像缓冲区序列
 
-VkSwapchainKHR g_SwapChain = VK_NULL_HANDLE;                    // 交换链，用于管理呈现到屏幕的图像缓冲区序列
-std::vector<VkImage> g_SwapChainImages;                         // 交换链图像，用于存储呈现到屏幕的图像缓冲区
-VkFormat g_SwapChainImageFormat;                                // 交换链图像格式，用于存储呈现到屏幕的图像缓冲区的格式
-VkExtent2D g_SwapChainExtent;                                   // 交换链图像大小，用于存储呈现到屏幕的图像缓冲区的大小
-std::vector<VkFramebuffer> g_SwapChainFramebuffers;             // 交换链帧缓冲区，用于存储呈现到屏幕的图像缓冲区的帧缓冲区
 VkCommandPool g_CommandPool = VK_NULL_HANDLE;                   // 命令池，用于分配命令缓冲区
 std::vector<VkCommandBuffer> g_CommandBuffers;                  // 命令缓冲区，用于存储 Vulkan 命令
 std::vector<VkSemaphore> g_ImageAvailableSemaphores;            // 图像可用信号量，用于同步图像的可用性, GPU 等它，表示 swapchain image 已 acquire，可以开始写
@@ -96,15 +90,9 @@ void cleanup();     // 清理资源
 
 
 void createSwapChain();         // 创建交换链
-VkSurfaceFormatKHR chooseSwapSurfaceFormat(const std::vector<VkSurfaceFormatKHR>& availableFormats); // 选择交换链图像格式
-VkPresentModeKHR chooseSwapPresentMode(const std::vector<VkPresentModeKHR>& availablePresentModes); // 选择交换链呈现模式
-VkExtent2D chooseSwapExtent(const VkSurfaceCapabilitiesKHR& capabilities); // 选择交换链图像大小
-
-void createImageViews();        // 创建图像视图
 void createRenderPass();        // 创建渲染通道
 void createGraphicsPipeline();  // 创建图形管线
 
-void createFramebuffers();      // 创建帧缓冲区
 void createCommandPool();       // 创建命令池
 void createCommandBuffers();    // 创建命令缓冲区
 void createSyncObjects();       // 创建同步对象
@@ -182,11 +170,9 @@ void initVulkan(){ // 初始化 Vulkan
     g_PhysicalDevice = std::make_unique<vkp::PhysicalDevice>(*g_Instance, *g_Surface);  // 选择物理设备
     g_Device = std::make_unique<vkp::Device>(*g_PhysicalDevice, g_PhysicalDevice->GetQueueFamilyIndices()); // 创建逻辑设备
 
-    createSwapChain();          // 创建交换链
-    createImageViews();         // 创建图像视图
     createRenderPass();         // 创建渲染通道
+    createSwapChain();          // 创建交换链
     createGraphicsPipeline();   // 创建图形管线
-    createFramebuffers();       // 创建帧缓冲区
     createCommandPool();        // 创建命令池
     createCommandBuffers();     // 创建命令缓冲区
     createSyncObjects();        // 创建同步对象
@@ -243,155 +229,20 @@ void cleanup(){  // 清理资源
     glfwTerminate(); // 终止 GLFW
 }
 
-
-void createSwapChain(){
-    vkp::SwapChainSupportDetails swapChainSupport = g_PhysicalDevice->QuerySwapChainSupport(); // 查询交换链支持信息
-
-    VkSurfaceFormatKHR surfaceFormat = chooseSwapSurfaceFormat(swapChainSupport.formats); // 选择交换链图像格式
-    VkPresentModeKHR presentMode = chooseSwapPresentMode(swapChainSupport.presentModes); // 选择交换链呈现模式
-    VkExtent2D extent = chooseSwapExtent(swapChainSupport.capabilities); // 选择交换链图像大小
-
-    uint32_t imageCount = swapChainSupport.capabilities.minImageCount + 1; // 图像数量, 至少为 minImageCount + 1
-
-    if(swapChainSupport.capabilities.maxImageCount > 0 && 
-        imageCount > swapChainSupport.capabilities.maxImageCount){ 
-        // 如果最大图像数量不为0且图像数量大于最大图像数量
-        imageCount = swapChainSupport.capabilities.maxImageCount; // 图像数量为最大图像数量
-    }
-
-    VkSwapchainCreateInfoKHR createInfo{}; // 交换链创建信息
-    createInfo.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR; // 结构体类型
-    createInfo.surface = *g_Surface; // 表面
-    createInfo.minImageCount = imageCount; // 图像数量
-    createInfo.imageFormat = surfaceFormat.format; // 图像格式
-    createInfo.imageColorSpace = surfaceFormat.colorSpace; // 图像颜色空间
-    createInfo.imageExtent = extent; // 图像大小
-    createInfo.imageArrayLayers = 1; // 图像数组层数
-    createInfo.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT; // 图像使用方式
-
-    vkp::QueueFamilyIndices indices = g_PhysicalDevice->GetQueueFamilyIndices(); // 查找队列族索引
-    uint32_t queueFamilyIndices[] = {
-        indices.graphicsFamily.value(), 
-        indices.presentFamily.value()
-    }; // 队列族索引数组
-
-    if(indices.graphicsFamily != indices.presentFamily){ // 如果图形队列族索引不等于呈现队列族索引, 表示支持并发
-        // 并发模式 VK_SHARING_MODE_CONCURRENT
-        // 条件：图形队列族 ≠ 呈现队列族（例如某些集成显卡或特殊配置）
-        // 含义：图像可以同时被多个指定的队列族访问，无需显式所有权转移
-        // 代价：由于多族可能同时读写同一资源，驱动必须使用更保守的内存管理策略，性能略低，但避免了手动转移所有权的复杂性
-        createInfo.imageSharingMode = VK_SHARING_MODE_CONCURRENT; // 图像共享模式为并发
-        createInfo.queueFamilyIndexCount = 2; // 队列族索引数量为2
-        createInfo.pQueueFamilyIndices = queueFamilyIndices; // 队列族索引数组    
-    }
-    else{
-        // 独占模式 VK_SHARING_MODE_EXCLUSIVE 同族独占模式正是为了避免所有权转移的麻烦，同时获得最佳性能
-        // 族（Queue Family，队列族） 是 GPU 上按功能划分的一组命令队列
-        // 条件：图形队列族 == 呈现队列族（比如都从族索引 0 创建，RTX 5070 就是这种情况, 族 0 既能画图又能呈现）
-        // 含义：图像在任意时刻只能被一个队列族访问（所有权明确）
-        // 所有权转移：如果将来需要跨族使用，必须通过显式的所有权转移操作（VkImageMemoryBarrier 配合 vkQueueFamilyOwnershipTransfer）。但在同一族内，天然就独占，无需额外操作
-        // 性能优势：驱动可以利用独占特性做更激进的硬件优化（如缓存策略），因为不用考虑多族并发访问，所以更高效
-        createInfo.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE; // 图像共享模式为独占, 表示不支持并发
-        createInfo.queueFamilyIndexCount = 0; // 队列族索引数量为0
-        createInfo.pQueueFamilyIndices = nullptr; // 队列族索引数组
-    }
-
-    createInfo.preTransform = swapChainSupport.capabilities.currentTransform; // 图像转换方式
-    createInfo.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR; // 图像透明度
-    createInfo.presentMode = presentMode; // 呈现模式
-    createInfo.clipped = VK_TRUE; // 裁剪
-    createInfo.oldSwapchain = VK_NULL_HANDLE; // 旧交换链
-
-    if(vkCreateSwapchainKHR(*g_Device, &createInfo, nullptr, &g_SwapChain) != VK_SUCCESS){ // 创建交换链
-        throw std::runtime_error("Failed to create swap chain!"); // 失败
-    }
-
-    vkGetSwapchainImagesKHR(*g_Device, g_SwapChain, &imageCount, nullptr); // 获取交换链图像数量
-    g_SwapChainImages.resize(imageCount); // 调整交换链图像大小
-    vkGetSwapchainImagesKHR(*g_Device, g_SwapChain, &imageCount, g_SwapChainImages.data()); // 获取交换链图像
-
-    g_SwapChainImageFormat = surfaceFormat.format; // 交换链图像格式
-    g_SwapChainExtent = extent; // 交换链图像大小
-
-    std::cout << "Swapchain image count: " << g_SwapChainImages.size() << "\n";
-    std::cout << "Swapchain format: " << g_SwapChainImageFormat << "\n";
-    std::cout << "Swapchain extent: " << g_SwapChainExtent.width << " x " << g_SwapChainExtent.height << "\n";
-    std::cout << "Swapchain: OK\n";
-}
-VkSurfaceFormatKHR chooseSwapSurfaceFormat(const std::vector<VkSurfaceFormatKHR>& availableFormats){ // 选择交换链图像格式
-    for(const auto& availableFormat:availableFormats){ // 遍历可用的图像格式
-        if(availableFormat.format == VK_FORMAT_B8G8R8A8_SRGB && 
-            availableFormat.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR){ 
-                // 如果图像格式为 B8G8R8A8_SRGB 且颜色空间为 SRGB_NONLINEAR_KHR, 最通用、适合显示器的格式
-            return availableFormat; // 返回图像格式
-        }    
-    }
-    return availableFormats[0]; // 返回第一个图像格式
-}
-VkPresentModeKHR chooseSwapPresentMode(const std::vector<VkPresentModeKHR>& availablePresentModes){ // 选择交换链呈现模式
-    for(const auto& availablePresentMode:availablePresentModes){ // 遍历可用的呈现模式
-        // MAILBOX 模式（优先选择）
-        // 行为：维护一个图像队列，当队列满时，新提交的图像会直接替换队尾等待显示的图像，而不是阻塞。
-        // 效果：延迟极低，不会产生画面撕裂，且能避免旧帧堆积导致的卡顿。常用于追求低输入延迟的实时渲染（如游戏）。
-        // 缓冲数：通常需要至少 3 个交换链图像（否则队列无法“丢弃”旧帧），因此常被称作三重缓冲的一种实现，但并不是经典的三重缓冲排队，而是直接丢弃未显示的旧帧
-        if(availablePresentMode == VK_PRESENT_MODE_MAILBOX_KHR){ // 如果呈现模式为 MAILBOX_KHR, 低延迟三缓冲，适合渲染
-            return availablePresentMode; // 返回呈现模式
-        }
-    }
-    // FIFO 模式（回退选择）
-    // 行为：类似传统的垂直同步，按队列顺序依次显示图像。如果队列满了，提交必须等待，直到有空位。
-    // 效果：画面无撕裂，但可能导致明显的输入延迟和帧率锁定到刷新率。缓冲数可以为 2（双缓冲）或更多。
-    // FIFO 是 Vulkan 规范唯一强制必须支持的模式，所以作为安全的回退选项。
-    return VK_PRESENT_MODE_FIFO_KHR; // 返回 FIFO_KHR, 垂直同步（可看作双缓冲或更多）   
-}
-VkExtent2D chooseSwapExtent(const VkSurfaceCapabilitiesKHR& capabilities){ // 选择交换链图像大小
-    if(capabilities.currentExtent.width != std::numeric_limits<uint32_t>::max()){ // 如果当前图像大小不为最大值
-        // 表示当前表面有一个确定的、非变化的大小（比如窗口精确匹配该尺寸）
-        // 这种情况常见于某些窗口管理器，它们强制交换链图像大小等于窗口大小
-        // 此时直接返回 currentExtent，应用不能自行修改
-        return capabilities.currentExtent; // 返回当前图像大小
-    }
-    
-    int width = 0, height = 0; // 窗口宽度和高度
-    glfwGetFramebufferSize(g_Window, &width, &height); // 获取窗口宽度和高度
-
-    VkExtent2D actualExtent = {
-        static_cast<uint32_t>(width), // 窗口宽度
-        static_cast<uint32_t>(height) // 窗口高度
-    };
-
-    actualExtent.width = std::clamp(
-        actualExtent.width, // 实际宽度
-        capabilities.minImageExtent.width, // 最小图像宽度
-        capabilities.maxImageExtent.width // 最大图像宽度
-    );
-
-    actualExtent.height = std::clamp(
-        actualExtent.height, // 实际高度
-        capabilities.minImageExtent.height, // 最小图像高度
-        capabilities.maxImageExtent.height // 最大图像高度
-    );
-
-    return actualExtent; // 返回实际图像大小
-}
-
-void createImageViews(){
-    g_SwapChainImageViews.clear(); // 清空交换链图像视图
-    g_SwapChainImageViews.reserve(g_SwapChainImages.size()); // 调整交换链图像视图大小
-    // resize(n)：真的创建 n 个元素； reserve(n)：只预留容量，不创建元素
-
-    for(size_t i = 0; i < g_SwapChainImages.size(); i++){ // 遍历交换链图像
-        g_SwapChainImageViews.push_back(
-            std::make_unique<vkp::ImageView>(*g_Device, g_SwapChainImages[i], g_SwapChainImageFormat)
-        ); // 创建交换链图像视图
-    }
-
-    std::cout << "Created image views: " << g_SwapChainImageViews.size() << "\n";
-    std::cout << "Image views: OK\n"; // 成功
-}
-
 void createRenderPass(){
-    g_RenderPass = std::make_unique<vkp::RenderPass>(*g_Device, g_SwapChainImageFormat); // 创建渲染通道
+    vkp::SwapChainSupportDetails swapChainSupport = g_PhysicalDevice->QuerySwapChainSupport(); // 查询交换链支持信息
+    VkFormat colorFormat = vkp::SwapChain::chooseSwapSurfaceFormat(swapChainSupport.formats).format; // 选择交换链图像格式
+    g_RenderPass = std::make_unique<vkp::RenderPass>(*g_Device, colorFormat); // 创建渲染通道
+}
+void createSwapChain(){
+    g_SwapChain = std::make_unique<vkp::SwapChain>(
+        *g_PhysicalDevice,
+        *g_Device,
+        *g_Surface,
+        g_Window,
+        g_PhysicalDevice->GetQueueFamilyIndices(),
+        *g_RenderPass
+    ); // 创建交换链
 }
 void createGraphicsPipeline(){
     g_GraphicsPipeline = std::make_unique<vkp::Pipeline>(
@@ -402,30 +253,6 @@ void createGraphicsPipeline(){
     ); // 创建图形管线
 }
 
-void createFramebuffers(){ // 创建帧缓冲区
-    g_SwapChainFramebuffers.resize(g_SwapChainImageViews.size()); // 帧缓冲区大小
-
-    for(size_t i = 0; i < g_SwapChainImageViews.size(); i++){ // 遍历交换链图像视图
-        VkImageView attachments[] = { // 帧缓冲区附件
-            *g_SwapChainImageViews[i] // 交换链图像视图
-        };
-        
-        VkFramebufferCreateInfo framebufferInfo{}; // 帧缓冲区创建信息
-        framebufferInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO; // 结构体类型
-        framebufferInfo.renderPass = *g_RenderPass; // 渲染通道
-        framebufferInfo.attachmentCount = 1; // 附件数量
-        framebufferInfo.pAttachments = attachments; // 附件数组
-        framebufferInfo.width = g_SwapChainExtent.width; // 帧缓冲区宽度
-        framebufferInfo.height = g_SwapChainExtent.height; // 帧缓冲区高度
-        framebufferInfo.layers = 1; // 层数量
-
-        if(vkCreateFramebuffer(*g_Device, &framebufferInfo, nullptr, &g_SwapChainFramebuffers[i]) != VK_SUCCESS){ // 创建帧缓冲区
-            throw std::runtime_error("Failed to create framebuffer!"); // 失败
-        }
-    }
-
-    std::cout << "Created framebuffers: " << g_SwapChainFramebuffers.size() << "\n"; // 成功
-}
 void createCommandPool(){ // 创建命令池
     vkp::QueueFamilyIndices queueFamilyIndices = g_PhysicalDevice->GetQueueFamilyIndices(); // 队列族索引
 
@@ -552,7 +379,7 @@ void drawFrame(){ // 绘制帧
     //     VkFence                                     fence,       // 栅栏
     //     uint32_t*                                   pImageIndex  // 图像索引
     // ); // 获取下一个图像
-    VkResult result = vkAcquireNextImageKHR(*g_Device, g_SwapChain, UINT64_MAX, g_ImageAvailableSemaphores[g_CurrentFrame], VK_NULL_HANDLE, &imageIndex); // 等待图像可用
+    VkResult result = g_SwapChain->AcquireNextImage(g_ImageAvailableSemaphores[g_CurrentFrame], &imageIndex); // 等待图像可用
 
     if(result == VK_ERROR_OUT_OF_DATE_KHR){ // 交换链已过期
         recreateSwapChain(); // 重新创建交换链
@@ -595,21 +422,7 @@ void drawFrame(){ // 绘制帧
 
 
     
-    VkSwapchainKHR swapChains[] = {g_SwapChain}; // 交换链数组
-
-    VkPresentInfoKHR presentInfo{}; // 呈现信息
-    presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR; // 结构体类型
-    presentInfo.waitSemaphoreCount = 1; // 等待信号量数量
-    presentInfo.pWaitSemaphores = signalSemaphores; // 等待信号量数组
-    presentInfo.swapchainCount = 1; // 交换链数量
-    presentInfo.pSwapchains = swapChains; // 交换链数组
-    presentInfo.pImageIndices = &imageIndex; // 图像索引数组
-
-    // VkResult vkQueuePresentKHR(
-    //     VkQueue                                     queue,       // 队列
-    //     const VkPresentInfoKHR*                     pPresentInfo // 呈现信息
-    // );
-    result = vkQueuePresentKHR(g_Device->GetPresentQueue(), &presentInfo); // 呈现图像
+    result = g_SwapChain->Present(g_Device->GetPresentQueue(), g_RenderFinishedSemaphores[g_CurrentFrame], imageIndex); // 呈现图像
 
     if(result == VK_ERROR_OUT_OF_DATE_KHR || // 交换链已过期
         result == VK_SUBOPTIMAL_KHR || // 交换链已被调整大小或不支持的格式
@@ -649,9 +462,9 @@ void recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t imageIndex){ //
     VkRenderPassBeginInfo renderPassInfo{}; // 渲染通道开始信息
     renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO; // 结构体类型
     renderPassInfo.renderPass = *g_RenderPass; // 渲染通道
-    renderPassInfo.framebuffer = g_SwapChainFramebuffers[imageIndex]; // 帧缓冲区
+    renderPassInfo.framebuffer = g_SwapChain->GetFramebuffer(imageIndex); // 帧缓冲区
     renderPassInfo.renderArea.offset = {0, 0}; // 渲染区域偏移
-    renderPassInfo.renderArea.extent = g_SwapChainExtent; // 渲染区域大小
+    renderPassInfo.renderArea.extent = g_SwapChain->GetExtent(); // 渲染区域大小
 
     VkClearValue clearColor = {{{0.02f, 0.02f, 0.03f, 1.0f}}}; // 清除颜色
     renderPassInfo.clearValueCount = 1; // 清除值数量
@@ -669,15 +482,15 @@ void recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t imageIndex){ //
     // 即把顶点着色器输出的几何体按 x, y, width, height 和 minDepth, maxDepth 缩放/偏移到实际渲染目标区域
     viewport.x = 0.0f; // 视口 x
     viewport.y = 0.0f; // 视口 y
-    viewport.width = static_cast<float>(g_SwapChainExtent.width); // 视口宽度
-    viewport.height = static_cast<float>(g_SwapChainExtent.height); // 视口高度
+    viewport.width = static_cast<float>(g_SwapChain->GetExtent().width); // 视口宽度
+    viewport.height = static_cast<float>(g_SwapChain->GetExtent().height); // 视口高度
     viewport.minDepth = 0.0f; // 视口最小深度
     viewport.maxDepth = 1.0f; // 视口最大深度
     vkCmdSetViewport(commandBuffer, 0, 1, &viewport); // 设置视口
 
     VkRect2D scissor{}; // 裁剪矩形, 负责像素丢弃
     scissor.offset = {0, 0}; // 视口偏移
-    scissor.extent = g_SwapChainExtent; // 视口大小
+    scissor.extent = g_SwapChain->GetExtent(); // 视口大小
     vkCmdSetScissor(commandBuffer, 0, 1, &scissor); // 设置视口
 
     // void vkCmdBindPipeline(
@@ -723,26 +536,14 @@ void recreateSwapChain(){ // 重新创建交换链
 
     cleanupSwapChain(); // 清理交换链
 
-    createSwapChain(); // 创建交换链
-    createImageViews(); // 创建图像视图
     createRenderPass(); // 创建渲染通道
+    createSwapChain(); // 创建交换链
     createGraphicsPipeline(); // 创建图形管线
-    createFramebuffers(); // 创建帧缓冲区
 
     std::cout << "Swapchain recreated\n";
 }
 void cleanupSwapChain(){ // 清理交换链
-    for(auto framebuffer : g_SwapChainFramebuffers){ // 销毁帧缓冲区
-        vkDestroyFramebuffer(*g_Device, framebuffer, nullptr); // 销毁帧缓冲区    
-    }
-    g_SwapChainFramebuffers.clear(); // 清空帧缓冲区数组
-
     g_GraphicsPipeline.reset(); // unique_ptr 析构 GraphicsPipeline 并销毁 VkPipeline 和 VkPipelineLayout
+    g_SwapChain.reset(); // unique_ptr 析构 SwapChain 并销毁 framebuffers/imageViews/swapchain
     g_RenderPass.reset(); // unique_ptr 析构 RenderPass 并销毁 VkRenderPass
-    g_SwapChainImageViews.clear(); // 清空图像视图数组，unique_ptr 析构 ImageView 并销毁 VkImageView
-
-    if(g_SwapChain != VK_NULL_HANDLE){ // 销毁交换链
-        vkDestroySwapchainKHR(*g_Device, g_SwapChain, nullptr); // 销毁交换链
-        g_SwapChain = VK_NULL_HANDLE; // 置空交换链
-    }
 }
