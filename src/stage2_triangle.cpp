@@ -24,6 +24,7 @@
 #include "vulkan/SwapChain.h"
 #include "vulkan/CommandPool.h"
 #include "vulkan/CommandBuffer.h"
+#include "vulkan/SyncObjects.h"
 
 
 GLFWwindow* g_Window = nullptr;
@@ -57,19 +58,16 @@ GLFWwindow* g_Window = nullptr;
 //               ├── VkSemaphore（renderFinishedSemaphore）
 //               └── VkFence（inFlightFence）
 // ------------------ Instance → Present 对象依赖图 -------------------------
-std::unique_ptr<vkp::Instance> g_Instance;                          // Vulkan 实例
-std::unique_ptr<vkp::Surface> g_Surface;                            // 窗口表面，用于呈现图像到窗口
-std::unique_ptr<vkp::PhysicalDevice> g_PhysicalDevice;              // 物理设备，GPU
-std::unique_ptr<vkp::Device> g_Device;                              // 逻辑设备，用于执行 Vulkan 命令
-std::unique_ptr<vkp::RenderPass> g_RenderPass;                      // 渲染通道，用于描述渲染过程
-std::unique_ptr<vkp::Pipeline> g_GraphicsPipeline;                  // 图形管线，用于描述图形渲染过程
-std::unique_ptr<vkp::SwapChain> g_SwapChain;                        // 交换链资源，用于管理呈现到屏幕的图像缓冲区序列
-std::unique_ptr<vkp::CommandPool> g_CommandPool;                    // 命令池，用于分配和管理命令缓冲区
-std::vector<std::unique_ptr<vkp::CommandBuffer>> g_CommandBuffers;  // 命令缓冲区，用于记录和提交 Vulkan 命令
-
-std::vector<VkSemaphore> g_ImageAvailableSemaphores;            // 图像可用信号量，用于同步图像的可用性, GPU 等它，表示 swapchain image 已 acquire，可以开始写
-std::vector<VkSemaphore> g_RenderFinishedSemaphores;            // 渲染完成信号量，用于同步图像的呈现完成, present queue 等它，表示渲染已结束，可以拿去显示
-std::vector<VkFence> g_InFlightFences;                          // 并发帧信号量，用于同步并发帧的完成, CPU 等它，表示上一轮使用这个 frame slot 的 GPU 工作已完成，可以安全重录 command buffer
+std::unique_ptr<vkp::Instance> g_Instance;                                  // Vulkan 实例
+std::unique_ptr<vkp::Surface> g_Surface;                                    // 窗口表面，用于呈现图像到窗口
+std::unique_ptr<vkp::PhysicalDevice> g_PhysicalDevice;                      // 物理设备，GPU
+std::unique_ptr<vkp::Device> g_Device;                                      // 逻辑设备，用于执行 Vulkan 命令
+std::unique_ptr<vkp::RenderPass> g_RenderPass;                              // 渲染通道，用于描述渲染过程
+std::unique_ptr<vkp::Pipeline> g_GraphicsPipeline;                          // 图形管线，用于描述图形渲染过程
+std::unique_ptr<vkp::SwapChain> g_SwapChain;                                // 交换链资源，用于管理呈现到屏幕的图像缓冲区序列
+std::unique_ptr<vkp::CommandPool> g_CommandPool;                            // 命令池，用于分配和管理命令缓冲区
+std::vector<std::unique_ptr<vkp::CommandBuffer>> g_CommandBuffers;          // 命令缓冲区，用于记录和提交 Vulkan 命令
+std::vector<std::unique_ptr<vkp::FrameSyncObjects>> g_FrameSyncObjects;     // 同步对象，用于控制命令缓冲区的执行顺序
 
 const int MAX_FRAMES_IN_FLIGHT = 3;                             // 最大并发帧数量，用于防止命令缓冲区重叠
 uint32_t g_CurrentFrame = 0;                                    // 当前帧索引，用于标识当前正在处理的帧
@@ -199,22 +197,7 @@ void cleanup(){  // 清理资源
 
     cleanupSwapChain(); // 清理交换链
 
-    for(size_t i = 0; i < g_ImageAvailableSemaphores.size(); i++){ // 销毁图像可用信号量
-        if(g_ImageAvailableSemaphores[i] != VK_NULL_HANDLE){
-            vkDestroySemaphore(*g_Device, g_ImageAvailableSemaphores[i], nullptr);
-        }
-    }
-    for(size_t i = 0; i < g_RenderFinishedSemaphores.size(); i++){ // 销毁渲染完成信号量
-        if(g_RenderFinishedSemaphores[i] != VK_NULL_HANDLE){
-            vkDestroySemaphore(*g_Device, g_RenderFinishedSemaphores[i], nullptr);
-        }
-    }
-    for(size_t i = 0; i < g_InFlightFences.size(); i++){ // 销毁并发帧信号量
-        if(g_InFlightFences[i] != VK_NULL_HANDLE){
-            vkDestroyFence(*g_Device, g_InFlightFences[i], nullptr);
-        }
-    }
-
+    g_FrameSyncObjects.clear(); // unique_ptr 析构 FrameSyncObjects 并销毁 semaphore/fence
     g_CommandBuffers.clear();   // 销毁命令缓冲区
     g_CommandPool.reset();      // 销毁命令缓冲区
     g_Device.reset();           // 销毁逻辑设备, Device 必须早于 Surface/Instance 销毁
@@ -272,23 +255,13 @@ void createCommandBuffers(){ // 创建命令缓冲区
     std::cout << "Command buffers: " << g_CommandBuffers.size() << "\n";
 }
 void createSyncObjects(){ // 创建同步对象
-    g_ImageAvailableSemaphores.resize(MAX_FRAMES_IN_FLIGHT); // 图像可用信号量大小
-    g_RenderFinishedSemaphores.resize(MAX_FRAMES_IN_FLIGHT); // 渲染完成信号量大小
-    g_InFlightFences.resize(MAX_FRAMES_IN_FLIGHT); // 并发帧信号量大小
+    g_FrameSyncObjects.clear(); // 清空同步对象
+    g_FrameSyncObjects.reserve(MAX_FRAMES_IN_FLIGHT); // 预留空间
 
-    VkSemaphoreCreateInfo semaphoreInfo{}; // 信号量创建信息
-    semaphoreInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO; // 结构体类型
-
-    VkFenceCreateInfo fenceInfo{}; // 栅栏创建信息
-    fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO; // 结构体类型
-    fenceInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT; // 栅栏标志
-
-    for(size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++){ // 遍历并发帧信号量
-        if(vkCreateSemaphore(*g_Device, &semaphoreInfo, nullptr, &g_ImageAvailableSemaphores[i]) != VK_SUCCESS || // 创建图像可用信号量
-           vkCreateSemaphore(*g_Device, &semaphoreInfo, nullptr, &g_RenderFinishedSemaphores[i]) != VK_SUCCESS || // 创建渲染完成信号量
-           vkCreateFence(*g_Device, &fenceInfo, nullptr, &g_InFlightFences[i]) != VK_SUCCESS){ // 创建并发帧信号量
-            throw std::runtime_error("Failed to create synchronization objects for a frame!"); // 失败
-        }    
+    for(size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++){ // 创建同步对象
+        g_FrameSyncObjects.push_back(
+            std::make_unique<vkp::FrameSyncObjects>(*g_Device)
+        );
     }
 
     std::cout << "Sync objects: " << MAX_FRAMES_IN_FLIGHT << " frames\n";
@@ -356,8 +329,11 @@ void drawFrame(){ // 绘制帧
     //     VkBool32                                    waitAll,     // 是否等待所有栅栏
     //     uint64_t                                    timeout      // 超时时间
     // );
-
-    vkWaitForFences(*g_Device, 1, &g_InFlightFences[g_CurrentFrame], VK_TRUE, UINT64_MAX); // 等待栅栏
+    auto& sync = *g_FrameSyncObjects[g_CurrentFrame];
+    
+    VkFence inFlightFence = sync.InFlightFence();
+    
+    vkWaitForFences(*g_Device, 1, &inFlightFence, VK_TRUE, UINT64_MAX); // 等待栅栏
 
     uint32_t imageIndex = 0; // 图像索引
     // VkResult vkAcquireNextImageKHR(
@@ -368,7 +344,7 @@ void drawFrame(){ // 绘制帧
     //     VkFence                                     fence,       // 栅栏
     //     uint32_t*                                   pImageIndex  // 图像索引
     // ); // 获取下一个图像
-    VkResult result = g_SwapChain->AcquireNextImage(g_ImageAvailableSemaphores[g_CurrentFrame], &imageIndex); // 等待图像可用
+    VkResult result = g_SwapChain->AcquireNextImage(sync.ImageAvailable(), &imageIndex); // 等待图像可用
 
     if(result == VK_ERROR_OUT_OF_DATE_KHR){ // 交换链已过期
         recreateSwapChain(); // 重新创建交换链
@@ -378,14 +354,14 @@ void drawFrame(){ // 绘制帧
         throw std::runtime_error("Failed to acquire swap chain image!"); // 失败
     }
 
-    vkResetFences(*g_Device, 1, &g_InFlightFences[g_CurrentFrame]); // 重置栅栏, 防止上一帧的栅栏未完成导致当前帧无法开始
+    vkResetFences(*g_Device, 1, &inFlightFence); // 重置栅栏, 防止上一帧的栅栏未完成导致当前帧无法开始
 
     g_CommandBuffers[g_CurrentFrame]->Reset(); // 重置命令缓冲区, 防止上一帧的命令缓冲区未完成导致当前帧无法开始
     recordCommandBuffer(*g_CommandBuffers[g_CurrentFrame], imageIndex); // 记录命令缓冲区, 更新命令缓冲区
 
-    VkSemaphore waitSemaphores[] = {g_ImageAvailableSemaphores[g_CurrentFrame]}; // 等待信号量
+    VkSemaphore waitSemaphores[] = {sync.ImageAvailable()}; // 等待信号量
     VkPipelineStageFlags waitStages[] = {VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT}; // 等待阶段
-    VkSemaphore signalSemaphores[] = {g_RenderFinishedSemaphores[g_CurrentFrame]}; // 信号量
+    VkSemaphore signalSemaphores[] = {sync.RenderFinished()}; // 信号量
 
     VkSubmitInfo submitInfo{}; // 提交信息
     submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO; // 结构体类型
@@ -410,13 +386,13 @@ void drawFrame(){ // 绘制帧
     //     const VkSubmitInfo*                         pSubmits,    // 提交信息数组
     //     VkFence                                     fence        // 栅栏
     // ); // 提交命令缓冲区
-    if(vkQueueSubmit(g_Device->GetGraphicsQueue(), 1, &submitInfo, g_InFlightFences[g_CurrentFrame]) != VK_SUCCESS){ // 提交命令缓冲区
+    if(vkQueueSubmit(g_Device->GetGraphicsQueue(), 1, &submitInfo, inFlightFence) != VK_SUCCESS){ // 提交命令缓冲区
         throw std::runtime_error("Failed to submit draw command buffer!"); // 失败
     }
 
 
     
-    result = g_SwapChain->Present(g_Device->GetPresentQueue(), g_RenderFinishedSemaphores[g_CurrentFrame], imageIndex); // 呈现图像
+    result = g_SwapChain->Present(g_Device->GetPresentQueue(), sync.RenderFinished(), imageIndex); // 呈现图像
 
     if(result == VK_ERROR_OUT_OF_DATE_KHR || // 交换链已过期
         result == VK_SUBOPTIMAL_KHR || // 交换链已被调整大小或不支持的格式
