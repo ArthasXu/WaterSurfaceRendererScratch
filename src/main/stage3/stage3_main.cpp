@@ -10,6 +10,7 @@
 #include <limits>       // UINT32_MAX
 #include <fstream>      // 二进制读取 .spv
 #include <memory>       // unique_ptr
+#include <thread>       // std::thread
 
 #include <vulkan/vulkan.h>
 #include <GLFW/glfw3.h>
@@ -28,6 +29,7 @@
 #include "vulkan/Buffer.h"
 
 #include "core/Timestep.h"
+#include "core/Timer.h"
 
 
 GLFWwindow* g_Window = nullptr;
@@ -114,6 +116,17 @@ int main(){
         initVulkan();
         mainLoop();
         cleanup();
+
+        core::Timer timer;
+
+        for(int i = 0; i < 10; ++i)
+        {
+            std::this_thread::sleep_for(std::chrono::milliseconds(16));
+
+            core::Timestep dt = timer.Tick();
+            std::cout << dt.GetSeconds() << "s, "
+                    << dt.GetMilliseconds() << "ms\n";
+        }
 
         return 0;
     }
