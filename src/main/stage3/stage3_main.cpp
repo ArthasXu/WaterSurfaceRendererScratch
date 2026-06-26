@@ -30,6 +30,7 @@
 
 #include "core/Timestep.h"
 #include "core/Timer.h"
+#include "core/Log.h"
 
 
 GLFWwindow* g_Window = nullptr;
@@ -117,16 +118,11 @@ int main(){
         mainLoop();
         cleanup();
 
-        core::Timer timer;
+        core::Log::Init();
 
-        for(int i = 0; i < 10; ++i)
-        {
-            std::this_thread::sleep_for(std::chrono::milliseconds(16));
-
-            core::Timestep dt = timer.Tick();
-            std::cout << dt.GetSeconds() << "s, "
-                    << dt.GetMilliseconds() << "ms\n";
-        }
+        VKP_INFO("Stage 3 log OK");
+        VKP_WARN("Stage 3 warning test");
+        VKP_ERROR("Stage 3 error test");
 
         return 0;
     }
