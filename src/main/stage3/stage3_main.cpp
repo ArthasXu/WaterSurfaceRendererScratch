@@ -31,6 +31,8 @@
 #include "core/Timestep.h"
 #include "core/Timer.h"
 #include "core/Log.h"
+#include "core/Assert.h"
+#include "core/Profile.h"
 
 
 GLFWwindow* g_Window = nullptr;
@@ -118,11 +120,8 @@ int main(){
         mainLoop();
         cleanup();
 
-        core::Log::Init();
-
-        VKP_INFO("Stage 3 log OK");
-        VKP_WARN("Stage 3 warning test");
-        VKP_ERROR("Stage 3 error test");
+        VKP_PROFILE_SCOPE("Stage3Main");
+        VKP_ASSERT(true, "Assert should not fail");
 
         return 0;
     }
