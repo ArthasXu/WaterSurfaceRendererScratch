@@ -8,7 +8,7 @@ class CommandBuffer
 {
 public:
     CommandBuffer(VkDevice device, VkCommandPool commandPool);
-    ~CommandBuffer() = default;
+    ~CommandBuffer();
 
     CommandBuffer(const CommandBuffer&) = delete; // 禁止拷贝构造函数
     CommandBuffer& operator=(const CommandBuffer&) = delete; // 禁止赋值运算符

@@ -178,22 +178,6 @@ void initVulkan(){ // 初始化 Vulkan
     createCommandBuffers();     // 创建命令缓冲区
     createSyncObjects();        // 创建同步对象
 
-    vkp::Buffer testBuffer(
-        *g_PhysicalDevice,
-        *g_Device,
-        sizeof(float) * 3,
-        VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
-    );
-
-    float data[3] = {1.0f, 2.0f, 3.0f};
-    testBuffer.Map();
-    testBuffer.CopyToMapped(data, sizeof(data));
-    // testBuffer.FlushMappedRange(sizeof(data)); // 将数据从主机内存复制到设备内存
-    testBuffer.Unmap();
-
-    std::cout << "Buffer smoke test: OK\n";
-
 }
 void mainLoop(){ // 主循环
     while(!glfwWindowShouldClose(g_Window)){
@@ -209,7 +193,7 @@ void mainLoop(){ // 主循环
     vkDeviceWaitIdle(*g_Device); // 等待设备空闲
 }
 void cleanup(){  // 清理资源
-    if(*g_Device != VK_NULL_HANDLE){ // 确保没有 GPU 命令还在用 framebuffer/pipeline/swapchain
+    if(g_Device && *g_Device != VK_NULL_HANDLE){ // 确保没有 GPU 命令还在用 framebuffer/pipeline/swapchain
         vkDeviceWaitIdle(*g_Device); // 等待设备空闲
     }
 

@@ -17,6 +17,14 @@ CommandBuffer::CommandBuffer(VkDevice device, VkCommandPool commandPool)
         }
 }
 
+CommandBuffer::~CommandBuffer()
+{
+    if (m_CommandBuffer != VK_NULL_HANDLE) {
+        vkFreeCommandBuffers(m_Device, m_CommandPool, 1, &m_CommandBuffer);
+        m_CommandBuffer = VK_NULL_HANDLE;
+    }
+}
+
 CommandBuffer::operator VkCommandBuffer() const
 {
     return m_CommandBuffer;
