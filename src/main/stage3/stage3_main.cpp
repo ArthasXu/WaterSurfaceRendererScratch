@@ -115,45 +115,45 @@ void recreateSwapChain();       // 重新创建交换链
 void cleanupSwapChain();        // 清理交换链
 
 int main(){
-    // try{
-    //     initWindow();
-    //     initVulkan();
-    //     mainLoop();
-    //     cleanup();
+    try{
+        initWindow();
+        initVulkan();
+        mainLoop();
+        cleanup();
 
-    //     VKP_PROFILE_SCOPE("Stage3Main");
-    //     VKP_ASSERT(true, "Assert should not fail");
+        VKP_PROFILE_SCOPE("Stage3Main");
+        VKP_ASSERT(true, "Assert should not fail");
 
-    //     return 0;
-    // }
-    // catch(const std::exception& e){
-    //     std::cerr << e.what() << '\n';
-    //     cleanup();
-    //     return 1;
-    // }
-    core::Log::Init();
-
-    if(!glfwInit()){
-        VKP_ERROR("Failed to initialize GLFW");
+        return 0;
+    }
+    catch(const std::exception& e){
+        std::cerr << e.what() << '\n';
+        cleanup();
         return 1;
     }
-    {
-        core::Window window(1280, 720, "Stage 3 - Clear Color"); // 创建窗口
-        window.OnFramebufferResize = [](int width, int height){
-            VKP_INFO("Framebuffer resized to {0}x{1}", width, height);
-        }; // 设置窗口大小改变回调
-        window.OnKey = [&window](int key, int scancode, int action, int mods){
-            // [&window] 以 引用方式 捕获外部的局部变量 window, 这样 lambda 函数就可以访问和修改 window 的值
-            if(key == GLFW_KEY_ESCAPE && action == GLFW_PRESS){
-                glfwSetWindowShouldClose(window.GetNativeWindow(), GLFW_TRUE);
-            }
-        }; // 设置键盘回调
-        while(!window.ShouldClose()){
-            window.PollEvents(); // 处理所有等待中的事件
-        }
-    }
-    glfwTerminate(); // 终止 GLFW
-    return 0;
+    // core::Log::Init();
+
+    // if(!glfwInit()){
+    //     VKP_ERROR("Failed to initialize GLFW");
+    //     return 1;
+    // }
+    // {
+    //     core::Window window(1280, 720, "Stage 3 - Clear Color"); // 创建窗口
+    //     window.OnFramebufferResize = [](int width, int height){
+    //         VKP_INFO("Framebuffer resized to {0}x{1}", width, height);
+    //     }; // 设置窗口大小改变回调
+    //     window.OnKey = [&window](int key, int scancode, int action, int mods){
+    //         // [&window] 以 引用方式 捕获外部的局部变量 window, 这样 lambda 函数就可以访问和修改 window 的值
+    //         if(key == GLFW_KEY_ESCAPE && action == GLFW_PRESS){
+    //             glfwSetWindowShouldClose(window.GetNativeWindow(), GLFW_TRUE);
+    //         }
+    //     }; // 设置键盘回调
+    //     while(!window.ShouldClose()){
+    //         window.PollEvents(); // 处理所有等待中的事件
+    //     }
+    // }
+    // glfwTerminate(); // 终止 GLFW
+    // return 0;
 }
 
 void initWindow(){ // 初始化窗口
