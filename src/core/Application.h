@@ -25,7 +25,7 @@ public:
     Application();
     virtual ~Application();
 
-    void run(); // Main loop
+    void Run(); // Main loop
 
 protected:
     virtual void Start() = 0; // 纯虚函数，子类必须实现
