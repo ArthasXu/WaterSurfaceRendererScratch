@@ -4,6 +4,7 @@
 
 #include <GLFW/glfw3.h>
 
+#include <iostream>
 #include <stdexcept>
 
 namespace core
@@ -13,9 +14,16 @@ Application::Application() = default; // 默认构造函数
 Application::~Application() = default; // 默认析构函数
 
 void Application::Run(){ // 主循环
-    Init(); // 初始化
-    Loop(); // 主循环
-    Shutdown(); // 关闭
+    try{
+        Init(); // 初始化
+        Loop(); // 主循环
+        Shutdown(); // 关闭
+    }
+    catch(const std::exception& e){
+        Shutdown(); // 关闭
+        std::cerr << e.what() << "\n"; // 输出异常信息
+        throw; // 抛出异常
+    }
 }
 
 void Application::Init() { // 初始化
@@ -27,7 +35,7 @@ void Application::Init() { // 初始化
 
 void Application::SetupWindow() { // 设置窗口
     if(!glfwInit()) { // 初始化GLFW
-        VKP_ERROR("Failed to initialize GLFW"); // 输出错误信息    
+         throw std::runtime_error("Failed to initialize GLFW"); 
     }
 
     m_Window = std::make_unique<Window>(1280, 720, "Stage 3 - Clear Color"); // 创建窗口
@@ -188,47 +196,6 @@ void Application::DrawFrame() { // 绘制帧
 }
 
 void Application::RecordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t imageIndex) { // 记录命令缓冲区
-    // VkCommandBufferBeginInfo beginInfo{}; // 命令缓冲区开始信息
-    // beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO; // 结构体类型
-
-    // if(vkBeginCommandBuffer(commandBuffer, &beginInfo) != VK_SUCCESS){ // 开始命令缓冲区
-    //     throw std::runtime_error("Failed to begin recording command buffer!"); // 失败
-    // }
-
-    // VkRenderPassBeginInfo renderPassInfo{}; // 渲染通道开始信息
-    // renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO; // 结构体类型
-    // renderPassInfo.renderPass = *m_RenderPass; // 渲染通道
-    // renderPassInfo.framebuffer = m_SwapChain->GetFramebuffer(imageIndex); // 帧缓冲区
-    // renderPassInfo.renderArea.offset = {0, 0}; // 渲染区域偏移
-    // renderPassInfo.renderArea.extent = m_SwapChain->GetExtent(); // 渲染区域大小
-
-    // VkClearValue clearColor = {{{0.02f, 0.02f, 0.03f, 1.0f}}}; // 清除颜色
-    // renderPassInfo.clearValueCount = 1; // 清除值数量
-    // renderPassInfo.pClearValues = &clearColor; // 清除值数组
-
-    // vkCmdBeginRenderPass(commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE); // 开始渲染通道
-
-    // VkViewport viewport{}; // 视口, 负责坐标系变换
-    // viewport.x = 0.0f; // 视口 x
-    // viewport.y = 0.0f; // 视口 y
-    // viewport.width = static_cast<float>(m_SwapChain->GetExtent().width); // 视口宽度
-    // viewport.height = static_cast<float>(m_SwapChain->GetExtent().height); // 视口高度
-    // viewport.minDepth = 0.0f; // 视口最小深度
-    // viewport.maxDepth = 1.0f; // 视口最大深度
-    // vkCmdSetViewport(commandBuffer, 0, 1, &viewport); // 设置视口
-
-    // VkRect2D scissor{}; // 裁剪矩形, 负责像素丢弃
-    // scissor.offset = {0, 0}; // 裁剪矩形偏移
-    // scissor.extent = m_SwapChain->GetExtent(); // 裁剪矩形大小
-    // vkCmdSetScissor(commandBuffer, 0, 1, &scissor); // 设置裁剪矩形
-
-    // Render(commandBuffer, imageIndex); // 渲染
-
-    // vkCmdEndRenderPass(commandBuffer); // 结束渲染通道
-
-    // if(vkEndCommandBuffer(commandBuffer) != VK_SUCCESS){ // 结束命令缓冲区
-    //     throw std::runtime_error("Failed to record command buffer!"); // 失败
-    // }
     Render(commandBuffer, imageIndex);
 }
 
@@ -255,6 +222,11 @@ void Application::CleanupSwapChain(){ // 清理交换链
 
 void Application::Shutdown()
 {
+    if(m_ShutdownCalled){ // 已经调用过关闭函数
+        return;
+    }
+    m_ShutdownCalled = true; // 标记已经调用过关闭函数
+
     if(m_Device){
         vkDeviceWaitIdle(*m_Device);
     }

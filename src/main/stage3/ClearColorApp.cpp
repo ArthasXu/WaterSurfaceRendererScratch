@@ -98,7 +98,7 @@ void ClearColorApp::OnFramebufferResize(int width, int height){
 void ClearColorApp::OnKey(int key, int scancode, int action, int mods){
     core::Application::OnKey(key, scancode, action, mods);
 
-    if(key < 0 || key > 1024){
+    if(key < 0 || key >= 1024){
         return;
     }
 
