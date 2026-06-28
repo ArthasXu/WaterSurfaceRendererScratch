@@ -106,3 +106,46 @@ target_link_libraries(stage3_clear_color PRIVATE
     glm::glm
     spdlog::spdlog
 )
+
+# stage4_textured_quad
+add_executable(stage4_textured_quad
+    src/main/stage4/stage4_main.cpp
+
+    src/core/Application.cpp
+    src/core/Window.cpp
+    src/core/Timer.cpp
+    src/core/Log.cpp
+
+    src/scene/Camera.cpp
+    src/scene/Vertex.cpp
+    src/scene/TexturedQuadApp.cpp
+
+    src/vulkan/Instance.cpp
+    src/vulkan/Surface.cpp
+    src/vulkan/PhysicalDevice.cpp
+    src/vulkan/Device.cpp
+    src/vulkan/ImageView.cpp
+    src/vulkan/RenderPass.cpp
+    src/vulkan/ShaderModule.cpp
+    src/vulkan/Pipeline.cpp
+    src/vulkan/SwapChain.cpp
+    src/vulkan/CommandPool.cpp
+    src/vulkan/CommandBuffer.cpp
+    src/vulkan/SyncObjects.cpp
+    src/vulkan/Buffer.cpp
+    src/vulkan/Description.cpp
+    src/vulkan/Image.cpp
+    src/vulkan/Sampler.cpp
+    src/vulkan/Texture2D.cpp
+)
+
+target_include_directories(stage4_textured_quad PRIVATE ${CMAKE_SOURCE_DIR}/src)
+
+target_compile_features(stage4_textured_quad PRIVATE cxx_std_17)
+
+target_link_libraries(stage4_textured_quad PRIVATE
+    Vulkan::Vulkan
+    glfw
+    glm::glm
+    spdlog::spdlog
+)

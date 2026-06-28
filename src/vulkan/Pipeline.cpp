@@ -11,11 +11,12 @@ Pipeline::Pipeline(
     VkDevice device,
     VkRenderPass renderPass,
     const std::string& vertShaderPath,
-    const std::string& fragShaderPath
+    const std::string& fragShaderPath,
+    const PipelineConfig& config
 )
     : m_Device(device)
 {
-    createGraphicsPipeline(renderPass, vertShaderPath, fragShaderPath);
+    createGraphicsPipeline(renderPass, vertShaderPath, fragShaderPath, config);
 }
 
 Pipeline::~Pipeline()
@@ -47,7 +48,8 @@ VkPipelineLayout Pipeline::GetLayout() const
 void Pipeline::createGraphicsPipeline(
     VkRenderPass renderPass,
     const std::string& vertShaderPath,
-    const std::string& fragShaderPath
+    const std::string& fragShaderPath,
+    const PipelineConfig& config
 ){
     vkp::ShaderModule vertShaderModule(m_Device, vertShaderPath); // 创建顶点着色器模块
     vkp::ShaderModule fragShaderModule(m_Device, fragShaderPath); // 创建片元着色器模块
@@ -100,10 +102,14 @@ void Pipeline::createGraphicsPipeline(
     // } VkPipelineVertexInputStateCreateInfo;
     VkPipelineVertexInputStateCreateInfo vertexInputInfo{}; // 顶点输入信息
     vertexInputInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO; // 结构体类型
-    vertexInputInfo.vertexBindingDescriptionCount = 0; // 顶点绑定描述数量, 无
-    vertexInputInfo.pVertexBindingDescriptions = nullptr; // 顶点绑定描述数组, 无
-    vertexInputInfo.vertexAttributeDescriptionCount = 0; // 顶点属性描述数量, 无
-    vertexInputInfo.pVertexAttributeDescriptions = nullptr; // 顶点属性描述数组, 无
+    vertexInputInfo.vertexBindingDescriptionCount = 
+        static_cast<uint32_t>(config.bindingDescriptions.size()); // 顶点绑定描述数量
+    vertexInputInfo.pVertexBindingDescriptions = 
+        config.bindingDescriptions.data(); // 顶点绑定描述数组
+    vertexInputInfo.vertexAttributeDescriptionCount = 
+        static_cast<uint32_t>(config.attributeDescriptions.size()); // 顶点属性描述数量
+    vertexInputInfo.pVertexAttributeDescriptions = 
+        config.attributeDescriptions.data(); // 顶点属性描述数组
 
     // typedef struct VkPipelineInputAssemblyStateCreateInfo {
     //     VkStructureType                            sType;    // 结构体类型
@@ -165,9 +171,13 @@ void Pipeline::createGraphicsPipeline(
     dynamicState.pDynamicStates = dynamicStates.data(); // 动态状态数组
 
     VkPipelineLayoutCreateInfo pipelineLayoutInfo{}; // 管线布局信息
+    // Pipeline layout 负责的是非顶点流数据——比如：
+    // Uniform Buffer（MVP 矩阵、时间等）、纹理采样器、Storage Buffer、Push Constants
     pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO; // 结构体类型
-    pipelineLayoutInfo.setLayoutCount = 0; // 布局数量, 无
-    pipelineLayoutInfo.pSetLayouts = nullptr; // 布局数组, 无
+    pipelineLayoutInfo.setLayoutCount = 
+        static_cast<uint32_t>(config.descriptorSetLayouts.size()); // 布局数量
+    pipelineLayoutInfo.pSetLayouts = 
+        config.descriptorSetLayouts.data(); // 布局数组
     pipelineLayoutInfo.pushConstantRangeCount = 0; // 推送常量范围数量, 无
 
     if(vkCreatePipelineLayout(m_Device, &pipelineLayoutInfo, nullptr, &m_PipelineLayout) != VK_SUCCESS){ // 创建管线布局

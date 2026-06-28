@@ -229,11 +229,14 @@ void createSwapChain(){
     ); // 创建交换链
 }
 void createGraphicsPipeline(){
+    vkp::PipelineConfig config; // 创建管线配置
+
     g_GraphicsPipeline = std::make_unique<vkp::Pipeline>(
         *g_Device, 
         *g_RenderPass,
         "shaders/stage1_triangle.vert.spv",
-        "shaders/stage1_triangle.frag.spv"
+        "shaders/stage1_triangle.frag.spv",
+        config
     );
 }
 
