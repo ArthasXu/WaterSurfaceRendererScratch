@@ -1,4 +1,5 @@
 #include "scene/TexturedQuadApp.h"
+#include "scene/Vertex.h"
 
 #include "core/Log.h"
 
@@ -7,6 +8,20 @@
 #include <cmath>
 #include <stdexcept>
 #include <sstream> // 用于格式化字符串
+#include <vector>
+#include <cstdint>
+
+static const std::vector<Vertex> s_Vertices = {
+    {{-0.5f, -0.5f, 0.0f}, {1.0f, 0.0f, 0.0f}, {0.0f, 1.0f}},
+    {{ 0.5f, -0.5f, 0.0f}, {0.0f, 1.0f, 0.0f}, {1.0f, 1.0f}},
+    {{ 0.5f,  0.5f, 0.0f}, {0.0f, 0.0f, 1.0f}, {1.0f, 0.0f}},
+    {{-0.5f,  0.5f, 0.0f}, {1.0f, 1.0f, 1.0f}, {0.0f, 0.0f}},
+};
+
+static const std::vector<uint32_t> s_Indices = {
+    0, 1, 2,
+    2, 3, 0
+};
 
 void TexturedQuadApp::Start(){ // 实现纯虚函数Start
     VKP_INFO("TexturedQuadApp started");
