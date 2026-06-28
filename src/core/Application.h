@@ -37,11 +37,14 @@ protected:
     virtual void OnMouseButton(int button, int action, int mods); // 鼠标按钮回调
     virtual void OnKey(int key, int scancode, int action, int mods); // 键盘回调
 
+    virtual void ShutdownApp(); // 关闭应用程序
+
 protected:
     Window& GetWindow();                    // 获取窗口
     vkp::Device& GetDevice();               // 获取设备
     vkp::SwapChain& GetSwapChain();         // 获取交换链
     vkp::RenderPass& GetRenderPass();       // 获取渲染通道
+    vkp::PhysicalDevice& GetPhysicalDevice(); // 获取物理设备
 
 private:
     void Init();                            // 初始化

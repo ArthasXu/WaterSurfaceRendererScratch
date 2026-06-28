@@ -220,6 +220,9 @@ void Application::CleanupSwapChain(){ // 清理交换链
     m_RenderPass.reset(); // unique_ptr 析构 RenderPass 并销毁 VkRenderPass
 }
 
+void Application::ShutdownApp(){
+}
+
 void Application::Shutdown()
 {
     if(m_ShutdownCalled){ // 已经调用过关闭函数
@@ -230,6 +233,8 @@ void Application::Shutdown()
     if(m_Device){
         vkDeviceWaitIdle(*m_Device);
     }
+
+    ShutdownApp();
 
     CleanupSwapChain();
 
@@ -285,6 +290,11 @@ vkp::SwapChain& Application::GetSwapChain()
 vkp::RenderPass& Application::GetRenderPass()
 {
     return *m_RenderPass;
+}
+
+vkp::PhysicalDevice& Application::GetPhysicalDevice()
+{
+    return *m_PhysicalDevice;
 }
 
 

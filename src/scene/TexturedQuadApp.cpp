@@ -3,6 +3,8 @@
 
 #include "core/Log.h"
 
+#include "vulkan/Pipeline.h"
+
 #include <GLFW/glfw3.h>
 
 #include <cmath>
@@ -25,6 +27,72 @@ static const std::vector<uint32_t> s_Indices = {
 
 void TexturedQuadApp::Start(){ // 实现纯虚函数Start
     VKP_INFO("TexturedQuadApp started");
+
+    CreateGraphicsPipeline(); // 创建图形管线
+    CreateVertexBuffer(); // 创建顶点缓冲区
+    CreateIndexBuffer(); // 创建索引缓冲区
+}
+
+void TexturedQuadApp::ShutdownApp(){ // 实现纯虚函数ShutdownApp
+    m_GraphicsPipeline.reset();
+    m_IndexBuffer.reset();
+    m_VertexBuffer.reset();
+}
+
+void TexturedQuadApp::CreateGraphicsPipeline(){ // 创建图形管线
+    vkp::PipelineConfig config; // 配置
+
+    auto bindingDescription = Vertex::GetBindingDescription(); // 绑定描述
+    auto attributeDescriptions = Vertex::GetAttributeDescriptions(); // 属性描述
+
+    config.bindingDescriptions = {bindingDescription}; // 绑定描述
+    config.attributeDescriptions = {
+        attributeDescriptions[0],
+        attributeDescriptions[1],
+        attributeDescriptions[2]
+    };
+
+    m_GraphicsPipeline = std::make_unique<vkp::Pipeline>(
+        GetDevice(),
+        GetRenderPass(),
+        "shaders/stage4_textured_quad.vert.spv",
+        "shaders/stage4_textured_quad.frag.spv",
+        config
+    );
+}
+
+void TexturedQuadApp::CreateVertexBuffer(){ // 创建顶点缓冲区
+    VkDeviceSize bufferSize = sizeof(s_Vertices[0]) * s_Vertices.size();
+
+    m_VertexBuffer = std::make_unique<vkp::Buffer>(
+        GetPhysicalDevice(),
+        GetDevice(),
+        bufferSize,
+        VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
+    );
+
+    m_VertexBuffer->Map(); // 映射内存, 用于读写设备内存
+    m_VertexBuffer->CopyToMapped(s_Vertices.data(), bufferSize); // 复制数据
+    m_VertexBuffer->Unmap(); // 写完了, 取消映射
+}
+
+void TexturedQuadApp::CreateIndexBuffer(){ // 创建索引缓冲区
+    VkDeviceSize bufferSize = sizeof(s_Indices[0]) * s_Indices.size(); 
+    
+    m_IndexBuffer = std::make_unique<vkp::Buffer>(
+        GetPhysicalDevice(),
+        GetDevice(),
+        bufferSize,
+        VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
+        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
+    );
+
+    m_IndexBuffer->Map();
+    m_IndexBuffer->CopyToMapped(s_Indices.data(), bufferSize);
+    m_IndexBuffer->Unmap();
+
+    m_IndexCount = static_cast<uint32_t>(s_Indices.size()); // 索引数量
 }
 
 void TexturedQuadApp::Update(core::Timestep timestep){ // 实现纯虚函数Update
@@ -98,6 +166,31 @@ void TexturedQuadApp::Render(VkCommandBuffer commandBuffer, uint32_t imageIndex)
     renderPassInfo.pClearValues = &clearColor; // 清除值数组
 
     vkCmdBeginRenderPass(commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE); // 开始渲染通道
+    
+    VkViewport viewport{};
+    viewport.x = 0.0f;
+    viewport.y = 0.0f;
+    viewport.width = static_cast<float>(GetSwapChain().GetExtent().width);
+    viewport.height = static_cast<float>(GetSwapChain().GetExtent().height);
+    viewport.minDepth = 0.0f;
+    viewport.maxDepth = 1.0f;
+    vkCmdSetViewport(commandBuffer, 0, 1, &viewport); // 设置视口
+
+    VkRect2D scissor{};
+    scissor.offset = {0, 0};
+    scissor.extent = GetSwapChain().GetExtent();
+    vkCmdSetScissor(commandBuffer, 0, 1, &scissor); // 设置裁剪矩形
+
+    vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, *m_GraphicsPipeline); // 绑定管线
+
+    VkBuffer vertexBuffers[] = {*m_VertexBuffer}; // 顶点缓冲区
+    VkDeviceSize offsets[] = {0}; // 偏移量
+
+    vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets); // 绑定顶点缓冲区
+    vkCmdBindIndexBuffer(commandBuffer, *m_IndexBuffer, 0, VK_INDEX_TYPE_UINT32); // 绑定索引缓冲区
+
+    vkCmdDrawIndexed(commandBuffer, m_IndexCount, 1, 0, 0, 0); // 绘制索引图元
+    
     vkCmdEndRenderPass(commandBuffer); // 结束渲染通道
 
     if(vkEndCommandBuffer(commandBuffer) != VK_SUCCESS){ // 结束命令缓冲区
