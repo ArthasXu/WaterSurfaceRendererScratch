@@ -45,6 +45,7 @@ protected:
     vkp::SwapChain& GetSwapChain();         // 获取交换链
     vkp::RenderPass& GetRenderPass();       // 获取渲染通道
     vkp::PhysicalDevice& GetPhysicalDevice(); // 获取物理设备
+    vkp::CommandPool& GetCommandPool(); // 获取命令池
 
 private:
     void Init();                            // 初始化

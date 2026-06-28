@@ -64,35 +64,67 @@ void TexturedQuadApp::CreateGraphicsPipeline(){ // 创建图形管线
 void TexturedQuadApp::CreateVertexBuffer(){ // 创建顶点缓冲区
     VkDeviceSize bufferSize = sizeof(s_Vertices[0]) * s_Vertices.size();
 
+    vkp::Buffer stagingBuffer(
+        GetPhysicalDevice(),
+        GetDevice(),
+        bufferSize,
+        VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
+    ); // HOST_VISIBLE | HOST_COHERENT 表示可以从CPU访问
+
+    stagingBuffer.Map(); // 映射内存
+    stagingBuffer.CopyToMapped(s_Vertices.data(), bufferSize); // 复制数据，把顶点数据从 CPU 搬进了 host-visible 内存
+    stagingBuffer.Unmap(); // 取消映射
+
     m_VertexBuffer = std::make_unique<vkp::Buffer>(
         GetPhysicalDevice(),
         GetDevice(),
         bufferSize,
-        VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
-    );
+        VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT
+    ); // DEVICE_LOCAL 表示只能从GPU访问 TRANSFER_DST_BIT 表示可以从CPU传输到GPU
 
-    m_VertexBuffer->Map(); // 映射内存, 用于读写设备内存
-    m_VertexBuffer->CopyToMapped(s_Vertices.data(), bufferSize); // 复制数据
-    m_VertexBuffer->Unmap(); // 写完了, 取消映射
+    GetCommandPool().CopyBuffer(
+        GetDevice(),
+        GetDevice().GetGraphicsQueue(),
+        stagingBuffer,
+        *m_VertexBuffer,
+        bufferSize
+    ); // 复制缓冲区
 }
 
 void TexturedQuadApp::CreateIndexBuffer(){ // 创建索引缓冲区
-    VkDeviceSize bufferSize = sizeof(s_Indices[0]) * s_Indices.size(); 
-    
+    VkDeviceSize bufferSize = sizeof(s_Indices[0]) * s_Indices.size();
+
+    vkp::Buffer stagingBuffer(
+        GetPhysicalDevice(),
+        GetDevice(),
+        bufferSize,
+        VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
+    );
+
+    stagingBuffer.Map();
+    stagingBuffer.CopyToMapped(s_Indices.data(), bufferSize);
+    stagingBuffer.Unmap();
+
     m_IndexBuffer = std::make_unique<vkp::Buffer>(
         GetPhysicalDevice(),
         GetDevice(),
         bufferSize,
-        VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
-        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
+        VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
+        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT
     );
 
-    m_IndexBuffer->Map();
-    m_IndexBuffer->CopyToMapped(s_Indices.data(), bufferSize);
-    m_IndexBuffer->Unmap();
+    GetCommandPool().CopyBuffer(
+        GetDevice(),
+        GetDevice().GetGraphicsQueue(),
+        stagingBuffer,
+        *m_IndexBuffer,
+        bufferSize
+    );
 
-    m_IndexCount = static_cast<uint32_t>(s_Indices.size()); // 索引数量
+    m_IndexCount = static_cast<uint32_t>(s_Indices.size());
 }
 
 void TexturedQuadApp::Update(core::Timestep timestep){ // 实现纯虚函数Update

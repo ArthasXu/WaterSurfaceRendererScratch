@@ -297,5 +297,9 @@ vkp::PhysicalDevice& Application::GetPhysicalDevice()
     return *m_PhysicalDevice;
 }
 
+vkp::CommandPool& Application::GetCommandPool()
+{
+    return *m_CommandPool;
+}
 
 }

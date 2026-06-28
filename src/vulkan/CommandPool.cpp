@@ -72,6 +72,30 @@ void CommandPool::EndOneTimeCommands(VkDevice device, VkQueue queue, VkCommandBu
     vkFreeCommandBuffers(device, m_CommandPool, 1, &commandBuffer); // 释放命令缓冲区
 }
 
+void CommandPool::CopyBuffer(
+    VkDevice device,
+    VkQueue queue,
+    VkBuffer srcBuffer,
+    VkBuffer dstBuffer,
+    VkDeviceSize size
+){
+    VkCommandBuffer commandBuffer = BeginOneTimeCommands(device); // 获取一个命令缓冲区
+
+    // typedef struct VkBufferCopy {
+    //     VkDeviceSize    srcOffset;
+    //     VkDeviceSize    dstOffset;
+    //     VkDeviceSize    size;
+    // } VkBufferCopy; // 缓冲区复制区域
+    VkBufferCopy copyRegion{}; // 缓冲区复制区域
+    copyRegion.srcOffset = 0; // 源偏移量
+    copyRegion.dstOffset = 0; // 目标偏移量
+    copyRegion.size = size; // 复制大小
+
+    vkCmdCopyBuffer(commandBuffer, srcBuffer, dstBuffer, 1, &copyRegion); // 复制缓冲区
+
+    EndOneTimeCommands(device, queue, commandBuffer); // 结束命令缓冲区
+}
+
 void CommandPool::createCommandPool(uint32_t graphicsQueueFamily){ // 创建命令池
     VkCommandPoolCreateInfo poolInfo{}; // 命令池创建信息
     poolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO; // 结构体类型
