@@ -7,6 +7,9 @@
 
 #include <GLFW/glfw3.h>
 
+#include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
+
 #include <cmath>
 #include <stdexcept>
 #include <sstream> // 用于格式化字符串
@@ -18,12 +21,19 @@ static const std::vector<Vertex> s_Vertices = {
     {{ 0.5f, -0.5f, 0.0f}, {0.0f, 1.0f, 0.0f}, {1.0f, 1.0f}},
     {{ 0.5f,  0.5f, 0.0f}, {0.0f, 0.0f, 1.0f}, {1.0f, 0.0f}},
     {{-0.5f,  0.5f, 0.0f}, {1.0f, 1.0f, 1.0f}, {0.0f, 0.0f}},
-};
+}; // 顶点缓冲区
 
 static const std::vector<uint32_t> s_Indices = {
     0, 1, 2,
     2, 3, 0
-};
+}; // 索引缓冲区
+
+struct VertexUBO
+{
+    glm::mat4 model; // 模型矩阵
+    glm::mat4 view; // 视图矩阵
+    glm::mat4 proj; // 投影矩阵
+}; // 顶点着色器的UBO
 
 void TexturedQuadApp::Start(){ // 实现纯虚函数Start
     VKP_INFO("TexturedQuadApp started");
@@ -31,12 +41,14 @@ void TexturedQuadApp::Start(){ // 实现纯虚函数Start
     CreateGraphicsPipeline(); // 创建图形管线
     CreateVertexBuffer(); // 创建顶点缓冲区
     CreateIndexBuffer(); // 创建索引缓冲区
+    CreateUniformBuffers(); // 创建统一缓冲区
 }
 
 void TexturedQuadApp::ShutdownApp(){ // 实现纯虚函数ShutdownApp
-    m_GraphicsPipeline.reset();
-    m_IndexBuffer.reset();
-    m_VertexBuffer.reset();
+    m_UniformBuffers.clear(); // 清空统一缓冲区
+    m_GraphicsPipeline.reset(); // 重置图形管线
+    m_IndexBuffer.reset(); // 重置索引缓冲区
+    m_VertexBuffer.reset(); // 重置顶点缓冲区
 }
 
 void TexturedQuadApp::CreateGraphicsPipeline(){ // 创建图形管线
@@ -127,6 +139,49 @@ void TexturedQuadApp::CreateIndexBuffer(){ // 创建索引缓冲区
     m_IndexCount = static_cast<uint32_t>(s_Indices.size());
 }
 
+void TexturedQuadApp::CreateUniformBuffers(){ // 创建统一缓冲区
+    VkDeviceSize bufferSize = sizeof(VertexUBO);
+    
+    m_UniformBuffers.clear();
+    m_UniformBuffers.reserve(GetMaxFramesInFlight());
+
+    for(uint32_t i = 0; i < GetMaxFramesInFlight(); i++){
+        auto uniformBuffer = std::make_unique<vkp::Buffer>(
+            GetPhysicalDevice(),
+            GetDevice(),
+            bufferSize,
+            VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
+        ); 
+        // HOST_VISIBLE | HOST_COHERENT 表示可以从CPU访问
+        // 顶点/索引缓冲通常是静态数据，追求最高的 GPU 读取速度，值得花一次拷贝的代价搬到 DEVICE_LOCAL 显存
+        // 而 UBO 是动态数据（每帧的 MVP 矩阵、光照参数等），需要频繁更新，所以选择 HOST_VISIBLE | HOST_COHERENT
+
+        uniformBuffer->Map(); // 映射内存 UBO 每帧常驻 mapped。Buffer::~Buffer() 会 Unmap()，所以无需每帧 unmap
+
+        m_UniformBuffers.push_back(std::move(uniformBuffer)); // 移动语义
+    }
+}
+
+void TexturedQuadApp::UpdateUniformBuffers(){ // 更新统一缓冲区
+    VertexUBO ubo{};
+    ubo.model = glm::rotate(
+        glm::mat4(1.0f),
+        m_Time,
+        glm::vec3(0.0f, 0.0f, 1.0f)
+    ); // 旋转矩阵
+
+    ubo.view = m_Camera.GetViewMatrix(); // 视图矩阵
+
+    VkExtent2D extent = GetSwapChain().GetExtent(); // 获取交换链的大小
+    float aspect = static_cast<float>(extent.width) / static_cast<float>(extent.height); // 宽高比
+
+    ubo.proj = m_Camera.GetProjectionMatrix(aspect); // 透视投影矩阵
+
+    m_UniformBuffers[GetCurrentFrameIndex()]->CopyToMapped(&ubo, sizeof(ubo)); // 复制数据
+
+}
+
 void TexturedQuadApp::Update(core::Timestep timestep){ // 实现纯虚函数Update
     m_Time += timestep.GetSeconds(); // 时间累加
 
@@ -173,6 +228,8 @@ void TexturedQuadApp::Update(core::Timestep timestep){ // 实现纯虚函数Upda
 
         GetWindow().SetTitle(title.str()); // 设置窗口标题
     }
+
+    UpdateUniformBuffers(); // 更新统一缓冲区
 }
 
 void TexturedQuadApp::Render(VkCommandBuffer commandBuffer, uint32_t imageIndex){ // 实现纯虚函数Render

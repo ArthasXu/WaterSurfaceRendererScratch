@@ -47,6 +47,11 @@ protected:
     vkp::PhysicalDevice& GetPhysicalDevice(); // 获取物理设备
     vkp::CommandPool& GetCommandPool(); // 获取命令池
 
+    uint32_t GetCurrentFrameIndex() const { return m_CurrentFrame; } // 获取当前帧索引
+    // static 这是一个类级别的函数，不属于任何对象实例 constexpr 该函数在编译期就可以计算出结果
+    static constexpr uint32_t GetMaxFramesInFlight() { return MAX_FRAMES_IN_FLIGHT; } // 获取最大并发帧数量
+
+
 private:
     void Init();                            // 初始化
     void SetupWindow();                     // 设置窗口

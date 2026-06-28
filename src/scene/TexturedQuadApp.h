@@ -9,6 +9,7 @@
 
 #include <memory>
 #include <cstdint>
+#include <vector>
 
 class TexturedQuadApp : public core::Application
 { // 继承自Application类
@@ -27,6 +28,8 @@ protected:
 private:
     void CreateVertexBuffer(); // 创建顶点缓冲区，存储每个顶点的属性数据，例如位置、颜色、法线、纹理坐标等
     void CreateIndexBuffer(); // 创建索引缓冲区，存储顶点的索引值（整数），用来复用顶点
+    void CreateUniformBuffers(); // 创建统一缓冲区，存储全局的变换矩阵、光照信息等
+    void UpdateUniformBuffers(); // 更新统一缓冲区，将变换矩阵、光照信息等数据写入到统一缓冲区中
 
     void CreateGraphicsPipeline(); // 创建图形管线，用于渲染图形
 
@@ -47,4 +50,6 @@ private:
     uint32_t m_IndexCount = 0; // 索引数量
 
     std::unique_ptr<vkp::Pipeline> m_GraphicsPipeline; // 图形管线
+
+    std::vector<std::unique_ptr<vkp::Buffer>> m_UniformBuffers; // UBO 统一缓冲区
 };
