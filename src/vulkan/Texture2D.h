@@ -34,6 +34,11 @@ private:
     std::unique_ptr<Image> m_Image; // 图像
     std::unique_ptr<ImageView> m_ImageView; // 图像视图
     std::unique_ptr<Sampler> m_Sampler; // 采样器
+    // typedef struct VkDescriptorImageInfo {
+    //     VkSampler        sampler;        // 采样器
+    //     VkImageView      imageView;      // 图像视图
+    //     VkImageLayout    imageLayout;    // 图像布局
+    // } VkDescriptorImageInfo;
     VkDescriptorImageInfo m_DescriptorInfo{}; // 描述符信息
 };
 }

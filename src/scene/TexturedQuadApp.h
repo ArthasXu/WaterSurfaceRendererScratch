@@ -6,6 +6,7 @@
 
 #include "vulkan/Buffer.h"
 #include "vulkan/Pipeline.h"
+#include "vulkan/Texture2D.h"
 
 #include <memory>
 #include <cstdint>
@@ -39,6 +40,8 @@ private:
     void CreateDescriptorPool(); // 创建描述符池，用于分配描述符集
     void CreateDescriptorSets(); // 创建描述符集，用于存储描述符
 
+    void CreateTexture(); // 创建纹理，用于存储图像数据
+
 private:
     scene::Camera m_Camera; // 相机
 
@@ -62,4 +65,6 @@ private:
     std::unique_ptr<vkp::DescriptorSetLayout> m_DescriptorSetLayout; // 描述符集布局
     std::unique_ptr<vkp::DescriptorPool> m_DescriptorPool; // 描述符池
     std::vector<VkDescriptorSet> m_DescriptorSets; // 描述符集
+
+    std::unique_ptr<vkp::Texture2D> m_Texture; // 纹理
 };

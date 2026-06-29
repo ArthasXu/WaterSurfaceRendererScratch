@@ -19,7 +19,7 @@ Texture2D::Texture2D(
     int texWidth = 0, texHeight = 0, texChannels = 0; // 纹理宽度、高度、通道数
     stbi_uc* pixels = stbi_load(path.c_str(), &texWidth, &texHeight, &texChannels, STBI_rgb_alpha); // 加载纹理
     if (!pixels) { // 如果加载失败
-        throw std::runtime_error("failed to load texture image!"); // 抛出异常    
+        throw std::runtime_error("failed to load texture image: " + path); // 抛出异常    
     }
 
     VkDeviceSize imageSize = static_cast<VkDeviceSize>(texWidth) *
@@ -97,7 +97,5 @@ VkSampler Texture2D::GetSampler() const
 {
     return *m_Sampler;
 }
-
-
 
 }

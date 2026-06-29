@@ -91,6 +91,7 @@ public:
     DescriptorWriter(DescriptorSetLayout& setLayout, DescriptorPool& pool); // 构造函数
 
     DescriptorWriter& WriteBuffer(uint32_t binding, VkDescriptorBufferInfo* bufferInfo); // 写入一个 buffer 到这个描述符集中
+    DescriptorWriter& WriteImage(uint32_t binding, VkDescriptorImageInfo* imageInfo); // 写入一个 image 到这个描述符集中
 
     bool Build(VkDescriptorSet& set);
     void Overwrite(VkDescriptorSet& set);

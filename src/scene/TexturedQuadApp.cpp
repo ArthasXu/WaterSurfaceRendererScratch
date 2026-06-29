@@ -47,6 +47,8 @@ void TexturedQuadApp::Start(){ // 实现纯虚函数Start
     CreateIndexBuffer(); // 创建索引缓冲区
     
     CreateUniformBuffers(); // 创建统一缓冲区
+    CreateTexture(); // 创建纹理
+
     CreateDescriptorPool(); // 创建描述符池
     CreateDescriptorSets(); // 创建描述符集
 }
@@ -61,6 +63,8 @@ void TexturedQuadApp::ShutdownApp(){ // 实现纯虚函数ShutdownApp
     m_DescriptorPool.reset();
     m_DescriptorSetLayout.reset();
 
+    m_Texture.reset();
+
     m_UniformBuffers.clear();
 
     m_IndexBuffer.reset();
@@ -73,6 +77,11 @@ void TexturedQuadApp::CreateDescriptorSetLayout(){ // 创建描述符集布局
             0,
             VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
             VK_SHADER_STAGE_VERTEX_BIT
+        )
+        .AddBinding(
+            1,
+            VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+            VK_SHADER_STAGE_FRAGMENT_BIT
         )
         .Build(); // 创建描述符集布局,这里是一个UBO
 }
@@ -198,6 +207,10 @@ void TexturedQuadApp::CreateDescriptorPool(){ // 创建描述符池
         VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
         GetMaxFramesInFlight()
     )
+    .AddPoolSize(
+        VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+        GetMaxFramesInFlight()
+    )
     .Build();
 }
 
@@ -211,8 +224,11 @@ void TexturedQuadApp::CreateDescriptorSets(){ // 创建描述符集
         bufferInfo.offset = 0;
         bufferInfo.range = sizeof(VertexUBO);
 
+        VkDescriptorImageInfo imageInfo = m_Texture->GetDescriptorInfo();
+
         bool success = vkp::DescriptorWriter(*m_DescriptorSetLayout, *m_DescriptorPool)
             .WriteBuffer(0, &bufferInfo)
+            .WriteImage(1, &imageInfo)
             .Build(m_DescriptorSets[i]);
 
         if(!success){
@@ -220,6 +236,17 @@ void TexturedQuadApp::CreateDescriptorSets(){ // 创建描述符集
         }
     } 
 }
+
+void TexturedQuadApp::CreateTexture(){ // 创建纹理
+    m_Texture = std::make_unique<vkp::Texture2D>(
+        GetPhysicalDevice(),
+        GetDevice(),
+        GetCommandPool(),
+        GetDevice().GetGraphicsQueue(),
+        "assets/checker.jpeg"
+    );
+}
+
 
 void TexturedQuadApp::UpdateUniformBuffers(){ // 更新统一缓冲区
     VertexUBO ubo{};

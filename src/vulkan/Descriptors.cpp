@@ -166,6 +166,24 @@ DescriptorWriter& DescriptorWriter::WriteBuffer(uint32_t binding, VkDescriptorBu
     return *this;
 }
 
+DescriptorWriter& DescriptorWriter::WriteImage(uint32_t binding, VkDescriptorImageInfo* imageInfo){ // 写入一个 image 到这个描述符集中
+    assert(m_SetLayout.GetBindings().count(binding) == 1 && "Layout does not contain binding");
+
+    const auto& bindingDescription = m_SetLayout.GetBindings().at(binding);
+
+    assert(bindingDescription.descriptorCount == 1 && "Binding single descriptor writes only");
+
+    VkWriteDescriptorSet write{};
+    write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    write.descriptorType = bindingDescription.descriptorType;
+    write.dstBinding = binding;
+    write.pImageInfo = imageInfo;
+    write.descriptorCount = 1;
+
+    m_Writes.push_back(write);
+    return *this;
+}
+
 bool DescriptorWriter::Build(VkDescriptorSet& set)
 { // 构建描述符集
     bool success = m_Pool.AllocateDescriptorSet(m_SetLayout, set);
