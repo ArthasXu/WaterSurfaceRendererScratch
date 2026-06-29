@@ -133,7 +133,7 @@ add_executable(stage4_textured_quad
     src/vulkan/CommandBuffer.cpp
     src/vulkan/SyncObjects.cpp
     src/vulkan/Buffer.cpp
-    src/vulkan/Description.cpp
+    src/vulkan/Descriptors.cpp
     src/vulkan/Image.cpp
     src/vulkan/Sampler.cpp
     src/vulkan/Texture2D.cpp

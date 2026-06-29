@@ -11,6 +11,8 @@
 #include <cstdint>
 #include <vector>
 
+#include "vulkan/Descriptors.h"
+
 class TexturedQuadApp : public core::Application
 { // 继承自Application类
 protected:
@@ -33,6 +35,10 @@ private:
 
     void CreateGraphicsPipeline(); // 创建图形管线，用于渲染图形
 
+    void CreateDescriptorSetLayout(); // 创建描述符集布局，用于描述描述符集的结构
+    void CreateDescriptorPool(); // 创建描述符池，用于分配描述符集
+    void CreateDescriptorSets(); // 创建描述符集，用于存储描述符
+
 private:
     scene::Camera m_Camera; // 相机
 
@@ -52,4 +58,8 @@ private:
     std::unique_ptr<vkp::Pipeline> m_GraphicsPipeline; // 图形管线
 
     std::vector<std::unique_ptr<vkp::Buffer>> m_UniformBuffers; // UBO 统一缓冲区
+
+    std::unique_ptr<vkp::DescriptorSetLayout> m_DescriptorSetLayout; // 描述符集布局
+    std::unique_ptr<vkp::DescriptorPool> m_DescriptorPool; // 描述符池
+    std::vector<VkDescriptorSet> m_DescriptorSets; // 描述符集
 };

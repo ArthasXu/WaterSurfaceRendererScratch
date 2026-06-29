@@ -36,24 +36,52 @@ struct VertexUBO
 }; // 顶点着色器的UBO
 
 void TexturedQuadApp::Start(){ // 实现纯虚函数Start
+    // pipeline layout 需要 descriptor set layout
+    // descriptor set 需要 uniform buffer 已创建
     VKP_INFO("TexturedQuadApp started");
 
+    CreateDescriptorSetLayout(); // 创建描述符集布局
     CreateGraphicsPipeline(); // 创建图形管线
+
     CreateVertexBuffer(); // 创建顶点缓冲区
     CreateIndexBuffer(); // 创建索引缓冲区
+    
     CreateUniformBuffers(); // 创建统一缓冲区
+    CreateDescriptorPool(); // 创建描述符池
+    CreateDescriptorSets(); // 创建描述符集
 }
 
 void TexturedQuadApp::ShutdownApp(){ // 实现纯虚函数ShutdownApp
-    m_UniformBuffers.clear(); // 清空统一缓冲区
-    m_GraphicsPipeline.reset(); // 重置图形管线
-    m_IndexBuffer.reset(); // 重置索引缓冲区
-    m_VertexBuffer.reset(); // 重置顶点缓冲区
+    // pipeline layout 依赖 descriptor set layout 信息
+    // descriptor sets 属于 descriptor pool
+    // buffer 必须早于 device 销毁
+    m_GraphicsPipeline.reset();
+
+    m_DescriptorSets.clear();
+    m_DescriptorPool.reset();
+    m_DescriptorSetLayout.reset();
+
+    m_UniformBuffers.clear();
+
+    m_IndexBuffer.reset();
+    m_VertexBuffer.reset();
+}
+
+void TexturedQuadApp::CreateDescriptorSetLayout(){ // 创建描述符集布局
+    m_DescriptorSetLayout = vkp::DescriptorSetLayout::Builder(GetDevice())
+        .AddBinding(
+            0,
+            VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+            VK_SHADER_STAGE_VERTEX_BIT
+        )
+        .Build(); // 创建描述符集布局,这里是一个UBO
 }
 
 void TexturedQuadApp::CreateGraphicsPipeline(){ // 创建图形管线
     vkp::PipelineConfig config; // 配置
 
+    config.descriptorSetLayouts = {*m_DescriptorSetLayout}; // 描述符集布局
+    
     auto bindingDescription = Vertex::GetBindingDescription(); // 绑定描述
     auto attributeDescriptions = Vertex::GetAttributeDescriptions(); // 属性描述
 
@@ -62,7 +90,7 @@ void TexturedQuadApp::CreateGraphicsPipeline(){ // 创建图形管线
         attributeDescriptions[0],
         attributeDescriptions[1],
         attributeDescriptions[2]
-    };
+    }; // 属性描述
 
     m_GraphicsPipeline = std::make_unique<vkp::Pipeline>(
         GetDevice(),
@@ -161,6 +189,36 @@ void TexturedQuadApp::CreateUniformBuffers(){ // 创建统一缓冲区
 
         m_UniformBuffers.push_back(std::move(uniformBuffer)); // 移动语义
     }
+}
+
+void TexturedQuadApp::CreateDescriptorPool(){ // 创建描述符池
+    m_DescriptorPool = vkp::DescriptorPool::Builder(GetDevice())
+    .SetMaxSets(GetMaxFramesInFlight())
+    .AddPoolSize(
+        VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+        GetMaxFramesInFlight()
+    )
+    .Build();
+}
+
+void TexturedQuadApp::CreateDescriptorSets(){ // 创建描述符集
+    m_DescriptorSets.resize(GetMaxFramesInFlight());
+
+    //  3 个 UBO（对应 3 个飞行帧），每个 UBO 对应一个描述符集
+    for(uint32_t i = 0; i < GetMaxFramesInFlight(); i++){
+        VkDescriptorBufferInfo bufferInfo{};
+        bufferInfo.buffer = *m_UniformBuffers[i];
+        bufferInfo.offset = 0;
+        bufferInfo.range = sizeof(VertexUBO);
+
+        bool success = vkp::DescriptorWriter(*m_DescriptorSetLayout, *m_DescriptorPool)
+            .WriteBuffer(0, &bufferInfo)
+            .Build(m_DescriptorSets[i]);
+
+        if(!success){
+            throw std::runtime_error("Failed to allocate descriptor set!");
+        }
+    } 
 }
 
 void TexturedQuadApp::UpdateUniformBuffers(){ // 更新统一缓冲区

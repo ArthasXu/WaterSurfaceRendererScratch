@@ -4,6 +4,21 @@ layout(location = 0) in vec3 inPosition; // 位置
 layout(location = 1) in vec3 inColor; // 颜色
 layout(location = 2) in vec2 inUV; // 纹理坐标
 
+// set 和 binding 是着色器与外部资源连接的两级寻址系统
+// binding 是一个整数编号，它在同一个 set 内部唯一标识一个资源描述 指定该资源在描述符集中的具体位置
+// set 是一个整数编号，它在整个描述符集中唯一标识一组相关的资源描述 描述符集布局是一组 binding 的集合
+
+// // 典型用法
+// // set = 0, binding = 0：全局 UBO（每帧变化的 MVP 矩阵）
+// layout(set = 0, binding = 0) uniform GlobalUBO { ... } global;
+
+// // set = 1, binding = 0：材质纹理（同一材质的不同贴图）
+// layout(set = 1, binding = 0) uniform sampler2D diffuseMap;
+// layout(set = 1, binding = 1) uniform sampler2D normalMap;
+
+// // set = 2, binding = 0：物体自己的属性（每个物体不同的变换）
+// layout(set = 2, binding = 0) uniform ObjectUBO { ... } object;
+
 layout(set = 0, binding = 0) uniform VertexUBO {
     mat4 model; // 物体自身变换 可以让四边形独立旋转、平移、缩放，不依赖修改顶点缓冲区
     mat4 view; // 相机视图变换 将世界空间坐标转换到相机视角，让四边形随相机移动/旋转，实现第一人称或漫游效果
