@@ -330,6 +330,20 @@ void TexturedQuadApp::Render(VkCommandBuffer commandBuffer, uint32_t imageIndex)
 
     vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, *m_GraphicsPipeline); // 绑定管线
 
+    uint32_t currentFrame = GetCurrentFrameIndex();
+
+    // 将包含 MVP 矩阵的 UBO 绑定到着色器，让着色器知道该去读取哪块缓冲区中的变换数据
+    vkCmdBindDescriptorSets(
+        commandBuffer,
+        VK_PIPELINE_BIND_POINT_GRAPHICS,
+        m_GraphicsPipeline->GetLayout(),
+        0,
+        1,
+        &m_DescriptorSets[currentFrame],
+        0,
+        nullptr
+    ); // 绑定描述符集
+    
     VkBuffer vertexBuffers[] = {*m_VertexBuffer}; // 顶点缓冲区
     VkDeviceSize offsets[] = {0}; // 偏移量
 
