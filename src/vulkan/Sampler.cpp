@@ -27,7 +27,7 @@ VkSampler Sampler::GetHandle() const
     return m_Sampler;
 }
 
-void Sample::CreateSampler(){ // 创建采样器
+void Sampler::CreateSampler(){ // 创建采样器
     VkSamplerCreateInfo samplerInfo{}; // 采样器创建信息
     samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO; // 结构类型
 
