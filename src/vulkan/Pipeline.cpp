@@ -134,10 +134,10 @@ void Pipeline::createGraphicsPipeline(
     rasterizer.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO; // 结构体类型
     rasterizer.depthClampEnable = VK_FALSE; // 深度剪裁, 禁用
     rasterizer.rasterizerDiscardEnable = VK_FALSE; // 光栅化丢弃, 禁用
-    rasterizer.polygonMode = VK_POLYGON_MODE_FILL; // 多边形模式, 填充
+    rasterizer.polygonMode = config.polygonMode; // 多边形模式, 填充
     rasterizer.lineWidth = 1.0f; // 线宽, 1.0
-    rasterizer.cullMode = VK_CULL_MODE_NONE; // 剔除模式, 无
-    rasterizer.frontFace = VK_FRONT_FACE_CLOCKWISE; // 正面朝向, 顺时针
+    rasterizer.cullMode = config.cullMode; // 剔除模式, GPU 自动剔除背面三角形
+    rasterizer.frontFace = config.frontFace; // 正面朝向, 定义了哪个方向是“正面”
     rasterizer.depthBiasEnable = VK_FALSE; // 深度偏移, 禁用
 
     VkPipelineMultisampleStateCreateInfo multisampling{}; // 多重采样信息
@@ -155,9 +155,9 @@ void Pipeline::createGraphicsPipeline(
 
     VkPipelineDepthStencilStateCreateInfo depthStencil{}; // 深度模板信息
     depthStencil.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO; // 结构体类型
-    depthStencil.depthTestEnable = VK_TRUE; // 深度测试启用, 启用
-    depthStencil.depthWriteEnable = VK_TRUE; // 深度写入启用, 启用
-    depthStencil.depthCompareOp = VK_COMPARE_OP_LESS; // 深度比较操作, 小于
+    depthStencil.depthTestEnable = config.depthTestEnable; // 深度测试启用
+    depthStencil.depthWriteEnable = config.depthWriteEnable; // 深度写入启用
+    depthStencil.depthCompareOp = config.depthCompareOp; // 深度比较操作
     depthStencil.depthBoundsTestEnable = VK_FALSE; // 深度范围测试启用, 禁用
     depthStencil.stencilTestEnable = VK_FALSE; // 模板测试启用, 禁用
     

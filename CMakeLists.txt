@@ -44,6 +44,9 @@ target_link_libraries(stage1_triangle PRIVATE
 # stage2_triangle
 add_executable(stage2_triangle
     src/main/stage2/stage2_triangle.cpp
+
+    src/scene/water/render/DepthBuffer.cpp
+
     src/vulkan/Instance.cpp
     src/vulkan/Surface.cpp
     src/vulkan/PhysicalDevice.cpp
@@ -82,6 +85,7 @@ add_executable(stage3_clear_color
     src/core/Log.cpp
 
     src/scene/Camera.cpp
+    src/scene/water/render/DepthBuffer.cpp
 
     src/vulkan/Instance.cpp
     src/vulkan/Surface.cpp
@@ -122,6 +126,7 @@ add_executable(stage4_textured_quad
     src/scene/Camera.cpp
     src/scene/Vertex.cpp
     src/scene/TexturedQuadApp.cpp
+    src/scene/water/render/DepthBuffer.cpp
 
     src/vulkan/Instance.cpp
     src/vulkan/Surface.cpp
