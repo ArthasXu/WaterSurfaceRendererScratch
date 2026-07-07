@@ -7,6 +7,8 @@
 #include <iostream>
 #include <limits>
 #include <stdexcept>
+#include <cassert> // 用于断言
+#include <array>
 
 namespace vkp
 {
@@ -268,36 +270,23 @@ void SwapChain::CreateDepthResources(
 ){
     m_DepthFormat = depthFormat;
 
-    m_DepthImages.clear();
-    m_DepthImageViews.clear();
+    m_DepthBuffers.clear();
+    m_DepthBuffers.reserve(m_ImageViews.size());
 
-    m_DepthImages.reserve(m_Images.size());
-    m_DepthImageViews.reserve(m_Images.size());
-
-    for(size_t i = 0; i < m_Images.size(); i++){
-        auto depthImage = std::make_unique<Image>(
-            physicalDevice,
-            m_Device,
-            m_Extent.width,
-            m_Extent.height,
-            depthFormat,
-            VK_IMAGE_TILING_OPTIMAL,
-            VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
-            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT
+    for(size_t i = 0; i < m_ImageViews.size(); i++){
+        m_DepthBuffers.emplace_back(
+            std::make_unique<water::DepthBuffer>(
+                physicalDevice,
+                m_Device,
+                m_Extent,
+                depthFormat
+            )
         );
+    } // 创建深度缓冲区
 
-        auto depthImageView = std::make_unique<ImageView>(
-            m_Device,
-            *depthImage,
-            depthFormat,
-            VK_IMAGE_ASPECT_DEPTH_BIT
-        );
+    assert(m_DepthBuffers.size() == m_ImageViews.size());
 
-        m_DepthImages.push_back(std::move(depthImage));
-        m_DepthImageViews.push_back(std::move(depthImageView));
-    }
-
-    std::cout << "Depth resources created: " << m_DepthImages.size() << "\n";
+    std::cout << "Depth resources created: " << m_DepthBuffers.size() << "\n";
 }
 
 void SwapChain::CreateFramebuffers(VkRenderPass renderPass)
@@ -326,16 +315,16 @@ void SwapChain::createFramebuffers(VkRenderPass renderPass)
 
     for(size_t i = 0; i < m_ImageViews.size(); i++)
     {
-        VkImageView attachments[] = {
+        std::array<VkImageView, 2> attachments = {
             *m_ImageViews[i],
-            *m_DepthImageViews[i]
-        }; // 加入深度图像视图
+            m_DepthBuffers[i]->GetImageView()
+        };// 加入深度图像视图
 
         VkFramebufferCreateInfo framebufferInfo{};
         framebufferInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
         framebufferInfo.renderPass = renderPass;
-        framebufferInfo.attachmentCount = 2;
-        framebufferInfo.pAttachments = attachments;
+        framebufferInfo.attachmentCount = static_cast<uint32_t>(attachments.size());
+        framebufferInfo.pAttachments = attachments.data();
         framebufferInfo.width = m_Extent.width;
         framebufferInfo.height = m_Extent.height;
         framebufferInfo.layers = 1;
@@ -357,8 +346,7 @@ void SwapChain::cleanupSwapChain()
     }
     m_Framebuffers.clear();
 
-    m_DepthImageViews.clear(); // 清理深度图像视图
-    m_DepthImages.clear(); // 清理深度图像
+    m_DepthBuffers.clear(); // 清理深度缓冲区
 
     m_ImageViews.clear(); // 清理图像视图
 

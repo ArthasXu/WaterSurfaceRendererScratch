@@ -8,6 +8,7 @@
 #include "ImageView.h"
 #include "PhysicalDevice.h"
 #include "Image.h"
+#include "scene/water/render/DepthBuffer.h"
 
 struct GLFWwindow;
 
@@ -74,8 +75,7 @@ private:
     VkFormat m_ImageFormat = VK_FORMAT_UNDEFINED;
     VkExtent2D m_Extent{};
 
-    std::vector<std::unique_ptr<Image>> m_DepthImages; // 深度图像
-    std::vector<std::unique_ptr<ImageView>> m_DepthImageViews; // 深度图像视图
+    std::vector<std::unique_ptr<water::DepthBuffer>> m_DepthBuffers;
     VkFormat m_DepthFormat = VK_FORMAT_UNDEFINED; // 深度格式
 };
 } // namespace vkp
