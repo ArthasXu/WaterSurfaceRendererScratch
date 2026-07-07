@@ -153,6 +153,14 @@ void Pipeline::createGraphicsPipeline(
         VK_COLOR_COMPONENT_A_BIT; // 颜色写入掩码, RGBA
     colorBlendAttachment.blendEnable = VK_FALSE; // 混合启用, 禁用
 
+    VkPipelineDepthStencilStateCreateInfo depthStencil{}; // 深度模板信息
+    depthStencil.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO; // 结构体类型
+    depthStencil.depthTestEnable = VK_TRUE; // 深度测试启用, 启用
+    depthStencil.depthWriteEnable = VK_TRUE; // 深度写入启用, 启用
+    depthStencil.depthCompareOp = VK_COMPARE_OP_LESS; // 深度比较操作, 小于
+    depthStencil.depthBoundsTestEnable = VK_FALSE; // 深度范围测试启用, 禁用
+    depthStencil.stencilTestEnable = VK_FALSE; // 模板测试启用, 禁用
+    
     VkPipelineColorBlendStateCreateInfo colorBlending{}; // 颜色混合信息
     colorBlending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO; // 结构体类型
     colorBlending.logicOpEnable = VK_FALSE; // 逻辑操作启用, 禁用
@@ -214,7 +222,7 @@ void Pipeline::createGraphicsPipeline(
     pipelineInfo.pViewportState = &viewportState; // 视口状态信息, 上面的 viewportState
     pipelineInfo.pRasterizationState = &rasterizer; // 光栅化信息, 上面的 rasterizer
     pipelineInfo.pMultisampleState = &multisampling; // 多重采样信息, 上面的 multisampling, 多重采样抗锯齿（MSAA）
-    pipelineInfo.pDepthStencilState = nullptr; // 深度模板状态信息, 无, 深度测试和模板测试
+    pipelineInfo.pDepthStencilState = &depthStencil; // 深度模板状态信息, 上面的 depthStencil
     pipelineInfo.pColorBlendState = &colorBlending; // 颜色混合信息, 上面的 colorBlending, 片段着色器输出如何与帧缓冲现有颜色混合
     pipelineInfo.pDynamicState = &dynamicState; // 动态状态信息, 上面的 dynamicState, 指定哪些状态可以在不重建管线的情况下动态更改
     pipelineInfo.layout = m_PipelineLayout; // 管线布局, 上面的 m_PipelineLayout, 管线布局决定了着色器如何访问资源

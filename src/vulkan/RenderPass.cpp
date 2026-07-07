@@ -2,13 +2,14 @@
 
 #include <iostream>
 #include <stdexcept>
+#include <array>
 
 namespace vkp
 {
-RenderPass::RenderPass(VkDevice device, VkFormat colorFormat)
+RenderPass::RenderPass(VkDevice device, VkFormat colorFormat, VkFormat depthFormat)
     : m_Device(device)
 {
-    createRenderPass(colorFormat);
+    createRenderPass(colorFormat, depthFormat);
 }
 
 RenderPass::~RenderPass()
@@ -28,7 +29,7 @@ VkRenderPass RenderPass::GetHandle() const
     return m_RenderPass;
 }
 
-void RenderPass::createRenderPass(VkFormat colorFormat){
+void RenderPass::createRenderPass(VkFormat colorFormat, VkFormat depthFormat){
     // VkRenderPassCreateInfo
     // ├── pAttachments → [ VkAttachmentDescription ]   (第 0 个：颜色附件)
     // │
@@ -62,27 +63,62 @@ void RenderPass::createRenderPass(VkFormat colorFormat){
     colorAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED; // 颜色附件初始布局, 开始前布局无所谓
     colorAttachment.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR; // 颜色附件最终布局, 结束后适合呈现
 
+    VkAttachmentDescription depthAttachment{}; // 深度附件描述, 定义“有哪些图像资源会被这次渲染用到”，以及它们的格式、清屏/保存策略、初始/最终 layout
+    depthAttachment.format = depthFormat;
+    depthAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
+    depthAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    depthAttachment.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    depthAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+    depthAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    depthAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    depthAttachment.finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL; // 深度附件最终布局, 结束后适合深度/模板附着
+
     VkAttachmentReference colorAttachmentRef{}; // 颜色附件引用, “子过程要用到 pAttachments 中的哪一个附件，以什么布局使用”
     colorAttachmentRef.attachment = 0; // 颜色附件索引, 引用第 0 号附着（即上面的 colorAttachment）
     colorAttachmentRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL; // 颜色附件布局, 子过程内最佳布局
 
+    VkAttachmentReference depthAttachmentRef{}; // 深度附件引用, “子过程要用到 pAttachments 中的哪一个附件，以什么布局使用”
+    depthAttachmentRef.attachment = 1; // 深度附件索引, 引用第 1 号附着（即上面的 depthAttachment）
+    depthAttachmentRef.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL; // 深度附件布局, 子过程内最佳布局
+    
+    // typedef struct VkSubpassDescription {
+    //     VkSubpassDescriptionFlags       flags;
+    //     VkPipelineBindPoint             pipelineBindPoint;
+    //     uint32_t                        inputAttachmentCount;
+    //     const VkAttachmentReference*    pInputAttachments;
+    //     uint32_t                        colorAttachmentCount;
+    //     const VkAttachmentReference*    pColorAttachments;
+    //     const VkAttachmentReference*    pResolveAttachments;
+    //     const VkAttachmentReference*    pDepthStencilAttachment;
+    //     uint32_t                        preserveAttachmentCount;
+    //     const uint32_t*                 pPreserveAttachments;
+    // } VkSubpassDescription;
     VkSubpassDescription subpass{}; // 子过程描述, 定义“一次具体绘制步骤怎么使用 attachment”。这里 graphics pipeline 写入 attachment 0
     subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS; // 子过程绑定点, 图形管线
     subpass.colorAttachmentCount = 1; // 颜色附件数量, 一个
     subpass.pColorAttachments = &colorAttachmentRef; // 颜色附件引用, 上面的 colorAttachmentRef
+    subpass.pDepthStencilAttachment = &depthAttachmentRef; // 深度/模板附件引用, 上面的 depthAttachmentRef
 
     VkSubpassDependency dependency{}; // 子过程依赖, 定义“外部操作和 subpass 之间的同步与 layout transition”。这里保证写 color attachment 前，图像已进入正确状态
     dependency.srcSubpass = VK_SUBPASS_EXTERNAL; // 源子过程, 外部（即没有依赖的子过程）
     dependency.dstSubpass = 0; // 目标子过程, 第 0 号子过程
-    dependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT; // 源阶段, 颜色附着输出
+    dependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT |
+                                VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;  // 源阶段, 颜色附着输出和早期片段测试
     dependency.srcAccessMask = 0; // 源访问, 无
-    dependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT; // 目标阶段, 颜色附着输出
-    dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT; // 目标访问, 颜色附着写入
+    dependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT |
+                                VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT; // 目标阶段, 颜色附着输出和早期片段测试
+    dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT |
+                                VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT; // 目标访问, 颜色附着写入和深度/模板附着写入
 
+    std::array<VkAttachmentDescription, 2> attachments = {
+        colorAttachment,
+        depthAttachment
+    };
+    
     VkRenderPassCreateInfo renderPassInfo{}; // 呈现过程创建信息, 把所有部分打包成一个完整的渲染通道对象
     renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO; // 结构体类型
-    renderPassInfo.attachmentCount = 1; // 附件数量, 一个
-    renderPassInfo.pAttachments = &colorAttachment; // 附件描述, 上面的 colorAttachment
+    renderPassInfo.attachmentCount = static_cast<uint32_t>(attachments.size());; // 附件数量
+    renderPassInfo.pAttachments = attachments.data(); // 附件描述
     renderPassInfo.subpassCount = 1; // 子过程数量, 一个
     renderPassInfo.pSubpasses = &subpass; // 子过程描述, 上面的 subpass
     renderPassInfo.dependencyCount = 1; // 子过程依赖数量, 一个

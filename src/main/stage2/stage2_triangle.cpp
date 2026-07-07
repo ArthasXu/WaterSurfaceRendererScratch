@@ -10,6 +10,7 @@
 #include <limits>       // UINT32_MAX
 #include <fstream>      // 二进制读取 .spv
 #include <memory>       // unique_ptr
+#include <array>
 
 #include <vulkan/vulkan.h>
 #include <GLFW/glfw3.h>
@@ -214,9 +215,15 @@ void cleanup(){  // 清理资源
 }
 
 void createRenderPass(){
-    vkp::SwapChainSupportDetails swapChainSupport = g_PhysicalDevice->QuerySwapChainSupport(); // 查询交换链支持信息
-    VkFormat colorFormat = vkp::SwapChain::chooseSwapSurfaceFormat(swapChainSupport.formats).format; // 选择交换链图像格式
-    g_RenderPass = std::make_unique<vkp::RenderPass>(*g_Device, colorFormat); // 创建渲染通道
+    vkp::SwapChainSupportDetails swapChainSupport = g_PhysicalDevice->QuerySwapChainSupport();
+    VkFormat colorFormat = vkp::SwapChain::chooseSwapSurfaceFormat(swapChainSupport.formats).format;
+    VkFormat depthFormat = g_Device->FindDepthFormat();
+
+    g_RenderPass = std::make_unique<vkp::RenderPass>(
+        *g_Device,
+        colorFormat,
+        depthFormat
+    );
 }
 void createSwapChain(){
     g_SwapChain = std::make_unique<vkp::SwapChain>(
@@ -224,9 +231,12 @@ void createSwapChain(){
         *g_Device,
         *g_Surface,
         g_Window,
-        g_PhysicalDevice->GetQueueFamilyIndices(),
-        *g_RenderPass
-    ); // 创建交换链
+        g_PhysicalDevice->GetQueueFamilyIndices()
+    );
+
+    VkFormat depthFormat = g_Device->FindDepthFormat();
+    g_SwapChain->CreateDepthResources(*g_PhysicalDevice, depthFormat);
+    g_SwapChain->CreateFramebuffers(*g_RenderPass);
 }
 void createGraphicsPipeline(){
     vkp::PipelineConfig config; // 创建管线配置
@@ -444,9 +454,15 @@ void recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t imageIndex){ //
     renderPassInfo.renderArea.offset = {0, 0}; // 渲染区域偏移
     renderPassInfo.renderArea.extent = g_SwapChain->GetExtent(); // 渲染区域大小
 
-    VkClearValue clearColor = {{{0.02f, 0.02f, 0.03f, 1.0f}}}; // 清除颜色
-    renderPassInfo.clearValueCount = 1; // 清除值数量
-    renderPassInfo.pClearValues = &clearColor; // 清除值数组
+    std::array<VkClearValue, 2> clearValues{};
+    clearValues[0].color.float32[0] = 0.0f;
+    clearValues[0].color.float32[1] = 0.0f;
+    clearValues[0].color.float32[2] = 0.0f;
+    clearValues[0].color.float32[3] = 1.0f;
+    clearValues[1].depthStencil = {1.0f, 0};
+
+    renderPassInfo.clearValueCount = static_cast<uint32_t>(clearValues.size());
+    renderPassInfo.pClearValues = clearValues.data();
 
     // void vkCmdBeginRenderPass(
     //     VkCommandBuffer                             commandBuffer,       // 命令缓冲区
