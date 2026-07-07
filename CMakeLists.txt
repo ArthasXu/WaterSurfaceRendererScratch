@@ -6,6 +6,7 @@ find_package(Vulkan REQUIRED)
 find_package(glfw3 CONFIG REQUIRED)
 find_package(glm CONFIG REQUIRED)
 find_package(spdlog CONFIG REQUIRED)
+find_package(FFTW3 CONFIG REQUIRED)
 
 
 # stage0_env
@@ -148,4 +149,20 @@ target_link_libraries(stage4_textured_quad PRIVATE
     glfw
     glm::glm
     spdlog::spdlog
+)
+
+# stage5_tessendorf_cpu
+add_executable(stage5_tessendorf_cpu
+    src/main/stage5/stage5_main.cpp
+    src/scene/WSTessendorf.cpp
+)
+
+target_include_directories(stage5_tessendorf_cpu PRIVATE ${CMAKE_SOURCE_DIR}/src)
+
+target_compile_features(stage5_tessendorf_cpu PRIVATE cxx_std_17)
+
+target_link_libraries(stage5_tessendorf_cpu PRIVATE
+    glm::glm
+    spdlog::spdlog
+    FFTW3::fftw3
 )
