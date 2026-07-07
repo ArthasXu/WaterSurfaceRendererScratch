@@ -7,7 +7,7 @@ namespace vkp
 class RenderPass
 {
 public:
-    RenderPass(VkDevice device, VkFormat colorFormat);
+    RenderPass(VkDevice device, VkFormat colorFormat, VkFormat depthFormat); // 构造函数
     ~RenderPass();
 
     RenderPass(const RenderPass&) = delete;
@@ -17,7 +17,7 @@ public:
     VkRenderPass GetHandle() const;
 
 private:
-    void createRenderPass(VkFormat colorFormat); // 创建渲染通道
+    void createRenderPass(VkFormat colorFormat, VkFormat depthFormat); // 创建渲染通道, 加入深度附件
 
 private:
     VkDevice m_Device = VK_NULL_HANDLE;             // 逻辑设备句柄

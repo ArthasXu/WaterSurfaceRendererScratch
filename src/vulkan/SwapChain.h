@@ -7,6 +7,7 @@
 
 #include "ImageView.h"
 #include "PhysicalDevice.h"
+#include "Image.h"
 
 struct GLFWwindow;
 
@@ -20,8 +21,7 @@ public:
         VkDevice device,
         VkSurfaceKHR surface,
         GLFWwindow* window,
-        const QueueFamilyIndices& queueFamilies,
-        VkRenderPass renderPass
+        const QueueFamilyIndices& queueFamilies
     );
     ~SwapChain();
 
@@ -39,6 +39,16 @@ public:
     VkResult Present(VkQueue presentQueue, VkSemaphore renderFinished, uint32_t imageIndex);
 
     static VkSurfaceFormatKHR chooseSwapSurfaceFormat(const std::vector<VkSurfaceFormatKHR>& availableFormats);
+
+    void CreateDepthResources(
+        VkPhysicalDevice physicalDevice,
+        VkFormat depthFormat
+    ); // 创建深度资源
+
+    void CreateFramebuffers(VkRenderPass renderPass); // 创建帧缓冲
+
+    VkImageView GetImageView(uint32_t imageIndex) const; // 获取图像视图
+    VkImageView GetDepthImageView(uint32_t imageIndex) const; // 获取深度图像视图
 
 private:
     void createSwapChain();
@@ -63,5 +73,9 @@ private:
 
     VkFormat m_ImageFormat = VK_FORMAT_UNDEFINED;
     VkExtent2D m_Extent{};
+
+    std::vector<std::unique_ptr<Image>> m_DepthImages; // 深度图像
+    std::vector<std::unique_ptr<ImageView>> m_DepthImageViews; // 深度图像视图
+    VkFormat m_DepthFormat = VK_FORMAT_UNDEFINED; // 深度格式
 };
 } // namespace vkp

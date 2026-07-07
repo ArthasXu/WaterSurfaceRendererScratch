@@ -15,6 +15,7 @@
 #include <sstream> // 用于格式化字符串
 #include <vector>
 #include <cstdint>
+#include <array>
 
 static const std::vector<Vertex> s_Vertices = {
     {{-0.5f, -0.5f, 0.0f}, {1.0f, 0.0f, 0.0f}, {0.0f, 1.0f}},
@@ -334,10 +335,15 @@ void TexturedQuadApp::Render(VkCommandBuffer commandBuffer, uint32_t imageIndex)
 
     float green = 0.02f + 0.2f * std::abs(std::sin(m_Time)); // 计算绿色分量
 
-    VkClearValue clearColor = {{{0.02f, green, 0.03f, 1.0f}}}; // 清除颜色, 动态变化
+    std::array<VkClearValue, 2> clearValues{};
+    clearValues[0].color.float32[0] = 0.02f;
+    clearValues[0].color.float32[1] = green;
+    clearValues[0].color.float32[2] = 0.03f;
+    clearValues[0].color.float32[3] = 1.0f; // 清除颜色, 动态变化
+    clearValues[1].depthStencil = {1.0f, 0}; // 清除深度和模板值
 
-    renderPassInfo.clearValueCount = 1; // 清除值数量
-    renderPassInfo.pClearValues = &clearColor; // 清除值数组
+    renderPassInfo.clearValueCount = static_cast<uint32_t>(clearValues.size()); // 清除值数量
+    renderPassInfo.pClearValues = clearValues.data(); // 清除值数组
 
     vkCmdBeginRenderPass(commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE); // 开始渲染通道
     

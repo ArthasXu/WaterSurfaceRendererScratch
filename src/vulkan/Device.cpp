@@ -132,7 +132,8 @@ VkDeviceSize Device::GetUniformBufferAlignment(VkDeviceSize instanceSize) const
 }
 
 VkDeviceSize Device::GetNonCoherentAtomSizeAlignment(VkDeviceSize instanceSize) const
-{ // 获取非一致原子大小对齐
+{   // 获取非一致原子大小对齐, 用于非一致原子操作
+    // 非一致原子操作是指在多个线程中对同一个内存位置进行读写操作，而不需要保证所有线程的读写顺序一致
     VkPhysicalDeviceProperties properties{};
     vkGetPhysicalDeviceProperties(m_PhysicalDevice, &properties);
 
@@ -143,4 +144,48 @@ VkDeviceSize Device::GetNonCoherentAtomSizeAlignment(VkDeviceSize instanceSize) 
 
     return instanceSize;
 }
+
+VkFormat Device::FindSupportedFormat(
+    const std::vector<VkFormat>& candidates,
+    VkImageTiling tiling,
+    VkFormatFeatureFlags features
+) const
+{   // 查找支持的格式
+    for(VkFormat format:candidates){
+        VkFormatProperties props{};
+        vkGetPhysicalDeviceFormatProperties(m_PhysicalDevice, format, &props); // 获取格式属性
+
+        if(tiling == VK_IMAGE_TILING_LINEAR && (props.linearTilingFeatures & features) == features){
+            // 线性平铺格式
+            return format;
+        }
+
+        if(tiling == VK_IMAGE_TILING_OPTIMAL && (props.optimalTilingFeatures & features) == features){
+            // 最优平铺格式
+            return format;
+        }
+    }
+
+    throw std::runtime_error("Failed to find supported format!");
+}
+
+VkFormat Device::FindDepthFormat() const
+{   // 查找深度格式
+    return FindSupportedFormat(
+        {
+            VK_FORMAT_D32_SFLOAT,
+            VK_FORMAT_D32_SFLOAT_S8_UINT,
+            VK_FORMAT_D24_UNORM_S8_UINT
+        },
+        VK_IMAGE_TILING_OPTIMAL,
+        VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT
+    ); // 查找支持的深度格式
+}
+
+bool Device::HasStencilComponent(VkFormat format)
+{   // 是否有 stencil 组件
+    return format == VK_FORMAT_D32_SFLOAT_S8_UINT ||
+           format == VK_FORMAT_D24_UNORM_S8_UINT; // 是否是带有 stencil 组件的深度格式
+}
+
 }
