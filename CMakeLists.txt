@@ -49,6 +49,7 @@ add_executable(stage2_triangle
     src/vulkan/PhysicalDevice.cpp
     src/vulkan/Device.cpp
     src/vulkan/ImageView.cpp
+    src/vulkan/Image.cpp
     src/vulkan/RenderPass.cpp
     src/vulkan/ShaderModule.cpp
     src/vulkan/Pipeline.cpp
@@ -87,6 +88,7 @@ add_executable(stage3_clear_color
     src/vulkan/PhysicalDevice.cpp
     src/vulkan/Device.cpp
     src/vulkan/ImageView.cpp
+    src/vulkan/Image.cpp
     src/vulkan/RenderPass.cpp
     src/vulkan/ShaderModule.cpp
     src/vulkan/Pipeline.cpp

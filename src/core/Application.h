@@ -88,5 +88,6 @@ private:
     uint32_t m_CurrentFrame = 0; // 当前帧索引
     bool m_FramebufferResized = false; // 帧缓冲区大小是否改变
     bool m_ShutdownCalled = false; // 是否调用了关闭函数
+    VkFormat m_DepthFormat = VK_FORMAT_UNDEFINED; // 深度格式
 };
 }

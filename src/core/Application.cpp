@@ -69,18 +69,29 @@ void Application::SetupVulkan() { // 设置Vulkan
     m_PhysicalDevice = std::make_unique<vkp::PhysicalDevice>(*m_Instance, *m_Surface); // 选择物理设备
     m_Device = std::make_unique<vkp::Device>(*m_PhysicalDevice, m_PhysicalDevice->GetQueueFamilyIndices()); // 创建逻辑设备
 
-    CreateRenderPass(); // 创建渲染通道
+    
     CreateSwapChain(); // 创建交换链
+
+    m_DepthFormat = m_Device->FindDepthFormat(); // 查找深度格式
+    // 打印 selected depth format
+
+    CreateRenderPass(); // 创建渲染通道
+
+    m_SwapChain->CreateDepthResources(*m_PhysicalDevice, m_DepthFormat); // 创建深度资源
+    m_SwapChain->CreateFramebuffers(*m_RenderPass); // 创建帧缓冲
+
     CreateCommandPool(); // 创建命令池
     CreateCommandBuffers(); // 创建命令缓冲区
     CreateSyncObjects(); // 创建同步对象
 }
 
 void Application::CreateRenderPass() { // 创建渲染通道
-    vkp::SwapChainSupportDetails swapChainSupport = m_PhysicalDevice->QuerySwapChainSupport(); // 查询交换链支持信息
-    VkFormat colorFormat = vkp::SwapChain::chooseSwapSurfaceFormat(swapChainSupport.formats).format; // 选择交换链图像格式
-
-    m_RenderPass = std::make_unique<vkp::RenderPass>(*m_Device, colorFormat); // 创建渲染通道
+    VkFormat colorFormat = m_SwapChain->GetImageFormat(); // 获取图像格式
+    m_RenderPass = std::make_unique<vkp::RenderPass>(
+        *m_Device,
+        colorFormat,
+        m_DepthFormat
+    ); // 创建渲染通道
 }
 
 void Application::CreateSwapChain() { // 创建交换链
@@ -89,8 +100,7 @@ void Application::CreateSwapChain() { // 创建交换链
         *m_Device,
         *m_Surface,
         m_Window->GetNativeWindow(), // 获取原生窗口
-        m_PhysicalDevice->GetQueueFamilyIndices(), // 获取队列族索引
-        *m_RenderPass
+        m_PhysicalDevice->GetQueueFamilyIndices() // 获取队列族索引
     );
 }
 
@@ -211,8 +221,14 @@ void Application::RecreateSwapChain(){ // 重新创建交换链
 
     CleanupSwapChain(); // 清理交换链
 
-    CreateRenderPass(); // 创建渲染通道
     CreateSwapChain(); // 创建交换链
+
+    m_DepthFormat = m_Device->FindDepthFormat(); // 查找深度格式
+
+    CreateRenderPass(); // 创建渲染通道
+
+    m_SwapChain->CreateDepthResources(*m_PhysicalDevice, m_DepthFormat); // 创建深度资源
+    m_SwapChain->CreateFramebuffers(*m_RenderPass); // 创建帧缓冲
 }
 
 void Application::CleanupSwapChain(){ // 清理交换链

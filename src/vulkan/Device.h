@@ -3,6 +3,7 @@
 #include "PhysicalDevice.h"
 
 #include <vulkan/vulkan.h>
+#include <vector>
 
 namespace vkp
 {
@@ -26,6 +27,16 @@ public:
     uint32_t FindMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties) const;
     VkDeviceSize GetUniformBufferAlignment(VkDeviceSize instanceSize) const;
     VkDeviceSize GetNonCoherentAtomSizeAlignment(VkDeviceSize instanceSize) const;
+
+    VkFormat FindSupportedFormat(
+        const std::vector<VkFormat>& candidates,
+        VkImageTiling tiling,
+        VkFormatFeatureFlags features
+    ) const; // 查找支持的格式
+
+    VkFormat FindDepthFormat() const; // 查找深度格式
+
+    static bool HasStencilComponent(VkFormat format); // 是否有 stencil 组件
 
 private:
     void createLogicalDevice(); // 创建逻辑设备

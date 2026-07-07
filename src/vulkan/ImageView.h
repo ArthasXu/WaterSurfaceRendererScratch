@@ -7,7 +7,12 @@ namespace vkp
 class ImageView
 {
 public:
-    ImageView(VkDevice device, VkImage image, VkFormat format);
+    ImageView(
+        VkDevice device,
+        VkImage image,
+        VkFormat format,
+        VkImageAspectFlags aspectMask = VK_IMAGE_ASPECT_COLOR_BIT
+    ); // 构造函数，aspectMask用于指定图像的颜色、深度、法线等组件
     ~ImageView();
 
     ImageView(const ImageView&) = delete;
@@ -17,7 +22,11 @@ public:
     VkImageView GetHandle() const;
 
 private:
-    void createImageView(VkImage image, VkFormat format); // 创建图像视图
+    void createImageView(
+        VkImage image,
+        VkFormat format,
+        VkImageAspectFlags aspectMask
+    ); // 创建图像视图
 
 private:
     VkDevice m_Device = VK_NULL_HANDLE;         // 逻辑设备句柄

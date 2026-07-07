@@ -15,8 +15,7 @@ SwapChain::SwapChain(
     VkDevice device,
     VkSurfaceKHR surface,
     GLFWwindow* window,
-    const QueueFamilyIndices& queueFamilies,
-    VkRenderPass renderPass
+    const QueueFamilyIndices& queueFamilies
 )
     : m_PhysicalDevice(physicalDevice),
       m_Device(device),
@@ -26,7 +25,6 @@ SwapChain::SwapChain(
 {
     createSwapChain();
     createImageViews();
-    createFramebuffers(renderPass);
 }
 
 SwapChain::~SwapChain()
@@ -264,6 +262,49 @@ VkExtent2D SwapChain::chooseSwapExtent(const VkSurfaceCapabilitiesKHR& capabilit
     return actualExtent;
 }
 
+void SwapChain::CreateDepthResources(
+    VkPhysicalDevice physicalDevice,
+    VkFormat depthFormat
+){
+    m_DepthFormat = depthFormat;
+
+    m_DepthImages.clear();
+    m_DepthImageViews.clear();
+
+    m_DepthImages.reserve(m_Images.size());
+    m_DepthImageViews.reserve(m_Images.size());
+
+    for(size_t i = 0; i < m_Images.size(); i++){
+        auto depthImage = std::make_unique<Image>(
+            physicalDevice,
+            m_Device,
+            m_Extent.width,
+            m_Extent.height,
+            depthFormat,
+            VK_IMAGE_TILING_OPTIMAL,
+            VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
+            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT
+        );
+
+        auto depthImageView = std::make_unique<ImageView>(
+            m_Device,
+            *depthImage,
+            depthFormat,
+            VK_IMAGE_ASPECT_DEPTH_BIT
+        );
+
+        m_DepthImages.push_back(std::move(depthImage));
+        m_DepthImageViews.push_back(std::move(depthImageView));
+    }
+
+    std::cout << "Depth resources created: " << m_DepthImages.size() << "\n";
+}
+
+void SwapChain::CreateFramebuffers(VkRenderPass renderPass)
+{
+    createFramebuffers(renderPass);
+}
+
 void SwapChain::createImageViews()
 {
     m_ImageViews.clear();
@@ -286,13 +327,14 @@ void SwapChain::createFramebuffers(VkRenderPass renderPass)
     for(size_t i = 0; i < m_ImageViews.size(); i++)
     {
         VkImageView attachments[] = {
-            *m_ImageViews[i]
-        };
+            *m_ImageViews[i],
+            *m_DepthImageViews[i]
+        }; // 加入深度图像视图
 
         VkFramebufferCreateInfo framebufferInfo{};
         framebufferInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
         framebufferInfo.renderPass = renderPass;
-        framebufferInfo.attachmentCount = 1;
+        framebufferInfo.attachmentCount = 2;
         framebufferInfo.pAttachments = attachments;
         framebufferInfo.width = m_Extent.width;
         framebufferInfo.height = m_Extent.height;
@@ -315,7 +357,10 @@ void SwapChain::cleanupSwapChain()
     }
     m_Framebuffers.clear();
 
-    m_ImageViews.clear();
+    m_DepthImageViews.clear(); // 清理深度图像视图
+    m_DepthImages.clear(); // 清理深度图像
+
+    m_ImageViews.clear(); // 清理图像视图
 
     if(m_SwapChain != VK_NULL_HANDLE)
     {
