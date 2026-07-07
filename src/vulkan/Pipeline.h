@@ -12,6 +12,14 @@ struct PipelineConfig
     std::vector<VkVertexInputBindingDescription> bindingDescriptions; // 顶点输入绑定描述
     std::vector<VkVertexInputAttributeDescription> attributeDescriptions; // 顶点输入属性描述
     std::vector<VkDescriptorSetLayout> descriptorSetLayouts; // 描述符集布局
+
+    bool depthTestEnable = false;                             // 深度测试是否启用
+    bool depthWriteEnable = false;                            // 深度写入是否启用
+    VkCompareOp depthCompareOp = VK_COMPARE_OP_LESS;          // 深度比较操作，表示新深度小于旧深度时通过
+
+    VkPolygonMode polygonMode = VK_POLYGON_MODE_FILL;         // 多边形模式，填充
+    VkCullModeFlags cullMode = VK_CULL_MODE_BACK_BIT;         // 剔除模式， GPU 自动剔除背面三角形
+    VkFrontFace frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;  // 正面朝向，定义了哪个方向是“正面”
 };
 class Pipeline
 {
