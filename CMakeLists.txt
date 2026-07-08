@@ -169,9 +169,11 @@ add_executable(stage5_water_grid
     src/core/Log.cpp
 
     src/scene/Camera.cpp
+    src/scene/water/common/WaterSurfaceComposer.cpp
     src/scene/water/render/DepthBuffer.cpp
     src/scene/water/render/WaterVertex.cpp
     src/scene/water/render/WaterGrid.cpp
+    src/scene/water/sources/WSGerstnerCPU.cpp
 
     src/vulkan/Instance.cpp
     src/vulkan/Surface.cpp

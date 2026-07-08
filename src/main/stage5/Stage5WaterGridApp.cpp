@@ -5,11 +5,30 @@
 #include "scene/water/render/WaterVertex.h"
 
 #include <GLFW/glfw3.h>
+#include <glm/gtc/constants.hpp>
 
 #include <array>
 #include <cmath>
 #include <sstream>
 #include <stdexcept>
+
+namespace
+{
+glm::vec2 RotateDirection(glm::vec2 direction, float degrees)
+{   // 将方向向量绕原点旋转指定角度
+    float radians = glm::radians(degrees); // 将角度转换为弧度
+
+    float c = std::cos(radians);
+    float s = std::sin(radians);
+
+    glm::vec2 rotated{
+        direction.x * c - direction.y * s,
+        direction.x * s + direction.y * c
+    };
+
+    return glm::normalize(rotated);
+}
+}
 
 void Stage5WaterGridApp::Start()
 {
@@ -20,6 +39,7 @@ void Stage5WaterGridApp::Start()
     CreateDescriptorSetLayout();    // 创建描述符集布局
     CreatePipelines();              // 创建管线
     CreateWaterGrid();              // 创建水网格
+    CreateGerstnerSource();         // 创建 Gerstner 源 
     CreateUniformBuffers();         // 创建统一缓冲区
     CreateDescriptorPool();         // 创建描述符池
     CreateDescriptorSets();         // 创建描述符集
@@ -120,6 +140,71 @@ void Stage5WaterGridApp::CreateWaterGrid()
     VKP_INFO("Water grid indices: {}", 128 * 128 * 6);
 }
 
+void Stage5WaterGridApp::CreateGerstnerSource()
+{   // 创建 Gerstner 源
+    // 固定 6 条测试波，验证叠加、相位、水平位移、法线
+    glm::vec2 windDirection = glm::normalize(glm::vec2(1.0f, 0.25f));
+
+    std::vector<water::GerstnerWave> waves;
+
+    waves.push_back({
+        windDirection,
+        1.2f,
+        48.0f,
+        5.5f,
+        0.40f,
+        0.0f
+    });
+
+    waves.push_back({
+        RotateDirection(windDirection, 12.0f),
+        0.7f,
+        30.0f,
+        5.0f,
+        0.35f,
+        1.7f
+    });
+
+    waves.push_back({
+        RotateDirection(windDirection, -18.0f),
+        0.35f,
+        18.0f,
+        4.5f,
+        0.30f,
+        2.3f
+    });
+
+    waves.push_back({
+        RotateDirection(windDirection, 35.0f),
+        0.15f,
+        10.0f,
+        3.8f,
+        0.25f,
+        0.9f
+    });
+
+    waves.push_back({
+        RotateDirection(windDirection, -40.0f),
+        0.07f,
+        6.0f,
+        3.2f,
+        0.20f,
+        2.9f
+    });
+
+    waves.push_back({
+        RotateDirection(windDirection, 90.0f),
+        0.025f,
+        3.0f,
+        2.5f,
+        0.15f,
+        1.3f
+    });
+
+    m_GerstnerSource = std::make_shared<water::WSGerstnerCPU>(waves);
+    m_Composer.AddSource(m_GerstnerSource);
+}
+
 void Stage5WaterGridApp::CreateUniformBuffers()
 {   // 创建统一缓冲区
     VkDeviceSize bufferSize = sizeof(CameraUBO);
@@ -192,11 +277,54 @@ void Stage5WaterGridApp::UpdateCameraUniformBuffer()
     );
 }
 
+void Stage5WaterGridApp::UpdateWaterSimulation(float deltaTime)
+{   // 更新水模拟
+    m_Composer.Update(deltaTime); // ICPUWaterSurfaceSource 更新水面高度
+
+    const std::vector<water::WaterVertex>& baseVertices =
+        m_WaterGrid->GetBaseVertices();
+
+    m_DeformedVertices = baseVertices;
+
+    for(size_t i = 0; i < m_DeformedVertices.size(); i++){
+        const water::WaterVertex& base = baseVertices[i];
+        water::WaterVertex& vertex = m_DeformedVertices[i];
+
+        glm::vec2 worldXZ{
+            base.position.x,
+            base.position.z
+        };
+
+        water::WaterSurfaceSample sample =
+            m_Composer.Sample(worldXZ);
+
+        vertex.position =
+            base.position +
+            glm::vec3(
+                sample.horizontalDisplacement.x,
+                sample.height,
+                sample.horizontalDisplacement.y
+            );
+
+        vertex.normal = glm::normalize(
+            glm::vec3(
+                -sample.slope.x,
+                 1.0f,
+                -sample.slope.y
+            )
+        );
+    }
+
+    m_WaterGrid->UpdateVertices(m_DeformedVertices);
+}
+
 void Stage5WaterGridApp::Update(core::Timestep timestep)
 {
-    m_Time += timestep.GetSeconds();
+    float dt = timestep.GetSeconds();
 
-    float distance = 20.0f * timestep.GetSeconds();
+    m_Time += dt;
+
+    float distance = 20.0f * dt;
 
     if(m_Keys[GLFW_KEY_W]){
         m_Camera.MoveForward(distance);
@@ -222,30 +350,50 @@ void Stage5WaterGridApp::Update(core::Timestep timestep)
         m_Camera.MoveUp(-distance);
     }
 
-    m_TitleUpdateTimer += timestep.GetSeconds();
+    float simulationDt = 0.0f;
 
-    if(m_TitleUpdateTimer >= 0.5f){
-        m_TitleUpdateTimer = 0.0f;
-
-        const glm::vec3& pos = m_Camera.GetPosition();
-
-        std::ostringstream title;
-        title << "Stage 5 - Water Grid | pos=("
-            << pos.x << ", "
-            << pos.y << ", "
-            << pos.z << ") yaw="
-            << m_Camera.GetYaw()
-            << " pitch="
-            << m_Camera.GetPitch()
-            << " mode="
-            << m_DebugMode
-            << " wire="
-            << (m_UseWireframe ? "on" : "off");
-
-        GetWindow().SetTitle(title.str());
+    if(!m_Paused){
+        simulationDt = dt;
     }
 
+    if(m_StepOnce){
+        simulationDt = 1.0f / 60.0f;
+        m_StepOnce = false;
+    }
+
+    UpdateWaterSimulation(simulationDt);
     UpdateCameraUniformBuffer();
+    UpdateWindowTitle();
+}
+
+void Stage5WaterGridApp::UpdateWindowTitle()
+{
+    m_TitleUpdateTimer += 1.0f / 60.0f;
+
+    if(m_TitleUpdateTimer < 0.5f){
+        return;
+    }
+
+    m_TitleUpdateTimer = 0.0f;
+
+    const glm::vec3& pos = m_Camera.GetPosition();
+
+    std::ostringstream title;
+    title << "Stage 5 - Gerstner Grid | pos=("
+        << pos.x << ", "
+        << pos.y << ", "
+        << pos.z << ") yaw="
+        << m_Camera.GetYaw()
+        << " pitch="
+        << m_Camera.GetPitch()
+        << " mode="
+        << m_DebugMode
+        << " wire="
+        << (m_UseWireframe ? "on" : "off")
+        << " paused="
+        << (m_Paused ? "yes" : "no");
+
+    GetWindow().SetTitle(title.str());
 }
 
 void Stage5WaterGridApp::Render(VkCommandBuffer commandBuffer, uint32_t imageIndex)
@@ -363,6 +511,21 @@ void Stage5WaterGridApp::OnKey(int key, int scancode, int action, int mods)
 
         if(key == GLFW_KEY_F4){
             m_DebugMode = 3;
+        }
+
+        if(key == GLFW_KEY_P){
+            m_Paused = !m_Paused;
+        }
+
+        if(key == GLFW_KEY_O){
+            m_StepOnce = true;
+            m_Paused = true;
+        }
+
+        if(key == GLFW_KEY_R){
+            if(m_GerstnerSource){
+                m_GerstnerSource->ResetTime();
+            }
         }
     }
     else if(action == GLFW_RELEASE){
