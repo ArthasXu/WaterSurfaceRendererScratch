@@ -78,7 +78,15 @@ void Device::createLogicalDevice(){ // 创建逻辑设备
         queueCreateInfos.push_back(queueCreateInfo); // 添加队列创建信息
     }
 
+    VkPhysicalDeviceFeatures supportedFeatures{}; // 设备特性
+    vkGetPhysicalDeviceFeatures(m_PhysicalDevice, &supportedFeatures); // 获取设备特性
+
     VkPhysicalDeviceFeatures deviceFeatures{}; // 设备特性
+
+    if(supportedFeatures.fillModeNonSolid){
+        deviceFeatures.fillModeNonSolid = VK_TRUE;
+        m_SupportsFillModeNonSolid = true;
+    }
 
     VkDeviceCreateInfo createInfo{}; // 设备创建信息
     createInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO; // 结构体类型
@@ -186,6 +194,11 @@ bool Device::HasStencilComponent(VkFormat format)
 {   // 是否有 stencil 组件
     return format == VK_FORMAT_D32_SFLOAT_S8_UINT ||
            format == VK_FORMAT_D24_UNORM_S8_UINT; // 是否是带有 stencil 组件的深度格式
+}
+
+bool Device::SupportsFillModeNonSolid() const
+{   // 是否支持非实心填充模式
+    return m_SupportsFillModeNonSolid;
 }
 
 }
