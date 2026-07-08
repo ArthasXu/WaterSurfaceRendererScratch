@@ -158,18 +158,45 @@ target_link_libraries(stage4_textured_quad PRIVATE
     spdlog::spdlog
 )
 
-# stage5_tessendorf_cpu
-add_executable(stage5_tessendorf_cpu
+# stage5_water_grid
+add_executable(stage5_water_grid
     src/main/stage5/stage5_main.cpp
-    src/scene/WSTessendorf.cpp
+    src/main/stage5/Stage5WaterGridApp.cpp
+
+    src/core/Application.cpp
+    src/core/Window.cpp
+    src/core/Timer.cpp
+    src/core/Log.cpp
+
+    src/scene/Camera.cpp
+    src/scene/water/render/DepthBuffer.cpp
+    src/scene/water/render/WaterVertex.cpp
+    src/scene/water/render/WaterGrid.cpp
+
+    src/vulkan/Instance.cpp
+    src/vulkan/Surface.cpp
+    src/vulkan/PhysicalDevice.cpp
+    src/vulkan/Device.cpp
+    src/vulkan/Image.cpp
+    src/vulkan/ImageView.cpp
+    src/vulkan/RenderPass.cpp
+    src/vulkan/ShaderModule.cpp
+    src/vulkan/Pipeline.cpp
+    src/vulkan/SwapChain.cpp
+    src/vulkan/CommandPool.cpp
+    src/vulkan/CommandBuffer.cpp
+    src/vulkan/SyncObjects.cpp
+    src/vulkan/Buffer.cpp
+    src/vulkan/Descriptors.cpp
 )
 
-target_include_directories(stage5_tessendorf_cpu PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_include_directories(stage5_water_grid PRIVATE ${CMAKE_SOURCE_DIR}/src)
 
-target_compile_features(stage5_tessendorf_cpu PRIVATE cxx_std_17)
+target_compile_features(stage5_water_grid PRIVATE cxx_std_17)
 
-target_link_libraries(stage5_tessendorf_cpu PRIVATE
+target_link_libraries(stage5_water_grid PRIVATE
+    Vulkan::Vulkan
+    glfw
     glm::glm
     spdlog::spdlog
-    FFTW3::fftw3
 )

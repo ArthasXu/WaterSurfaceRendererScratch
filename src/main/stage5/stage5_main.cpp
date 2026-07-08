@@ -1,7 +1,17 @@
+#include "main/stage5/Stage5WaterGridApp.h"
+
+#include <exception>
 #include <iostream>
 
 int main()
 {
-    std::cout << "Stage 5 Tessendorf CPU test\n";
-    return 0;
+    try{
+        Stage5WaterGridApp app;
+        app.Run();
+        return 0;
+    }
+    catch(const std::exception& e){
+        std::cerr << e.what() << "\n";
+        return 1;
+    }
 }

@@ -38,6 +38,8 @@ public:
 
     static bool HasStencilComponent(VkFormat format); // 是否有 stencil 组件
 
+    bool SupportsFillModeNonSolid() const; // 是否支持非实心填充模式
+
 private:
     void createLogicalDevice(); // 创建逻辑设备
 
@@ -47,5 +49,6 @@ private:
     VkQueue m_GraphicsQueue = VK_NULL_HANDLE;               // 图形队列句柄
     VkQueue m_PresentQueue = VK_NULL_HANDLE;                // 呈现队列句柄
     QueueFamilyIndices m_QueueFamilyIndices;                // 队列族索引
+    bool m_SupportsFillModeNonSolid = false;                // 是否支持非实心填充模式
 };
 }
