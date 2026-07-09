@@ -202,3 +202,29 @@ target_link_libraries(stage5_water_grid PRIVATE
     glm::glm
     spdlog::spdlog
 )
+
+# stage5_fft_cpu
+add_executable(stage5_fft_cpu
+    src/main/stage5/fft_cpu_main.cpp
+
+    src/scene/water/sources/WSTessendorfCPU.cpp
+
+    src/scene/water/debug/ScalarFieldWriter.cpp
+)
+
+target_include_directories(stage5_fft_cpu
+    PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+)
+
+target_compile_features(stage5_fft_cpu
+    PRIVATE
+    cxx_std_17
+)
+
+target_link_libraries(stage5_fft_cpu
+    PRIVATE
+    glm::glm
+    spdlog::spdlog
+    FFTW3::fftw3
+)
