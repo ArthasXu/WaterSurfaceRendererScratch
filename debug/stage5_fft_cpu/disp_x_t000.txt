@@ -1,0 +1,7 @@
+field = disp_x_t000
+min = -0.0185221
+max = 0.0276265
+mean = 1.8652e-12
+rms = 0.00824592
+nanCount = 0
+infCount = 0

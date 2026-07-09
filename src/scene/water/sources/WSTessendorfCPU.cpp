@@ -1,13 +1,176 @@
 #include "scene/water/sources/WSTessendorfCPU.h"
 
+#include <fftw3.h>
+
 #include <glm/common.hpp>
 #include <glm/geometric.hpp>
 #include <glm/gtc/constants.hpp>
 
 #include <algorithm>
 #include <cmath>
+#include <complex>
+#include <limits>
 #include <random>
 #include <stdexcept>
+
+namespace
+{
+constexpr float kEpsilon = 1e-6f;
+
+class FFTField2D
+{
+public:
+    explicit FFTField2D(uint32_t resolution)
+        : m_N(resolution)
+    {
+        const size_t count = static_cast<size_t>(m_N) * static_cast<size_t>(m_N);
+
+        m_Input = reinterpret_cast<fftw_complex*>(
+            fftw_malloc(sizeof(fftw_complex) * count)
+        );
+
+        m_Output = reinterpret_cast<fftw_complex*>(
+            fftw_malloc(sizeof(fftw_complex) * count)
+        );
+
+        if(m_Input == nullptr || m_Output == nullptr){
+            throw std::runtime_error("Failed to allocate FFTW field memory");
+        }
+
+        m_Plan = fftw_plan_dft_2d(
+            static_cast<int>(m_N),
+            static_cast<int>(m_N),
+            m_Input,
+            m_Output,
+            FFTW_BACKWARD,
+            FFTW_ESTIMATE
+        );
+
+        if(m_Plan == nullptr){
+            throw std::runtime_error("Failed to create FFTW plan");
+        }
+    }
+
+    ~FFTField2D()
+    {
+        if(m_Plan != nullptr){
+            fftw_destroy_plan(m_Plan);
+        }
+
+        if(m_Input != nullptr){
+            fftw_free(m_Input);
+        }
+
+        if(m_Output != nullptr){
+            fftw_free(m_Output);
+        }
+    }
+
+    FFTField2D(const FFTField2D&) = delete;
+    FFTField2D& operator=(const FFTField2D&) = delete;
+
+    void SetSpectrum(const std::vector<std::complex<float>>& values)
+    {
+        const size_t count = static_cast<size_t>(m_N) * static_cast<size_t>(m_N);
+
+        if(values.size() != count){
+            throw std::runtime_error("FFTField2D::SetSpectrum size mismatch");
+        }
+
+        for(size_t i = 0; i < count; i++){
+            m_Input[i][0] = values[i].real();
+            m_Input[i][1] = values[i].imag();
+        }
+    }
+
+    void ExecuteInverse()
+    {
+        fftw_execute(m_Plan);
+    }
+
+    std::complex<float> GetSpatial(size_t index) const
+    {
+        double normalization =
+            1.0 / static_cast<double>(static_cast<size_t>(m_N) * static_cast<size_t>(m_N));
+
+        return {
+            static_cast<float>(m_Output[index][0] * normalization),
+            static_cast<float>(m_Output[index][1] * normalization)
+        };
+    }
+
+private:
+    uint32_t m_N = 0;
+
+    fftw_complex* m_Input = nullptr;
+    fftw_complex* m_Output = nullptr;
+
+    fftw_plan m_Plan = nullptr;
+};
+
+std::vector<std::complex<float>> InverseDFT2DNaive(
+    const std::vector<std::complex<float>>& spectrum,
+    uint32_t resolution
+){
+    const uint32_t n = resolution;
+    const size_t count = static_cast<size_t>(n) * static_cast<size_t>(n);
+
+    if(spectrum.size() != count){
+        throw std::runtime_error("InverseDFT2DNaive size mismatch");
+    }
+
+    std::vector<std::complex<float>> output(count);
+
+    const std::complex<float> imaginaryUnit{0.0f, 1.0f};
+    const float twoPi = glm::two_pi<float>();
+    const float normalization = 1.0f / static_cast<float>(count);
+
+    for(uint32_t z = 0; z < n; z++){
+        for(uint32_t x = 0; x < n; x++){
+            std::complex<float> sum{0.0f, 0.0f};
+
+            for(uint32_t nz = 0; nz < n; nz++){
+                for(uint32_t nx = 0; nx < n; nx++){
+                    float phase =
+                        twoPi *
+                        (
+                            static_cast<float>(nx * x) / static_cast<float>(n) +
+                            static_cast<float>(nz * z) / static_cast<float>(n)
+                        );
+
+                    std::complex<float> exponent =
+                        std::exp(imaginaryUnit * phase);
+
+                    size_t spectrumIndex =
+                        static_cast<size_t>(nz) * static_cast<size_t>(n) +
+                        static_cast<size_t>(nx);
+
+                    sum += spectrum[spectrumIndex] * exponent;
+                }
+            }
+
+            size_t outputIndex =
+                static_cast<size_t>(z) * static_cast<size_t>(n) +
+                static_cast<size_t>(x);
+
+            output[outputIndex] = sum * normalization;
+        }
+    }
+
+    return output;
+}
+
+float ComplexAbs(std::complex<float> value)
+{
+    return std::sqrt(value.real() * value.real() + value.imag() * value.imag());
+}
+
+glm::vec4 Lerp(glm::vec4 a, glm::vec4 b, float t)
+{
+    return a * (1.0f - t) + b * t;
+}
+}
+
 
 namespace water
 {
@@ -27,7 +190,7 @@ WSTessendorfCPU::WSTessendorfCPU(const TessendorfSpectrumParams& params)
     m_PhillipsValues.resize(count);
 
     m_H0.resize(count);
-    m_H0MinusConj.resize(count);
+    m_H0MinusConjugate.resize(count);
 
     m_HeightSpectrum.resize(count);
     m_SlopeXSpectrum.resize(count);
@@ -36,7 +199,16 @@ WSTessendorfCPU::WSTessendorfCPU(const TessendorfSpectrumParams& params)
     m_DisplacementZSpectrum.resize(count);
     m_DDxdxSpectrum.resize(count);
     m_DDzdzSpectrum.resize(count);
-    m_DDxDzSpectrum.resize(count);
+    m_DDxdzSpectrum.resize(count);
+
+    m_HeightSpatial.resize(count);
+    m_SlopeXSpatial.resize(count);
+    m_SlopeZSpatial.resize(count);
+    m_DisplacementXSpatial.resize(count);
+    m_DisplacementZSpatial.resize(count);
+    m_DDxdxSpatial.resize(count);
+    m_DDzdzSpatial.resize(count);
+    m_DDxdzSpatial.resize(count);
 
     m_Frame.resolution = m_N;
     m_Frame.patchLength = m_Params.patchLength;
@@ -144,7 +316,7 @@ void WSTessendorfCPU::ComputeInitialSpectrum()
             uint32_t minusX = (m_N - x) % m_N;
             uint32_t minusZ = (m_N - z) % m_N;
 
-            m_H0MinusConj[Index(x, z)] =
+            m_H0MinusConjugate[Index(x, z)] =
                 std::conj(m_H0[Index(minusX, minusZ)]);
         }
     }
@@ -218,41 +390,210 @@ void WSTessendorfCPU::ComputeAtTime(float timeSeconds)
 
 void WSTessendorfCPU::ComputeSpectrumAtTime(float timeSeconds)
 {
-    (void)timeSeconds;
+    const std::complex<float> imaginaryUnit{0.0f, 1.0f}; // i
+    
+    m_LastHermitianMaxError = 0.0f;
 
-    std::fill(m_HeightSpectrum.begin(), m_HeightSpectrum.end(), std::complex<float>{0.0f, 0.0f});
-    // 从 m_HeightSpectrum.begin() 开始，到 m_HeightSpectrum.end() 结束（即整个向量）。
-    // 将 m_HeightSpectrum 中的每一个元素都设置为 std::complex<float>{0.0f, 0.0f}，也就是复数 0 + 0i
-    std::fill(m_SlopeXSpectrum.begin(), m_SlopeXSpectrum.end(), std::complex<float>{0.0f, 0.0f});
-    std::fill(m_SlopeZSpectrum.begin(), m_SlopeZSpectrum.end(), std::complex<float>{0.0f, 0.0f});
-    std::fill(m_DisplacementXSpectrum.begin(), m_DisplacementXSpectrum.end(), std::complex<float>{0.0f, 0.0f});
-    std::fill(m_DisplacementZSpectrum.begin(), m_DisplacementZSpectrum.end(), std::complex<float>{0.0f, 0.0f});
-    std::fill(m_DDxdxSpectrum.begin(), m_DDxdxSpectrum.end(), std::complex<float>{0.0f, 0.0f});
-    std::fill(m_DDzdzSpectrum.begin(), m_DDzdzSpectrum.end(), std::complex<float>{0.0f, 0.0f});
-    std::fill(m_DDxDzSpectrum.begin(), m_DDxDzSpectrum.end(), std::complex<float>{0.0f, 0.0f});
+    for(uint32_t z = 0; z < m_N; z++){
+        for(uint32_t x = 0; x < m_N; x++){
+            size_t index = Index(x, z); // 计算索引
+
+            glm::vec2 k = m_WaveVectors[index]; // 波矢量
+            float kLength = glm::length(k); // 波矢量长度
+            float omega = m_Dispersion[index]; // 波速
+
+            std::complex<float> positivePhase = std::exp(imaginaryUnit * omega * timeSeconds); // 正相位因子
+            std::complex<float> negativePhase = std::exp(-imaginaryUnit * omega * timeSeconds); // 负相位因子
+            std::complex<float> h = m_H0[index] * positivePhase + m_H0MinusConjugate[index] * negativePhase; // 复振幅
+
+            m_HeightSpectrum[index] = h; // 高度频谱
+            m_SlopeXSpectrum[index] =
+                imaginaryUnit * k.x * h; // x方向斜率频谱
+            m_SlopeZSpectrum[index] =
+                imaginaryUnit * k.y * h; // z方向斜率频谱
+
+            if(kLength > kEpsilon){ // 避免除以零
+                m_DisplacementXSpectrum[index] =
+                    -imaginaryUnit * (k.x / kLength) * h; // x方向位移频谱
+
+                m_DisplacementZSpectrum[index] =
+                    -imaginaryUnit * (k.y / kLength) * h; // z方向位移频谱
+
+                // Jacobian 在这里指的是水面水平位移场（Displacement）对空间坐标的偏导数矩阵
+                m_DDxdxSpectrum[index] =
+                    (k.x * k.x / kLength) * h; // x方向位移Jacobian项
+
+                m_DDzdzSpectrum[index] =
+                    (k.y * k.y / kLength) * h; // z方向位移Jacobian项
+
+                m_DDxdzSpectrum[index] =
+                    (k.x * k.y / kLength) * h; // xz方向位移Jacobian项
+            }
+            else{
+                m_DisplacementXSpectrum[index] = {0.0f, 0.0f};
+                m_DisplacementZSpectrum[index] = {0.0f, 0.0f};
+                m_DDxdxSpectrum[index] = {0.0f, 0.0f};
+                m_DDzdzSpectrum[index] = {0.0f, 0.0f};
+                m_DDxdzSpectrum[index] = {0.0f, 0.0f};
+            }
+        }
+
+        for(uint32_t z = 0; z < m_N; z++){
+            for(uint32_t x = 0; x < m_N; x++){
+                uint32_t minusX = (m_N - x) % m_N;
+                uint32_t minusZ = (m_N - z) % m_N;
+
+                std::complex<float> h = m_HeightSpectrum[Index(x, z)];
+                std::complex<float> hMinus = m_HeightSpectrum[Index(minusX, minusZ)];
+
+                float error = ComplexAbs(hMinus - std::conj(h));
+
+                m_LastHermitianMaxError =
+                    std::max(m_LastHermitianMaxError, error);
+            }
+        }
+    }
 }
 
 void WSTessendorfCPU::ExecuteInverseFFTs()
 {
+    FFTField2D heightField(m_N);
+    FFTField2D slopeXField(m_N);
+    FFTField2D slopeZField(m_N);
+    FFTField2D displacementXField(m_N);
+    FFTField2D displacementZField(m_N);
+    FFTField2D dDxdxField(m_N);
+    FFTField2D dDzdzField(m_N);
+    FFTField2D dDxdzField(m_N);
+
+    heightField.SetSpectrum(m_HeightSpectrum);
+    slopeXField.SetSpectrum(m_SlopeXSpectrum);
+    slopeZField.SetSpectrum(m_SlopeZSpectrum);
+    displacementXField.SetSpectrum(m_DisplacementXSpectrum);
+    displacementZField.SetSpectrum(m_DisplacementZSpectrum);
+    dDxdxField.SetSpectrum(m_DDxdxSpectrum);
+    dDzdzField.SetSpectrum(m_DDzdzSpectrum);
+    dDxdzField.SetSpectrum(m_DDxdzSpectrum);
+
+    heightField.ExecuteInverse();
+    slopeXField.ExecuteInverse();
+    slopeZField.ExecuteInverse();
+    displacementXField.ExecuteInverse();
+    displacementZField.ExecuteInverse();
+    dDxdxField.ExecuteInverse();
+    dDzdzField.ExecuteInverse();
+    dDxdzField.ExecuteInverse();
+
+    const size_t count = static_cast<size_t>(m_N) * static_cast<size_t>(m_N);
+
+    m_LastMaxImaginaryResidual = 0.0f;
+
+    for(size_t i = 0; i < count; i++){
+        m_HeightSpatial[i] = heightField.GetSpatial(i);
+        m_SlopeXSpatial[i] = slopeXField.GetSpatial(i);
+        m_SlopeZSpatial[i] = slopeZField.GetSpatial(i);
+        m_DisplacementXSpatial[i] = displacementXField.GetSpatial(i);
+        m_DisplacementZSpatial[i] = displacementZField.GetSpatial(i);
+        m_DDxdxSpatial[i] = dDxdxField.GetSpatial(i);
+        m_DDzdzSpatial[i] = dDzdzField.GetSpatial(i);
+        m_DDxdzSpatial[i] = dDxdzField.GetSpatial(i);
+
+        m_LastMaxImaginaryResidual = std::max(
+            m_LastMaxImaginaryResidual,
+            std::abs(m_HeightSpatial[i].imag())
+        );
+    }
 }
 
 void WSTessendorfCPU::AssembleSpatialFrame()
 {
+    const float lambda = m_Params.choppyLambda;
+
     for(uint32_t z = 0; z < m_N; z++){
         for(uint32_t x = 0; x < m_N; x++){
             size_t index = Index(x, z);
 
-            m_Frame.displacement[index] = glm::vec4(0.0f);
-            m_Frame.normalAux[index] = glm::vec4(0.0f);
+            float height = m_HeightSpatial[index].real();
+
+            float slopeX = m_SlopeXSpatial[index].real();
+            float slopeZ = m_SlopeZSpatial[index].real();
+
+            float displacementX = m_DisplacementXSpatial[index].real();
+            float displacementZ = m_DisplacementZSpatial[index].real();
+
+            float dDxdx = m_DDxdxSpatial[index].real();
+            float dDzdz = m_DDzdzSpatial[index].real();
+            float dDxdz = m_DDxdzSpatial[index].real();
+
+            float jxx = 1.0f + lambda * dDxdx;
+            float jzz = 1.0f + lambda * dDzdz;
+            float jxz = lambda * dDxdz;
+
+            float jacobian = jxx * jzz - jxz * jxz;
+
+            m_Frame.displacement[index] = {
+                lambda * displacementX,
+                height,
+                lambda * displacementZ,
+                jacobian
+            };
+
+            m_Frame.normalAux[index] = {
+                slopeX,
+                slopeZ,
+                dDxdx,
+                dDzdz
+            };
         }
     }
 }
 
 WaterSurfaceSample WSTessendorfCPU::Sample(glm::vec2 worldXZ) const
 {
-    (void)worldXZ;
+    float u = worldXZ.x / m_Params.patchLength;
+    float v = worldXZ.y / m_Params.patchLength;
+
+    u -= std::floor(u); // 向下取整
+    v -= std::floor(v);
+
+    float fx = u * static_cast<float>(m_N);
+    float fz = v * static_cast<float>(m_N);
+
+    uint32_t x0 = static_cast<uint32_t>(std::floor(fx)) % m_N;
+    uint32_t z0 = static_cast<uint32_t>(std::floor(fz)) % m_N;
+
+    uint32_t x1 = (x0 + 1) % m_N;
+    uint32_t z1 = (z0 + 1) % m_N;
+
+    float tx = fx - std::floor(fx);
+    float tz = fz - std::floor(fz);
+
+    glm::vec4 d00 = m_Frame.displacement[Index(x0, z0)];
+    glm::vec4 d10 = m_Frame.displacement[Index(x1, z0)];
+    glm::vec4 d01 = m_Frame.displacement[Index(x0, z1)];
+    glm::vec4 d11 = m_Frame.displacement[Index(x1, z1)];
+
+    glm::vec4 n00 = m_Frame.normalAux[Index(x0, z0)];
+    glm::vec4 n10 = m_Frame.normalAux[Index(x1, z0)];
+    glm::vec4 n01 = m_Frame.normalAux[Index(x0, z1)];
+    glm::vec4 n11 = m_Frame.normalAux[Index(x1, z1)];
+
+    glm::vec4 d0 = Lerp(d00, d10, tx);
+    glm::vec4 d1 = Lerp(d01, d11, tx);
+    glm::vec4 displacement = Lerp(d0, d1, tz);
+
+    glm::vec4 n0 = Lerp(n00, n10, tx);
+    glm::vec4 n1 = Lerp(n01, n11, tx);
+    glm::vec4 normalAux = Lerp(n0, n1, tz);
 
     WaterSurfaceSample sample{};
+    sample.horizontalDisplacement = {displacement.x, displacement.z};
+    sample.height = displacement.y;
+    sample.slope = {normalAux.x, normalAux.y};
+    sample.foamSource = std::max(0.0f, 1.0f - displacement.w);
+    sample.velocity = {0.0f, 0.0f};
+    sample.blendMask = 1.0f;
+
     return sample;
 }
 
@@ -286,6 +627,21 @@ float WSTessendorfCPU::GetPhillipsValue(uint32_t x, uint32_t z) const
     return m_PhillipsValues[Index(x, z)];
 }
 
+std::complex<float> WSTessendorfCPU::GetH0(uint32_t x, uint32_t z) const
+{
+    return m_H0[Index(x, z)];
+}
+
+std::complex<float> WSTessendorfCPU::GetH0MinusConjugate(uint32_t x, uint32_t z) const
+{
+    return m_H0MinusConjugate[Index(x, z)];
+}
+
+std::complex<float> WSTessendorfCPU::GetHeightSpectrum(uint32_t x, uint32_t z) const
+{
+    return m_HeightSpectrum[Index(x, z)];
+}
+
 float WSTessendorfCPU::ComputeH0Checksum(uint32_t maxCount) const
 {
     uint32_t count = std::min<uint32_t>(
@@ -301,5 +657,83 @@ float WSTessendorfCPU::ComputeH0Checksum(uint32_t maxCount) const
     }
 
     return checksum;
+}
+
+float WSTessendorfCPU::ComputeFrameChecksum() const
+{
+    float checksum = 0.0f;
+
+    for(size_t i = 0; i < m_Frame.displacement.size(); i++){
+        checksum += m_Frame.displacement[i].x * 3.0f;
+        checksum += m_Frame.displacement[i].y * 5.0f;
+        checksum += m_Frame.displacement[i].z * 7.0f;
+        checksum += m_Frame.displacement[i].w * 11.0f;
+    }
+
+    return checksum;
+}
+
+float WSTessendorfCPU::GetLastHermitianMaxError() const
+{
+    return m_LastHermitianMaxError;
+}
+
+float WSTessendorfCPU::GetLastMaxImaginaryResidual() const
+{
+    return m_LastMaxImaginaryResidual;
+}
+
+FFTValidationStats WSTessendorfCPU::ValidateNaiveAgainstFFTW(float timeSeconds)
+{
+    ComputeSpectrumAtTime(timeSeconds);
+
+    std::vector<std::complex<float>> naive =
+        InverseDFT2DNaive(m_HeightSpectrum, m_N);
+
+    FFTField2D fftw(m_N);
+    fftw.SetSpectrum(m_HeightSpectrum);
+    fftw.ExecuteInverse();
+
+    const size_t count = static_cast<size_t>(m_N) * static_cast<size_t>(m_N);
+
+    FFTValidationStats stats{};
+
+    double sumAbsError = 0.0;
+    double sumSquaredError = 0.0;
+    double sumSquaredReference = 0.0;
+
+    for(size_t i = 0; i < count; i++){
+        std::complex<float> fftwValue = fftw.GetSpatial(i);
+
+        float realError =
+            std::abs(naive[i].real() - fftwValue.real());
+
+        stats.maxAbsRealError =
+            std::max(stats.maxAbsRealError, realError);
+
+        sumAbsError += realError;
+        sumSquaredError += static_cast<double>(realError) * static_cast<double>(realError);
+        sumSquaredReference +=
+            static_cast<double>(naive[i].real()) *
+            static_cast<double>(naive[i].real());
+
+        stats.maxImaginaryResidual =
+            std::max(stats.maxImaginaryResidual, std::abs(fftwValue.imag()));
+    }
+
+    stats.meanAbsRealError =
+        static_cast<float>(sumAbsError / static_cast<double>(count));
+
+    if(sumSquaredReference > 1e-20){
+        stats.relativeRmsError =
+            static_cast<float>(std::sqrt(sumSquaredError / sumSquaredReference));
+    }
+    else{
+        stats.relativeRmsError = 0.0f;
+    }
+
+    ComputeAtTime(timeSeconds);
+
+    return stats;
 }
 }

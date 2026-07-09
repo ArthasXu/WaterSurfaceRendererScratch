@@ -1,0 +1,7 @@
+field = disp_z_t000
+min = -0.0138198
+max = 0.0131589
+mean = 5.23526e-13
+rms = 0.00509607
+nanCount = 0
+infCount = 0
