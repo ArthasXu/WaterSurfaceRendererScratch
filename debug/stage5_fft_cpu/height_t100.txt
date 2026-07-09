@@ -1,0 +1,7 @@
+field = height_t100
+min = -0.0263724
+max = 0.0244485
+mean = -4.09173e-13
+rms = 0.00932724
+nanCount = 0
+infCount = 0
