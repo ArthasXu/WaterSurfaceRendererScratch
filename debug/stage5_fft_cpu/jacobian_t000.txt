@@ -1,0 +1,7 @@
+field = jacobian_t000
+min = 0.9975
+max = 1.0026
+mean = 1
+rms = 1
+nanCount = 0
+infCount = 0

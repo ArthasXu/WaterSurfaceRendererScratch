@@ -30,6 +30,14 @@ struct TessendorfSpectrumParams
     uint32_t randomSeed = 1337;             // Tessendorf 方法需要为每个波矢量生成随机复数振幅 
 };
 
+struct FFTValidationStats
+{
+    float maxAbsRealError = 0.0f;
+    float meanAbsRealError = 0.0f;
+    float relativeRmsError = 0.0f;
+    float maxImaginaryResidual = 0.0f;
+};
+
 class WSTessendorfCPU final : public ICPUWaterSurfaceSource
 {
 public:
@@ -48,7 +56,18 @@ public:
     float GetWaveNumber(uint32_t x, uint32_t z) const;     // 获取指定格点的波数 k = |k|
     float GetPhillipsValue(uint32_t x, uint32_t z) const;  // 获取指定格点的 Phillips 频谱值（能量分布）
 
+    std::complex<float> GetH0(uint32_t x, uint32_t z) const; // 获取指定格点的初始复振幅 h0(k)
+    std::complex<float> GetH0MinusConjugate(uint32_t x, uint32_t z) const; // 获取 h0*(-k)，用于频谱对称性
+    std::complex<float> GetHeightSpectrum(uint32_t x, uint32_t z) const; // 获取高度频谱 ̃h(k,t)
+    
     float ComputeH0Checksum(uint32_t maxCount = 16) const; // 计算前 maxCount 个 h0 的校验和，用于验证随机振幅的可重现性
+    float ComputeFrameChecksum() const; // 计算当前帧的校验和，用于验证模拟结果的一致性
+
+    float GetLastHermitianMaxError() const; // 获取最后一次逆 FFT 后的最大 Hermitian 误差
+    float GetLastMaxImaginaryResidual() const; // 获取最后一次逆 FFT 后的最大虚部残差
+
+    FFTValidationStats ValidateNaiveAgainstFFTW(float timeSeconds); // 使用 FFTW 验证模拟结果的正确性
+
 
 private:
     void ValidateParams() const;       // 校验频谱参数是否合法（如分辨率是否为 2 的幂、补丁长度是否 > 0）
@@ -75,9 +94,10 @@ private:
     std::vector<float> m_PhillipsValues;     // Phillips 频谱值数组 Ph(k)，存储每个波矢量的能量分布
 
     std::vector<std::complex<float>> m_H0;            // 初始频域振幅 h0(k)，复数形式，包含随机相位
-    std::vector<std::complex<float>> m_H0MinusConj;   // h0*(-k)，即初始振幅的共轭翻转项，保证实数高度场
+    std::vector<std::complex<float>> m_H0MinusConjugate;   // h0*(-k)，即初始振幅的共轭翻转项，保证实数高度场
 
     // 以下为时间演化后的频域数据，均在 ComputeSpectrumAtTime 中计算
+    // Spectrum（频域）：存储的是每个波矢量 对应的复数振幅等物理量 
     std::vector<std::complex<float>> m_HeightSpectrum;        // 高度频谱 ̃h(k,t)，IFFT 后得到空间域高度
     std::vector<std::complex<float>> m_SlopeXSpectrum;        // X 方向斜率频谱，IFFT 后得到 ∂h/∂x
     std::vector<std::complex<float>> m_SlopeZSpectrum;        // Z 方向斜率频谱，IFFT 后得到 ∂h/∂z
@@ -85,10 +105,22 @@ private:
     std::vector<std::complex<float>> m_DisplacementZSpectrum; // Z 方向水平位移频谱，IFFT 后得到水平偏移 Δz
     std::vector<std::complex<float>> m_DDxdxSpectrum;         // 位移 Jacobian 项 ∂(Δx)/∂x 的频谱
     std::vector<std::complex<float>> m_DDzdzSpectrum;         // 位移 Jacobian 项 ∂(Δz)/∂z 的频谱
-    std::vector<std::complex<float>> m_DDxDzSpectrum;         // 位移 Jacobian 项 ∂(Δx)/∂z 的频谱
+    std::vector<std::complex<float>> m_DDxdzSpectrum;         // 位移 Jacobian 项 ∂(Δx)/∂z 的频谱
 
+    // Spatial（空间域）：存储的是每个格点 高度、位移、斜率 等物理量
+    std::vector<std::complex<float>> m_HeightSpatial;         // IFFT 后的高度场，大小为 N×N
+    std::vector<std::complex<float>> m_SlopeXSpatial;         // IFFT 后的 X 方向斜率场
+    std::vector<std::complex<float>> m_SlopeZSpatial;         // IFFT 后的 Z 方向斜率场
+    std::vector<std::complex<float>> m_DisplacementXSpatial;  // IFFT 后的 X 方向水平位移场
+    std::vector<std::complex<float>> m_DisplacementZSpatial;  // IFFT 后的 Z 方向水平位移场
+    std::vector<std::complex<float>> m_DDxdxSpatial;          // IFFT 后的位移 Jacobian ∂(Δx)/∂x
+    std::vector<std::complex<float>> m_DDzdzSpatial;          // IFFT 后的位移 Jacobian ∂(Δz)/∂z
+    std::vector<std::complex<float>> m_DDxdzSpatial;          // IFFT 后的位移 Jacobian ∂(Δx)/∂z
+    
     CPUWaterSurfaceFrame m_Frame; // 当前帧的空间域水面数据：高度场、位移场、法线场、Jacobian 等
     float m_Time = 0.0f;          // 当前模拟累积时间（秒）
+    float m_LastHermitianMaxError = 0.0f;       // 最后一次逆 FFT 后的最大 Hermitian 误差
+    float m_LastMaxImaginaryResidual = 0.0f;    // 最后一次逆 FFT 后的最大虚部残差
 };
 
 }
