@@ -1,0 +1,7 @@
+field = slope_z_t200
+min = -0.000861726
+max = 0.000695796
+mean = -2.48574e-14
+rms = 0.000263622
+nanCount = 0
+infCount = 0

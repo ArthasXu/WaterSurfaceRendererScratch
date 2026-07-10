@@ -1,7 +1,7 @@
 field = slope_x_t000
-min = -0.0024042
-max = 0.00199408
-mean = -2.6066e-13
-rms = 0.000648787
+min = -0.00220878
+max = 0.00204663
+mean = -5.98965e-14
+rms = 0.000641511
 nanCount = 0
 infCount = 0

@@ -1,5 +1,5 @@
 field = jacobian_t100
-min = 0.997212
+min = 0.997133
 max = 1.00268
 mean = 1
 rms = 1

@@ -1,0 +1,7 @@
+field = height_t200
+min = -0.0849202
+max = 0.113669
+mean = 1.39048e-11
+rms = 0.0338976
+nanCount = 0
+infCount = 0

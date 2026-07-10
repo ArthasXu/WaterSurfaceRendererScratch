@@ -1,0 +1,7 @@
+field = single_256m_repeated
+min = -0.00578089
+max = 0.00676105
+mean = 4.03237e-13
+rms = 0.00262209
+nanCount = 0
+infCount = 0
