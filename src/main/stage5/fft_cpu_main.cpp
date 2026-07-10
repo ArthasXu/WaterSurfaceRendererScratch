@@ -1,5 +1,6 @@
 #include "scene/water/debug/ScalarFieldWriter.h"
 #include "scene/water/sources/WSTessendorfCPU.h"
+#include "scene/water/sources/WSTessendorfCascadesCPU.h"
 
 #include <glm/glm.hpp>
 
@@ -206,7 +207,7 @@ std::vector<float> ExtractSlopeZ(const water::CPUWaterSurfaceFrame& frame)
 }
 
 void WriteDebugFields(
-    water::WSTessendorfCPU& ocean,
+    const water::WSTessendorfCPU& ocean,
     const std::string& directory,
     const std::string& suffix
 ){
@@ -259,6 +260,96 @@ void WriteDebugFields(
         frame.resolution,
         frame.resolution
     );
+}
+
+std::vector<float> SampleHeightImage(
+    const water::ICPUWaterSurfaceSource& source,
+    float worldSize,
+    uint32_t resolution
+){
+    std::vector<float> values(
+        static_cast<size_t>(resolution) *
+        static_cast<size_t>(resolution)
+    );
+
+    for(uint32_t z = 0; z < resolution; z++){
+        for(uint32_t x = 0; x < resolution; x++){
+            float u = static_cast<float>(x) / static_cast<float>(resolution);
+            float v = static_cast<float>(z) / static_cast<float>(resolution);
+
+            glm::vec2 worldXZ{
+                (u - 0.5f) * worldSize,
+                (v - 0.5f) * worldSize
+            };
+
+            water::WaterSurfaceSample sample =
+                source.Sample(worldXZ);
+
+            values[
+                static_cast<size_t>(z) *
+                static_cast<size_t>(resolution) +
+                static_cast<size_t>(x)
+            ] = sample.height;
+        }
+    }
+
+    return values;
+}
+
+// 数值验证单层 256m 会重复，三层合成不应每 256m 完全重复
+float RMSPeriodicDifference(
+    const water::ICPUWaterSurfaceSource& source,
+    float offsetX,
+    float worldSize,
+    uint32_t sampleResolution
+){
+    double sumSquares = 0.0;
+    uint32_t count = 0;
+
+    for(uint32_t z = 0; z < sampleResolution; z++){
+        for(uint32_t x = 0; x < sampleResolution; x++){
+            float u = static_cast<float>(x) / static_cast<float>(sampleResolution);
+            float v = static_cast<float>(z) / static_cast<float>(sampleResolution);
+
+            glm::vec2 worldXZ{
+                (u - 0.5f) * worldSize,
+                (v - 0.5f) * worldSize
+            };
+
+            float a = source.Sample(worldXZ).height;
+            float b = source.Sample(worldXZ + glm::vec2(offsetX, 0.0f)).height;
+
+            float diff = a - b;
+
+            sumSquares += static_cast<double>(diff) * static_cast<double>(diff);
+            count++;
+        }
+    }
+
+    return static_cast<float>(
+        std::sqrt(sumSquares / static_cast<double>(count))
+    );
+}
+
+// 每层输出 params.txt，记录 patch、seed、k range、RMS
+void WriteCascadeParams(
+    const std::string& path,
+    const water::WSTessendorfCPU& cascade,
+    uint32_t seed
+){
+    const water::CPUWaterSurfaceFrame& frame = cascade.GetFrame();
+
+    FieldStats heightStats =
+        ComputeStats(ExtractHeight(frame));
+
+    std::ofstream file(path);
+
+    file << "patchLength = " << cascade.GetPatchLength() << "\n";
+    file << "resolution = " << cascade.GetResolution() << "\n";
+    file << "seed = " << seed << "\n";
+    file << "kMin = " << cascade.GetRepresentableMinWaveNumber() << "\n";
+    file << "kMax = " << cascade.GetRepresentableMaxWaveNumber() << "\n";
+    file << "rmsHeight = " << heightStats.rms << "\n";
 }
 
 void RunWaveVectorAndPhillipsTest()
@@ -449,6 +540,188 @@ void RunWindSpeedTest()
         << "\n";
 }
 
+// 验证 wLong + wMid + wShort ≈ 1，并打印各 cascade k range
+void RunCascadeWeightTest()
+{
+    float maxError = 0.0f;
+
+    for(uint32_t i = 0; i <= 1024; i++){
+        float k = 0.0001f + static_cast<float>(i) * 1.0f / 1024.0f;
+
+        float sum = water::WSTessendorfCascadesCPU::WeightSum(k);
+
+        maxError = std::max(maxError, std::abs(sum - 1.0f));
+    }
+
+    std::cout << "Cascade weight sum max abs error = "
+        << maxError
+        << "\n";
+
+    water::MultiCascadeParams params{};
+    params.resolution = 128;
+    params.baseSeed = 1337;
+
+    water::WSTessendorfCascadesCPU cascades(params);
+
+    for(uint32_t i = 0; i < 3; i++){
+        const water::WSTessendorfCPU& cascade =
+            cascades.GetCascade(i);
+
+        std::cout << "Cascade "
+            << i
+            << ": patchLength="
+            << cascade.GetPatchLength()
+            << " kMin="
+            << cascade.GetRepresentableMinWaveNumber()
+            << " kMax="
+            << cascade.GetRepresentableMaxWaveNumber()
+            << "\n";
+    }
+}
+
+// 每层单独输出 + composite 输出
+void RunCascadeDebugOutput()
+{
+    std::filesystem::create_directories("output/stage5/cascade0");
+    std::filesystem::create_directories("output/stage5/cascade1");
+    std::filesystem::create_directories("output/stage5/cascade2");
+    std::filesystem::create_directories("output/stage5/composite");
+
+    water::MultiCascadeParams params{};
+    params.resolution = 128;
+    params.baseSeed = 1337;
+    params.baseSpectrum.windSpeed = 35.0f;
+    params.baseSpectrum.windDirection = glm::normalize(glm::vec2(1.0f, 0.25f));
+
+    water::WSTessendorfCascadesCPU cascades(params);
+    cascades.ComputeAtTime(2.0f);
+
+    WriteDebugFields(
+        cascades.GetCascade(0),
+        "output/stage5/cascade0",
+        "t200"
+    );
+
+    WriteDebugFields(
+        cascades.GetCascade(1),
+        "output/stage5/cascade1",
+        "t200"
+    );
+
+    WriteDebugFields(
+        cascades.GetCascade(2),
+        "output/stage5/cascade2",
+        "t200"
+    );
+
+    WriteCascadeParams(
+        "output/stage5/cascade0/params.txt",
+        cascades.GetCascade(0),
+        params.baseSeed + 0
+    );
+
+    WriteCascadeParams(
+        "output/stage5/cascade1/params.txt",
+        cascades.GetCascade(1),
+        params.baseSeed + 101
+    );
+
+    WriteCascadeParams(
+        "output/stage5/cascade2/params.txt",
+        cascades.GetCascade(2),
+        params.baseSeed + 211
+    );
+
+    std::vector<float> compositeHeight =
+        SampleHeightImage(
+            cascades,
+            1024.0f,
+            512
+        );
+
+    WriteField(
+        "output/stage5/composite",
+        "three_cascade_1km",
+        compositeHeight,
+        512,
+        512
+    );
+
+    const water::WSTessendorfCPU& midOnly =
+        cascades.GetCascade(1);
+
+    std::vector<float> singleRepeated =
+        SampleHeightImage(
+            midOnly,
+            1024.0f,
+            512
+        );
+
+    WriteField(
+        "output/stage5/composite",
+        "single_256m_repeated",
+        singleRepeated,
+        512,
+        512
+    );
+
+    float singleRms =
+        RMSPeriodicDifference(
+            midOnly,
+            256.0f,
+            1024.0f,
+            128
+        );
+
+    float cascadeRms =
+        RMSPeriodicDifference(
+            cascades,
+            256.0f,
+            1024.0f,
+            128
+        );
+
+    std::cout << "Single 256m periodic RMS difference = "
+        << singleRms
+        << "\n";
+
+    std::cout << "Three cascade 256m offset RMS difference = "
+        << cascadeRms
+        << "\n";
+}
+
+// Long/Mid/Short/All 对照，检查频带没重叠爆能量
+void RunCascadeLayerToggleTest()
+{
+    std::filesystem::create_directories("output/stage5/layer_tests");
+
+    water::MultiCascadeParams params{};
+    params.resolution = 128;
+    params.baseSeed = 1337;
+    params.baseSpectrum.windSpeed = 35.0f;
+    params.baseSpectrum.windDirection = glm::normalize(glm::vec2(1.0f, 0.25f));
+
+    water::WSTessendorfCascadesCPU cascades(params);
+    cascades.ComputeAtTime(2.0f);
+
+    std::vector<float> shortOnly =
+        SampleHeightImage(cascades.GetCascade(0), 1024.0f, 512);
+
+    std::vector<float> midOnly =
+        SampleHeightImage(cascades.GetCascade(1), 1024.0f, 512);
+
+    std::vector<float> longOnly =
+        SampleHeightImage(cascades.GetCascade(2), 1024.0f, 512);
+
+    std::vector<float> all =
+        SampleHeightImage(cascades, 1024.0f, 512);
+
+    WriteField("output/stage5/layer_tests", "short_only", shortOnly, 512, 512);
+    WriteField("output/stage5/layer_tests", "mid_only", midOnly, 512, 512);
+    WriteField("output/stage5/layer_tests", "long_only", longOnly, 512, 512);
+    WriteField("output/stage5/layer_tests", "all_cascades", all, 512, 512);
+}
+
 void RunDebugOutput()
 {
     std::filesystem::create_directories("debug/stage5_fft_cpu");
@@ -483,6 +756,10 @@ int main()
     RunWindDirectionTest(); // 验证方向性因子
     RunWindSpeedTest(); // 验证风速越高，波浪能量越大
     RunDebugOutput(); // 输出两个时刻（t=0 和 t=1）的可视化数据
+
+    RunCascadeWeightTest(); // 验证 wLong + wMid + wShort ≈ 1，并打印各 cascade k range
+    RunCascadeDebugOutput(); // 输出三个 cascade 可视化数据
+    RunCascadeLayerToggleTest(); // Long/Mid/Short/All 对照，检查频带没重叠爆能量
 
     return 0;
 }

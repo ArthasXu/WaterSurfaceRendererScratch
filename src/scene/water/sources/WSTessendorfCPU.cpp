@@ -169,6 +169,23 @@ glm::vec4 Lerp(glm::vec4 a, glm::vec4 b, float t)
 {
     return a * (1.0f - t) + b * t;
 }
+
+float SmoothStep(float edge0, float edge1, float x)
+{   // 平滑频带过渡，避免硬切导致 ringing
+    if(!std::isfinite(edge0) || !std::isfinite(edge1)){
+        return x >= edge0 ? 1.0f : 0.0f;
+    }
+
+    if(std::abs(edge1 - edge0) < 1e-6f){
+        return x >= edge1 ? 1.0f : 0.0f;
+    }
+
+    float t = (x - edge0) / (edge1 - edge0);
+    t = std::clamp(t, 0.0f, 1.0f);
+
+    return t * t * (3.0f - 2.0f * t);
+}
+
 }
 
 
@@ -188,6 +205,8 @@ WSTessendorfCPU::WSTessendorfCPU(const TessendorfSpectrumParams& params)
     m_WaveNumbers.resize(count);
     m_Dispersion.resize(count);
     m_PhillipsValues.resize(count);
+
+    m_BandWeights.resize(count);
 
     m_H0.resize(count);
     m_H0MinusConjugate.resize(count);
@@ -285,6 +304,7 @@ void WSTessendorfCPU::ComputeWaveVectors()
             m_Dispersion[index] = waveNumber > 1e-6f
                 ? std::sqrt(m_Params.gravity * waveNumber)
                 : 0.0f;
+            m_BandWeights[index] = BandWeight(waveNumber);
             m_PhillipsValues[index] = PhillipsSpectrum(waveVector);
         }
     }
@@ -370,7 +390,55 @@ float WSTessendorfCPU::PhillipsSpectrum(glm::vec2 waveVector) const
         return 0.0f;
     }
 
-    return std::max(spectrum, 0.0f);
+    float globalPhillips = std::max(spectrum, 0.0f);
+    return globalPhillips * BandWeight(kLength);
+}
+
+float WSTessendorfCPU::BandWeight(float waveNumber) const
+{   
+    const SpectrumBand& band = m_Params.spectrumBand; // 频谱带宽参数
+
+    float lowWeight = 1.0f;
+    float highWeight = 1.0f;
+
+    // waveNumber 很小 波长很长）：这个波应该主要由更低频（更粗糙）的 FFT 层来负责。
+    // 当前层的权重 lowWeight 接近 0，它不会生成这个长波
+    if(band.fadeInEnd > band.fadeInStart){ // 淡入区间
+        lowWeight = SmoothStep(
+            band.fadeInStart,
+            band.fadeInEnd,
+            waveNumber
+        );
+    }
+
+    // waveNumber 很大（波长很短）：这个波应该主要由更高频（更精细）的 FFT 层来负责。
+    // 当前层的权重 highWeight 接近 0，它不会生成这个短波
+    if(std::isfinite(band.fadeOutStart) &&
+        std::isfinite(band.fadeOutEnd) &&
+        band.fadeOutEnd > band.fadeOutStart){ // 淡出区间
+        highWeight =
+            1.0f -
+            SmoothStep(
+                band.fadeOutStart,
+                band.fadeOutEnd,
+                waveNumber
+            );
+    }
+
+    float kMin = GetRepresentableMinWaveNumber();
+    float kMax = GetRepresentableMaxWaveNumber();
+
+    if(waveNumber > 0.0f && waveNumber < kMin){
+        return 0.0f;
+    }
+
+    if(waveNumber > kMax){
+        return 0.0f;
+    }
+
+    // 相乘而非取min是为了控制频段的低端和高端的平滑衰减
+    return glm::clamp(lowWeight * highWeight, 0.0f, 1.0f);
+
 }
 
 void WSTessendorfCPU::Update(float deltaTime)
@@ -625,6 +693,21 @@ float WSTessendorfCPU::GetWaveNumber(uint32_t x, uint32_t z) const
 float WSTessendorfCPU::GetPhillipsValue(uint32_t x, uint32_t z) const
 {
     return m_PhillipsValues[Index(x, z)];
+}
+
+float WSTessendorfCPU::GetBandWeight(uint32_t x, uint32_t z) const
+{
+    return m_BandWeights[Index(x, z)];
+}
+
+float WSTessendorfCPU::GetRepresentableMinWaveNumber() const
+{
+    return glm::two_pi<float>() / m_Params.patchLength;
+}
+
+float WSTessendorfCPU::GetRepresentableMaxWaveNumber() const
+{
+    return glm::pi<float>() * static_cast<float>(m_N) / m_Params.patchLength;
 }
 
 std::complex<float> WSTessendorfCPU::GetH0(uint32_t x, uint32_t z) const

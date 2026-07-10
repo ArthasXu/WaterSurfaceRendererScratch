@@ -1,7 +1,7 @@
 field = disp_z_t100
-min = -0.0152222
-max = 0.0167033
-mean = -2.78633e-12
-rms = 0.00560298
+min = -0.0153362
+max = 0.016644
+mean = -8.00665e-13
+rms = 0.00560214
 nanCount = 0
 infCount = 0

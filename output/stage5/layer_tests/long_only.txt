@@ -1,0 +1,7 @@
+field = long_only
+min = -0.0849202
+max = 0.113669
+mean = 1.31306e-11
+rms = 0.0338655
+nanCount = 0
+infCount = 0

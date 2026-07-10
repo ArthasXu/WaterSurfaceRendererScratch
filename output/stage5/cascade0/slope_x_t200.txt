@@ -1,0 +1,7 @@
+field = slope_x_t200
+min = -0.000161826
+max = 0.00014624
+mean = 6.05185e-15
+rms = 4.03988e-05
+nanCount = 0
+infCount = 0

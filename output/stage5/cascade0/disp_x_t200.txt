@@ -1,0 +1,7 @@
+field = disp_x_t200
+min = -0.000256403
+max = 0.000260097
+mean = -2.05436e-14
+rms = 8.88644e-05
+nanCount = 0
+infCount = 0

@@ -208,6 +208,7 @@ add_executable(stage5_fft_cpu
     src/main/stage5/fft_cpu_main.cpp
 
     src/scene/water/sources/WSTessendorfCPU.cpp
+    src/scene/water/sources/WSTessendorfCascadesCPU.cpp
 
     src/scene/water/debug/ScalarFieldWriter.cpp
 )

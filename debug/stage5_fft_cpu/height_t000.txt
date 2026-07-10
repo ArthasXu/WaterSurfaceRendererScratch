@@ -1,7 +1,7 @@
 field = height_t000
-min = -0.0276705
-max = 0.0235495
-mean = 4.4082e-12
-rms = 0.0096938
+min = -0.0277865
+max = 0.0235238
+mean = 1.43807e-12
+rms = 0.00969243
 nanCount = 0
 infCount = 0
