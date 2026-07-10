@@ -12,101 +12,11 @@
 #include <limits>
 #include <random>
 #include <stdexcept>
+#include <chrono>
 
 namespace
 {
 constexpr float kEpsilon = 1e-6f;
-
-class FFTField2D
-{
-public:
-    explicit FFTField2D(uint32_t resolution)
-        : m_N(resolution)
-    {
-        const size_t count = static_cast<size_t>(m_N) * static_cast<size_t>(m_N);
-
-        m_Input = reinterpret_cast<fftw_complex*>(
-            fftw_malloc(sizeof(fftw_complex) * count)
-        );
-
-        m_Output = reinterpret_cast<fftw_complex*>(
-            fftw_malloc(sizeof(fftw_complex) * count)
-        );
-
-        if(m_Input == nullptr || m_Output == nullptr){
-            throw std::runtime_error("Failed to allocate FFTW field memory");
-        }
-
-        m_Plan = fftw_plan_dft_2d(
-            static_cast<int>(m_N),
-            static_cast<int>(m_N),
-            m_Input,
-            m_Output,
-            FFTW_BACKWARD,
-            FFTW_ESTIMATE
-        );
-
-        if(m_Plan == nullptr){
-            throw std::runtime_error("Failed to create FFTW plan");
-        }
-    }
-
-    ~FFTField2D()
-    {
-        if(m_Plan != nullptr){
-            fftw_destroy_plan(m_Plan);
-        }
-
-        if(m_Input != nullptr){
-            fftw_free(m_Input);
-        }
-
-        if(m_Output != nullptr){
-            fftw_free(m_Output);
-        }
-    }
-
-    FFTField2D(const FFTField2D&) = delete;
-    FFTField2D& operator=(const FFTField2D&) = delete;
-
-    void SetSpectrum(const std::vector<std::complex<float>>& values)
-    {
-        const size_t count = static_cast<size_t>(m_N) * static_cast<size_t>(m_N);
-
-        if(values.size() != count){
-            throw std::runtime_error("FFTField2D::SetSpectrum size mismatch");
-        }
-
-        for(size_t i = 0; i < count; i++){
-            m_Input[i][0] = values[i].real();
-            m_Input[i][1] = values[i].imag();
-        }
-    }
-
-    void ExecuteInverse()
-    {
-        fftw_execute(m_Plan);
-    }
-
-    std::complex<float> GetSpatial(size_t index) const
-    {
-        double normalization =
-            1.0 / static_cast<double>(static_cast<size_t>(m_N) * static_cast<size_t>(m_N));
-
-        return {
-            static_cast<float>(m_Output[index][0] * normalization),
-            static_cast<float>(m_Output[index][1] * normalization)
-        };
-    }
-
-private:
-    uint32_t m_N = 0;
-
-    fftw_complex* m_Input = nullptr;
-    fftw_complex* m_Output = nullptr;
-
-    fftw_plan m_Plan = nullptr;
-};
 
 std::vector<std::complex<float>> InverseDFT2DNaive(
     const std::vector<std::complex<float>>& spectrum,
@@ -191,6 +101,99 @@ float SmoothStep(float edge0, float edge1, float x)
 
 namespace water
 {
+class FFTWorkspace2D
+{
+public:
+    explicit FFTWorkspace2D(uint32_t resolution)
+        : m_N(resolution)
+    {
+        const size_t count =
+            static_cast<size_t>(m_N) * static_cast<size_t>(m_N);
+
+        m_Input = reinterpret_cast<fftw_complex*>(
+            fftw_malloc(sizeof(fftw_complex) * count)
+        );
+
+        m_Output = reinterpret_cast<fftw_complex*>(
+            fftw_malloc(sizeof(fftw_complex) * count)
+        );
+
+        if(m_Input == nullptr || m_Output == nullptr){
+            throw std::runtime_error("Failed to allocate FFTW workspace memory");
+        }
+
+        m_Plan = fftw_plan_dft_2d(
+            static_cast<int>(m_N),
+            static_cast<int>(m_N),
+            m_Input,
+            m_Output,
+            FFTW_BACKWARD,
+            FFTW_ESTIMATE
+        );
+
+        if(m_Plan == nullptr){
+            throw std::runtime_error("Failed to create FFTW workspace plan");
+        }
+    }
+
+    ~FFTWorkspace2D()
+    {
+        if(m_Plan != nullptr){
+            fftw_destroy_plan(m_Plan);
+        }
+
+        if(m_Input != nullptr){
+            fftw_free(m_Input);
+        }
+
+        if(m_Output != nullptr){
+            fftw_free(m_Output);
+        }
+    }
+
+    FFTWorkspace2D(const FFTWorkspace2D&) = delete;
+    FFTWorkspace2D& operator=(const FFTWorkspace2D&) = delete;
+
+    void ExecuteInverse(
+        const std::vector<std::complex<float>>& spectrum,
+        std::vector<std::complex<float>>& spatial
+    ){
+        const size_t count =
+            static_cast<size_t>(m_N) * static_cast<size_t>(m_N);
+
+        if(spectrum.size() != count || spatial.size() != count){
+            throw std::runtime_error("FFTWorkspace2D::ExecuteInverse size mismatch");
+        }
+
+        for(size_t i = 0; i < count; i++){
+            m_Input[i][0] = spectrum[i].real();
+            m_Input[i][1] = spectrum[i].imag();
+        }
+
+        fftw_execute(m_Plan);
+
+        const double normalization =
+            1.0 / static_cast<double>(count);
+
+        for(size_t i = 0; i < count; i++){
+            spatial[i] = {
+                static_cast<float>(m_Output[i][0] * normalization),
+                static_cast<float>(m_Output[i][1] * normalization)
+            };
+        }
+    }
+
+private:
+    uint32_t m_N = 0;
+
+    fftw_complex* m_Input = nullptr;
+    fftw_complex* m_Output = nullptr;
+
+    fftw_plan m_Plan = nullptr;
+};
+
+WSTessendorfCPU::~WSTessendorfCPU() = default;
+
 WSTessendorfCPU::WSTessendorfCPU(const TessendorfSpectrumParams& params)
     : m_Params(params),
       m_N(params.resolution)
@@ -228,6 +231,8 @@ WSTessendorfCPU::WSTessendorfCPU(const TessendorfSpectrumParams& params)
     m_DDxdxSpatial.resize(count);
     m_DDzdzSpatial.resize(count);
     m_DDxdzSpatial.resize(count);
+
+    m_FFTWorkspace = std::make_unique<FFTWorkspace2D>(m_N); // 创建 FFT 工作区，用于执行 FFT 和 IFFT 操作
 
     m_Frame.resolution = m_N;
     m_Frame.patchLength = m_Params.patchLength;
@@ -449,11 +454,45 @@ void WSTessendorfCPU::Update(float deltaTime)
 
 void WSTessendorfCPU::ComputeAtTime(float timeSeconds)
 {
+    using Clock = std::chrono::high_resolution_clock;
+
     m_Time = timeSeconds;
 
+    auto totalStart = Clock::now();
+
+    auto spectrumStart = Clock::now();
     ComputeSpectrumAtTime(timeSeconds);
+    auto spectrumEnd = Clock::now();
+
+    auto ifftStart = Clock::now();
     ExecuteInverseFFTs();
+    auto ifftEnd = Clock::now();
+
+    auto assemblyStart = Clock::now();
     AssembleSpatialFrame();
+    auto assemblyEnd = Clock::now();
+
+    auto totalEnd = Clock::now();
+
+    m_LastTimingStats.spectrumMilliseconds =
+        std::chrono::duration<double, std::milli>(
+            spectrumEnd - spectrumStart
+        ).count();
+
+    m_LastTimingStats.ifftMilliseconds =
+        std::chrono::duration<double, std::milli>(
+            ifftEnd - ifftStart
+        ).count();
+
+    m_LastTimingStats.assemblyMilliseconds =
+        std::chrono::duration<double, std::milli>(
+            assemblyEnd - assemblyStart
+        ).count();
+
+    m_LastTimingStats.totalMilliseconds =
+        std::chrono::duration<double, std::milli>(
+            totalEnd - totalStart
+        ).count();
 }
 
 void WSTessendorfCPU::ComputeSpectrumAtTime(float timeSeconds)
@@ -505,67 +544,72 @@ void WSTessendorfCPU::ComputeSpectrumAtTime(float timeSeconds)
                 m_DDxdzSpectrum[index] = {0.0f, 0.0f};
             }
         }
+    }
 
-        for(uint32_t z = 0; z < m_N; z++){
-            for(uint32_t x = 0; x < m_N; x++){
-                uint32_t minusX = (m_N - x) % m_N;
-                uint32_t minusZ = (m_N - z) % m_N;
+    for(uint32_t z = 0; z < m_N; z++){
+        for(uint32_t x = 0; x < m_N; x++){
+            uint32_t minusX = (m_N - x) % m_N;
+            uint32_t minusZ = (m_N - z) % m_N;
 
-                std::complex<float> h = m_HeightSpectrum[Index(x, z)];
-                std::complex<float> hMinus = m_HeightSpectrum[Index(minusX, minusZ)];
+            std::complex<float> h = m_HeightSpectrum[Index(x, z)];
+            std::complex<float> hMinus = m_HeightSpectrum[Index(minusX, minusZ)];
 
-                float error = ComplexAbs(hMinus - std::conj(h));
+            float error = ComplexAbs(hMinus - std::conj(h));
 
-                m_LastHermitianMaxError =
-                    std::max(m_LastHermitianMaxError, error);
-            }
+            m_LastHermitianMaxError =
+                std::max(m_LastHermitianMaxError, error);
         }
     }
 }
 
 void WSTessendorfCPU::ExecuteInverseFFTs()
 {
-    FFTField2D heightField(m_N);
-    FFTField2D slopeXField(m_N);
-    FFTField2D slopeZField(m_N);
-    FFTField2D displacementXField(m_N);
-    FFTField2D displacementZField(m_N);
-    FFTField2D dDxdxField(m_N);
-    FFTField2D dDzdzField(m_N);
-    FFTField2D dDxdzField(m_N);
+    m_FFTWorkspace->ExecuteInverse(
+        m_HeightSpectrum,
+        m_HeightSpatial
+    );
 
-    heightField.SetSpectrum(m_HeightSpectrum);
-    slopeXField.SetSpectrum(m_SlopeXSpectrum);
-    slopeZField.SetSpectrum(m_SlopeZSpectrum);
-    displacementXField.SetSpectrum(m_DisplacementXSpectrum);
-    displacementZField.SetSpectrum(m_DisplacementZSpectrum);
-    dDxdxField.SetSpectrum(m_DDxdxSpectrum);
-    dDzdzField.SetSpectrum(m_DDzdzSpectrum);
-    dDxdzField.SetSpectrum(m_DDxdzSpectrum);
+    m_FFTWorkspace->ExecuteInverse(
+        m_SlopeXSpectrum,
+        m_SlopeXSpatial
+    );
 
-    heightField.ExecuteInverse();
-    slopeXField.ExecuteInverse();
-    slopeZField.ExecuteInverse();
-    displacementXField.ExecuteInverse();
-    displacementZField.ExecuteInverse();
-    dDxdxField.ExecuteInverse();
-    dDzdzField.ExecuteInverse();
-    dDxdzField.ExecuteInverse();
+    m_FFTWorkspace->ExecuteInverse(
+        m_SlopeZSpectrum,
+        m_SlopeZSpatial
+    );
 
-    const size_t count = static_cast<size_t>(m_N) * static_cast<size_t>(m_N);
+    m_FFTWorkspace->ExecuteInverse(
+        m_DisplacementXSpectrum,
+        m_DisplacementXSpatial
+    );
+
+    m_FFTWorkspace->ExecuteInverse(
+        m_DisplacementZSpectrum,
+        m_DisplacementZSpatial
+    );
+
+    m_FFTWorkspace->ExecuteInverse(
+        m_DDxdxSpectrum,
+        m_DDxdxSpatial
+    );
+
+    m_FFTWorkspace->ExecuteInverse(
+        m_DDzdzSpectrum,
+        m_DDzdzSpatial
+    );
+
+    m_FFTWorkspace->ExecuteInverse(
+        m_DDxdzSpectrum,
+        m_DDxdzSpatial
+    );
+
+    const size_t count =
+        static_cast<size_t>(m_N) * static_cast<size_t>(m_N);
 
     m_LastMaxImaginaryResidual = 0.0f;
 
     for(size_t i = 0; i < count; i++){
-        m_HeightSpatial[i] = heightField.GetSpatial(i);
-        m_SlopeXSpatial[i] = slopeXField.GetSpatial(i);
-        m_SlopeZSpatial[i] = slopeZField.GetSpatial(i);
-        m_DisplacementXSpatial[i] = displacementXField.GetSpatial(i);
-        m_DisplacementZSpatial[i] = displacementZField.GetSpatial(i);
-        m_DDxdxSpatial[i] = dDxdxField.GetSpatial(i);
-        m_DDzdzSpatial[i] = dDzdzField.GetSpatial(i);
-        m_DDxdzSpatial[i] = dDxdzField.GetSpatial(i);
-
         m_LastMaxImaginaryResidual = std::max(
             m_LastMaxImaginaryResidual,
             std::abs(m_HeightSpatial[i].imag())
@@ -773,9 +817,14 @@ FFTValidationStats WSTessendorfCPU::ValidateNaiveAgainstFFTW(float timeSeconds)
     std::vector<std::complex<float>> naive =
         InverseDFT2DNaive(m_HeightSpectrum, m_N);
 
-    FFTField2D fftw(m_N);
-    fftw.SetSpectrum(m_HeightSpectrum);
-    fftw.ExecuteInverse();
+    std::vector<std::complex<float>> fftwSpatial(
+        static_cast<size_t>(m_N) * static_cast<size_t>(m_N)
+    );
+
+    m_FFTWorkspace->ExecuteInverse(
+        m_HeightSpectrum,
+        fftwSpatial
+    );
 
     const size_t count = static_cast<size_t>(m_N) * static_cast<size_t>(m_N);
 
@@ -786,7 +835,7 @@ FFTValidationStats WSTessendorfCPU::ValidateNaiveAgainstFFTW(float timeSeconds)
     double sumSquaredReference = 0.0;
 
     for(size_t i = 0; i < count; i++){
-        std::complex<float> fftwValue = fftw.GetSpatial(i);
+        std::complex<float> fftwValue = fftwSpatial[i];
 
         float realError =
             std::abs(naive[i].real() - fftwValue.real());
@@ -819,4 +868,10 @@ FFTValidationStats WSTessendorfCPU::ValidateNaiveAgainstFFTW(float timeSeconds)
 
     return stats;
 }
+
+const TessendorfTimingStats& WSTessendorfCPU::GetLastTimingStats() const
+{
+    return m_LastTimingStats;
+}
+
 }
