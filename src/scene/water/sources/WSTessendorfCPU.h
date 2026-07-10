@@ -7,9 +7,21 @@
 #include <complex>
 #include <cstdint>
 #include <vector>
+#include <limits> // std::numeric_limits
 
 namespace water
 {
+struct SpectrumBand
+{   // 多层 FFT ：用多个不同分辨率、不同物理尺寸的 FFT 补丁叠加，分别负责不同尺度的波浪
+    // 低波数（长波）的淡入区间。小于 fadeInStart 的长波完全由更粗粒度的 Cascade 负责，本层不参与
+    float fadeInStart = 0.0f;   // 开始淡入的频率
+    float fadeInEnd = 0.0f;     // 结束淡入的频率
+
+    // 高波数（短波）的淡出区间。大于 fadeOutEnd 的短波完全交给更细粒度的 Cascade 处理
+    float fadeOutStart = std::numeric_limits<float>::infinity();    // 开始淡出的频率
+    float fadeOutEnd = std::numeric_limits<float>::infinity();      // 结束淡出的频率
+};
+
 struct TessendorfSpectrumParams
 {
     uint32_t resolution = 64;               // 频域网格的尺寸 决定了你能模拟多少个不同的波矢量 64*64 个
@@ -26,6 +38,8 @@ struct TessendorfSpectrumParams
     float choppyLambda = 1.0f;              // 水平位移 Lambda 系数 值越大波峰越尖锐
 
     float oppositeWindDamping = 0.07f;      // 与风向相反的风的阻尼系数 进一步压制逆风方向的波
+
+    SpectrumBand spectrumBand{};            // 频谱频段参数 用于控制 Phillips 谱的衰减范围
 
     uint32_t randomSeed = 1337;             // Tessendorf 方法需要为每个波矢量生成随机复数振幅 
 };
@@ -56,6 +70,10 @@ public:
     float GetWaveNumber(uint32_t x, uint32_t z) const;     // 获取指定格点的波数 k = |k|
     float GetPhillipsValue(uint32_t x, uint32_t z) const;  // 获取指定格点的 Phillips 频谱值（能量分布）
 
+    float GetBandWeight(uint32_t x, uint32_t z) const;
+    float GetRepresentableMinWaveNumber() const;
+    float GetRepresentableMaxWaveNumber() const;
+    
     std::complex<float> GetH0(uint32_t x, uint32_t z) const; // 获取指定格点的初始复振幅 h0(k)
     std::complex<float> GetH0MinusConjugate(uint32_t x, uint32_t z) const; // 获取 h0*(-k)，用于频谱对称性
     std::complex<float> GetHeightSpectrum(uint32_t x, uint32_t z) const; // 获取高度频谱 ̃h(k,t)
@@ -79,6 +97,8 @@ private:
 
     float PhillipsSpectrum(glm::vec2 waveVector) const; // 根据波矢量计算 Phillips 频谱值，包含方向性、风速影响、短波阻尼等
 
+    float BandWeight(float waveNumber) const; // 计算给定波数的带宽权重，用于频谱滤波和带宽限制
+
     size_t Index(uint32_t x, uint32_t z) const;        // 将二维频域索引 (x, z) 映射为一维数组索引
 
     static bool IsPowerOfTwo(uint32_t value);          // 检查值是否为 2 的幂（FFT 要求分辨率满足此项）
@@ -93,6 +113,8 @@ private:
     std::vector<float> m_Dispersion;         // 角频率数组 ω(k) = √(gk)，控制各频率波的相位旋转速度
     std::vector<float> m_PhillipsValues;     // Phillips 频谱值数组 Ph(k)，存储每个波矢量的能量分布
 
+    std::vector<float> m_BandWeights;        // 带宽权重数组，用于频谱滤波和带宽限制
+    
     std::vector<std::complex<float>> m_H0;            // 初始频域振幅 h0(k)，复数形式，包含随机相位
     std::vector<std::complex<float>> m_H0MinusConjugate;   // h0*(-k)，即初始振幅的共轭翻转项，保证实数高度场
 

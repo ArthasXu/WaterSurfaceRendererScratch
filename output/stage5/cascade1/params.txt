@@ -1,0 +1,6 @@
+patchLength = 256
+resolution = 128
+seed = 1438
+kMin = 0.0245437
+kMax = 1.5708
+rmsHeight = 0.00262209

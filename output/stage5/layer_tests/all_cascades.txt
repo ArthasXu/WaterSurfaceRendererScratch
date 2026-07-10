@@ -1,0 +1,7 @@
+field = all_cascades
+min = -0.0871992
+max = 0.117488
+mean = -2.49191e-08
+rms = 0.0338827
+nanCount = 0
+infCount = 0
