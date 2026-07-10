@@ -8,9 +8,12 @@
 #include <cstdint>
 #include <vector>
 #include <limits> // std::numeric_limits
+#include <memory>
 
 namespace water
 {
+class FFTWorkspace2D;
+
 struct SpectrumBand
 {   // 多层 FFT ：用多个不同分辨率、不同物理尺寸的 FFT 补丁叠加，分别负责不同尺度的波浪
     // 低波数（长波）的淡入区间。小于 fadeInStart 的长波完全由更粗粒度的 Cascade 负责，本层不参与
@@ -52,10 +55,19 @@ struct FFTValidationStats
     float maxImaginaryResidual = 0.0f;
 };
 
+struct TessendorfTimingStats
+{
+    double spectrumMilliseconds = 0.0;  // 频谱计算阶段耗时。包括生成波矢量、计算 Phillips 谱、生成高斯随机数、构建初始复振幅 以及根据色散关系随时间演化频谱
+    double ifftMilliseconds = 0.0;      // 逆 FFT 阶段耗时。包括 Hermitian 变换、FFTW 执行逆 FFT、Hermitian 变换回空间域
+    double assemblyMilliseconds = 0.0;  // 组装空间域数据阶段耗时。包括将高度场、位移场和法线场组装成完整的 CPUWaterSurfaceFrame
+    double totalMilliseconds = 0.0;     // 总耗时。每一帧 CPU 端波浪模拟的整体性能开销
+};
+
 class WSTessendorfCPU final : public ICPUWaterSurfaceSource
 {
 public:
     explicit WSTessendorfCPU(const TessendorfSpectrumParams& params); // 用频谱参数初始化波浪模拟器，构建波矢量、计算初始频谱
+    ~WSTessendorfCPU() override;
 
     void Update(float deltaTime) override;          // 每帧更新时间，并调用 ComputeAtTime 重算当前频谱和空间域数据
     void ComputeAtTime(float timeSeconds);          // 根据给定时间完成：频谱演化 → 逆 FFT → 组装空间域高度/位移/法线
@@ -86,6 +98,7 @@ public:
 
     FFTValidationStats ValidateNaiveAgainstFFTW(float timeSeconds); // 使用 FFTW 验证模拟结果的正确性
 
+    const TessendorfTimingStats& GetLastTimingStats() const; // 获取最后一次计算的时间统计数据
 
 private:
     void ValidateParams() const;       // 校验频谱参数是否合法（如分辨率是否为 2 的幂、补丁长度是否 > 0）
@@ -139,10 +152,14 @@ private:
     std::vector<std::complex<float>> m_DDzdzSpatial;          // IFFT 后的位移 Jacobian ∂(Δz)/∂z
     std::vector<std::complex<float>> m_DDxdzSpatial;          // IFFT 后的位移 Jacobian ∂(Δx)/∂z
     
+    std::unique_ptr<FFTWorkspace2D> m_FFTWorkspace;           // FFT 工作区，用于执行 FFT 和 IFFT 操作
+    
     CPUWaterSurfaceFrame m_Frame; // 当前帧的空间域水面数据：高度场、位移场、法线场、Jacobian 等
     float m_Time = 0.0f;          // 当前模拟累积时间（秒）
     float m_LastHermitianMaxError = 0.0f;       // 最后一次逆 FFT 后的最大 Hermitian 误差
     float m_LastMaxImaginaryResidual = 0.0f;    // 最后一次逆 FFT 后的最大虚部残差
+
+    TessendorfTimingStats m_LastTimingStats{};  // 最后一次计算的时间统计数据
 };
 
 }

@@ -13,6 +13,8 @@
 #include <limits>
 #include <string>
 #include <vector>
+#include <stdexcept>
+#include <chrono>
 
 namespace
 {
@@ -24,6 +26,12 @@ struct FieldStats
     float rms = 0.0f;
     uint32_t nanCount = 0;
     uint32_t infCount = 0;
+};
+
+struct FrameDifference
+{
+    float maxAbsDifference = 0.0f;  // 最大绝对差值
+    float rmsDifference = 0.0f;     // 均方根差值
 };
 
 void PrintVector(const char* name, glm::vec2 value)
@@ -98,6 +106,58 @@ FieldStats ComputeStats(const std::vector<float>& values)
     }
 
     return stats;
+}
+
+FrameDifference CompareFrames(
+    const water::CPUWaterSurfaceFrame& a,
+    const water::CPUWaterSurfaceFrame& b
+){
+    if(a.displacement.size() != b.displacement.size() ||
+        a.normalAux.size() != b.normalAux.size()){
+        throw std::runtime_error("CompareFrames size mismatch");
+    }
+
+    double squaredSum = 0.0;
+    size_t componentCount = 0;
+
+    FrameDifference result{};
+
+    for(size_t i = 0; i < a.displacement.size(); i++){
+        for(int c = 0; c < 4; c++){
+            const float difference =
+                std::abs(a.displacement[i][c] - b.displacement[i][c]);
+
+            result.maxAbsDifference =
+                std::max(result.maxAbsDifference, difference);
+
+            squaredSum +=
+                static_cast<double>(difference) *
+                static_cast<double>(difference);
+
+            componentCount++;
+        }
+
+        for(int c = 0; c < 4; c++){
+            const float difference =
+                std::abs(a.normalAux[i][c] - b.normalAux[i][c]);
+
+            result.maxAbsDifference =
+                std::max(result.maxAbsDifference, difference);
+
+            squaredSum +=
+                static_cast<double>(difference) *
+                static_cast<double>(difference);
+
+            componentCount++;
+        }
+    }
+
+    result.rmsDifference =
+        static_cast<float>(
+            std::sqrt(squaredSum / static_cast<double>(componentCount))
+        );
+
+    return result;
 }
 
 void WriteStats(
@@ -419,11 +479,18 @@ void RunDeterminismTest()
     float checksumB = oceanB.ComputeFrameChecksum();
     float checksumC = oceanC.ComputeFrameChecksum();
 
+    FrameDifference sameSeedDifference =
+        CompareFrames(oceanA.GetFrame(), oceanB.GetFrame());
+    FrameDifference differentSeedDifference =
+        CompareFrames(oceanA.GetFrame(), oceanC.GetFrame());
+
     std::cout << "Frame checksum seed 1337 A = " << checksumA << "\n";
     std::cout << "Frame checksum seed 1337 B = " << checksumB << "\n";
     std::cout << "Frame checksum seed 9999   = " << checksumC << "\n";
     std::cout << "Same seed frame delta = " << checksumA - checksumB << "\n";
     std::cout << "Different seed frame delta = " << checksumA - checksumC << "\n";
+    std::cout << "Different seed max frame diff = " << differentSeedDifference.maxAbsDifference << "\n";
+    std::cout << "Different seed RMS frame diff = " << differentSeedDifference.rmsDifference << "\n";
 }
 
 void RunNaiveVsFFTWTest()
@@ -722,6 +789,87 @@ void RunCascadeLayerToggleTest()
     WriteField("output/stage5/layer_tests", "all_cascades", all, 512, 512);
 }
 
+// 单独测量单层 FFT（即一个补丁）的性能
+void RunSingleLayerPerformanceTest(uint32_t resolution, uint32_t iterations)
+{
+    water::TessendorfSpectrumParams params{};
+    params.resolution = resolution;
+    params.patchLength = 256.0f;
+    params.randomSeed = 1337;
+
+    water::WSTessendorfCPU ocean(params);
+
+    for(uint32_t i = 0; i < 3; i++){
+        ocean.ComputeAtTime(static_cast<float>(i) * 0.1f);
+    }
+
+    double spectrumMs = 0.0;
+    double ifftMs = 0.0;
+    double assemblyMs = 0.0;
+    double totalMs = 0.0;
+
+    for(uint32_t i = 0; i < iterations; i++){
+        ocean.ComputeAtTime(static_cast<float>(i) * 0.0333333f);
+
+        const water::TessendorfTimingStats& timing =
+            ocean.GetLastTimingStats();
+
+        spectrumMs += timing.spectrumMilliseconds;
+        ifftMs += timing.ifftMilliseconds;
+        assemblyMs += timing.assemblyMilliseconds;
+        totalMs += timing.totalMilliseconds;
+    }
+
+    double invCount = 1.0 / static_cast<double>(iterations);
+
+    std::cout << "Performance N="
+        << resolution
+        << " single layer average ms: spectrum="
+        << spectrumMs * invCount
+        << " ifft="
+        << ifftMs * invCount
+        << " assembly="
+        << assemblyMs * invCount
+        << " total="
+        << totalMs * invCount
+        << "\n";
+}
+
+// 测量三层 FFT（Cascade）的整体性能
+void RunCascadePerformanceTest(uint32_t iterations)
+{
+    water::MultiCascadeParams params{};
+    params.resolution = 128;
+    params.baseSeed = 1337;
+
+    water::WSTessendorfCascadesCPU cascades(params);
+
+    for(uint32_t i = 0; i < 3; i++){
+        cascades.ComputeAtTime(static_cast<float>(i) * 0.1f);
+    }
+
+    double totalMs = 0.0;
+
+    for(uint32_t i = 0; i < iterations; i++){
+        auto start = std::chrono::high_resolution_clock::now();
+
+        cascades.ComputeAtTime(static_cast<float>(i) * 0.0333333f);
+
+        auto end = std::chrono::high_resolution_clock::now();
+
+        totalMs += std::chrono::duration<double, std::milli>(
+            end - start
+        ).count();
+    }
+
+    double invCount = 1.0 / static_cast<double>(iterations);
+
+    std::cout << "Performance N=128 x3 cascades average total ms = "
+        << totalMs * invCount
+        << "\n";
+}
+
+
 void RunDebugOutput()
 {
     std::filesystem::create_directories("debug/stage5_fft_cpu");
@@ -760,6 +908,10 @@ int main()
     RunCascadeWeightTest(); // 验证 wLong + wMid + wShort ≈ 1，并打印各 cascade k range
     RunCascadeDebugOutput(); // 输出三个 cascade 可视化数据
     RunCascadeLayerToggleTest(); // Long/Mid/Short/All 对照，检查频带没重叠爆能量
+
+    RunSingleLayerPerformanceTest(64, 50); // 测量单层 FFT（即一个补丁）的性能
+    RunSingleLayerPerformanceTest(128, 30); // 测量单层 FFT（即一个补丁）的性能
+    RunCascadePerformanceTest(20); // 测量三层 FFT（Cascade）的整体性能
 
     return 0;
 }
