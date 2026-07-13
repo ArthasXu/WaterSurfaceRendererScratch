@@ -34,6 +34,12 @@ public:
         VkFormatFeatureFlags features
     ) const; // 查找支持的格式
 
+    bool SupportsFormatFeatures(
+        VkFormat format,
+        VkImageTiling tiling,
+        VkFormatFeatureFlags features
+    ) const; // 是否支持格式特性
+
     VkFormat FindDepthFormat() const; // 查找深度格式
 
     static bool HasStencilComponent(VkFormat format); // 是否有 stencil 组件

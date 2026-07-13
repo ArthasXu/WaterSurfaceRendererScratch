@@ -30,7 +30,8 @@ public:
 protected:
     virtual void Start() = 0; // 纯虚函数，子类必须实现
     virtual void Update(Timestep timestep) = 0; // 更新
-    virtual void Render(VkCommandBuffer commandBuffer, uint32_t imageIndex) = 0; // 渲染
+    virtual void Render(VkCommandBuffer commandBuffer, uint32_t imageIndex) = 0; // 渲染、
+    virtual void PrepareFrame(uint32_t frameIndex, uint32_t imageIndex); // 准备帧
 
     virtual void OnFramebufferResize(int width, int height); // 窗口大小改变回调
     virtual void OnMouseMove(double x, double y); // 鼠标移动回调

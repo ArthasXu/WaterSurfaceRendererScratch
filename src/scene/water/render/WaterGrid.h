@@ -14,6 +14,11 @@
 
 namespace water
 {
+enum class WaterGridUploadMode
+{
+    DynamicHostVisible,
+    StaticDeviceLocal
+}; // 用于指定水网格上传模式的枚举类
 struct WaterGridConfig
 {
     uint32_t cellCountX = 128; // 单元格数量 X
@@ -33,7 +38,8 @@ public:
         VkDevice device,
         vkp::CommandPool& commandPool,
         VkQueue graphicsQueue,
-        const WaterGridConfig& config
+        const WaterGridConfig& config,
+        WaterGridUploadMode uploadMode = WaterGridUploadMode::DynamicHostVisible
     ); // 构造函数
 
     void Bind(VkCommandBuffer commandBuffer) const; // 绑定顶点和索引缓冲区到命令缓冲区
@@ -45,7 +51,12 @@ public:
 
 private:
     void GenerateGrid(); // 生成水网格
-    void CreateVertexBuffer(VkPhysicalDevice physicalDevice, VkDevice device); // 创建顶点缓冲区
+    void CreateVertexBuffer(
+        VkPhysicalDevice physicalDevice, 
+        VkDevice device,
+        vkp::CommandPool& commandPool,
+        VkQueue graphicsQueue
+    ); // 创建顶点缓冲区
     void CreateIndexBuffer(
         VkPhysicalDevice physicalDevice,
         VkDevice device,
@@ -55,6 +66,7 @@ private:
 
 private:
     WaterGridConfig m_Config; // 水网格配置
+    WaterGridUploadMode m_UploadMode = WaterGridUploadMode::DynamicHostVisible; // 水网格上传模式
 
     std::vector<WaterVertex> m_BaseVertices; // 基础顶点数据
     std::vector<uint32_t> m_Indices; // 索引数据
