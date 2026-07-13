@@ -7,7 +7,7 @@
 #include "scene/water/render/DynamicImage2D.h"
 #include "scene/water/render/WaterGrid.h"
 #include "scene/water/render/WaterSampler.h"
-#include "scene/water/sources/WSTessendorfCPU.h"
+#include "scene/water/sources/WSTessendorfCascadesCPU.h"
 
 #include "vulkan/Buffer.h"
 #include "vulkan/Descriptors.h"
@@ -18,6 +18,7 @@
 #include <cstdint>
 #include <memory>
 #include <vector>
+#include <array>
 
 // 将波浪数据从 “CPU 直接写入顶点缓冲” 切换为 “CPU 计算位移图 → 以纹理形式上传 → 着色器采样后偏移顶点”
 
@@ -58,11 +59,11 @@ private:
 
     struct CPUFFTFrameResources
     {
-        std::unique_ptr<vkp::Buffer> displacementStaging;
-        std::unique_ptr<vkp::Buffer> normalAuxStaging;
+        std::array<std::unique_ptr<vkp::Buffer>, water::kMaxFFTCascades> displacementStaging;
+        std::array<std::unique_ptr<vkp::Buffer>, water::kMaxFFTCascades> normalAuxStaging;
 
-        std::unique_ptr<water::DynamicImage2D> displacementImage;
-        std::unique_ptr<water::DynamicImage2D> normalAuxImage;
+        std::array<std::unique_ptr<water::DynamicImage2D>, water::kMaxFFTCascades> displacementImage;
+        std::array<std::unique_ptr<water::DynamicImage2D>, water::kMaxFFTCascades> normalAuxImage;
     };
 
 private:
@@ -100,10 +101,21 @@ private:
 
     // 配置参数：决定 FFT 网格大小和物理范围，供创建 WSTessendorfCPU 和分配纹理使用。
     uint32_t m_FFTResolution = 128;
-    float m_PatchLength = 256.0f;
+
+    std::array<float, water::kMaxFFTCascades> m_CascadePatchLengths{
+        64.0f,
+        256.0f,
+        1024.0f
+    };
+
+    std::array<float, water::kMaxFFTCascades> m_CascadeAmplitudeScales{
+        1.0f,
+        1.0f,
+        0.1f
+    };
 
     // 波浪模拟源：每帧执行频谱演化与 IFFT，生成空间域的位移、法线等数据
-    std::unique_ptr<water::WSTessendorfCPU> m_Tessendorf;
+    std::unique_ptr<water::WSTessendorfCascadesCPU> m_Cascades;
     std::unique_ptr<water::WaterGrid> m_WaterGrid;
 
     // 采样器：控制着色器如何读取位移图（重复寻址、最近点过滤等）。

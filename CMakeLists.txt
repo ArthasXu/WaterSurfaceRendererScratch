@@ -247,6 +247,7 @@ add_executable(stage6_fft_cpu_upload
     src/scene/water/render/DynamicImage2D.cpp
     src/scene/water/render/WaterSampler.cpp
     src/scene/water/sources/WSTessendorfCPU.cpp
+    src/scene/water/sources/WSTessendorfCascadesCPU.cpp
 
     src/vulkan/Instance.cpp
     src/vulkan/Surface.cpp
