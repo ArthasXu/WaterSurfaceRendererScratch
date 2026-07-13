@@ -177,6 +177,26 @@ VkFormat Device::FindSupportedFormat(
     throw std::runtime_error("Failed to find supported format!");
 }
 
+bool Device::SupportsFormatFeatures(
+    VkFormat format,
+    VkImageTiling tiling,
+    VkFormatFeatureFlags features
+) const
+{
+    VkFormatProperties props{};
+    vkGetPhysicalDeviceFormatProperties(m_PhysicalDevice, format, &props);
+
+    if(tiling == VK_IMAGE_TILING_LINEAR){
+        return (props.linearTilingFeatures & features) == features;
+    }
+
+    if(tiling == VK_IMAGE_TILING_OPTIMAL){
+        return (props.optimalTilingFeatures & features) == features;
+    }
+
+    return false;
+}
+
 VkFormat Device::FindDepthFormat() const
 {   // 查找深度格式
     return FindSupportedFormat(

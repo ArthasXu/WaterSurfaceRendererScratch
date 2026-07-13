@@ -165,6 +165,8 @@ void Application::DrawFrame() { // 绘制帧
         throw std::runtime_error("Failed to acquire swap chain image!"); // 失败
     }
 
+    PrepareFrame(m_CurrentFrame, imageIndex); // 准备帧
+    
     vkResetFences(*m_Device, 1, &inFlightFence); // 重置栅栏
 
     m_CommandBuffers[m_CurrentFrame]->Reset(); // 重置命令缓冲区
@@ -237,6 +239,10 @@ void Application::CleanupSwapChain(){ // 清理交换链
 }
 
 void Application::ShutdownApp(){
+}
+
+void Application::PrepareFrame(uint32_t frameIndex, uint32_t imageIndex)
+{
 }
 
 void Application::Shutdown()

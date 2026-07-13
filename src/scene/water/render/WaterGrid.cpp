@@ -9,12 +9,14 @@ WaterGrid::WaterGrid(
     VkDevice device,
     vkp::CommandPool& commandPool,
     VkQueue graphicsQueue,
-    const WaterGridConfig& config
+    const WaterGridConfig& config,
+    WaterGridUploadMode uploadMode
 )
-    : m_Config(config)
+    : m_Config(config),
+      m_UploadMode(uploadMode)
 {
     GenerateGrid();
-    CreateVertexBuffer(physicalDevice, device);
+    CreateVertexBuffer(physicalDevice, device, commandPool, graphicsQueue);
     CreateIndexBuffer(physicalDevice, device, commandPool, graphicsQueue);
 }
 
@@ -68,24 +70,65 @@ void WaterGrid::GenerateGrid()
     m_IndexCount = static_cast<uint32_t>(m_Indices.size());
 }
 
-void WaterGrid::CreateVertexBuffer(VkPhysicalDevice physicalDevice, VkDevice device)
+void WaterGrid::CreateVertexBuffer(
+    VkPhysicalDevice physicalDevice,
+    VkDevice device,
+    vkp::CommandPool& commandPool,
+    VkQueue graphicsQueue
+)
 {   // 创建顶点缓冲区
     VkDeviceSize bufferSize = sizeof(WaterVertex) * m_BaseVertices.size(); // 顶点数据大小
 
-    // 顶点数据在CPU上生成，直接映射到GPU内存中
+    if(m_UploadMode == WaterGridUploadMode::DynamicHostVisible){
+        // 顶点数据在CPU上生成，直接映射到GPU内存中
+        // GPU 渲染时从系统内存读取顶点，虽然带宽低于显存，但对于频繁更新的动态数据，这种方式延迟更低、更灵活
+        m_VertexBuffer = std::make_unique<vkp::Buffer>(
+            physicalDevice,
+            device,
+            bufferSize,
+            VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
+        );
+
+        m_VertexBuffer->Map(); // 把这块 GPU 内存映射到 CPU 可访问的地址空间
+        m_VertexBuffer->CopyToMapped(m_BaseVertices.data(), bufferSize); // 把顶点数据从 CPU 搬进了 host-visible 内存
+        // HOST_VISIBLE 持久映射 水面顶点位置每帧变化（波浪计算），CPU 需要频繁更新
+        // 到了 Stage 6，这种方式会被替换为“静态基础网格 + 在着色器里采样位移图来实现波浪变形”
+        // 把重复的、并行度高的计算从 CPU 搬到 GPU，把动态更新的缓冲变成静态缓冲加动态纹理，从而提升性能
+        return;
+    }
+
+    // 创建一块 CPU 可写的 stagingBuffer，将顶点数据拷入
+    vkp::Buffer stagingBuffer(
+        physicalDevice,
+        device,
+        bufferSize,
+        VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
+    );
+
+    stagingBuffer.Map();
+    stagingBuffer.CopyToMapped(m_BaseVertices.data(), bufferSize);
+    stagingBuffer.Unmap();
+
+    // 创建一块 DEVICE_LOCAL 的 m_VertexBuffer，这是真正的显存
     m_VertexBuffer = std::make_unique<vkp::Buffer>(
         physicalDevice,
         device,
         bufferSize,
-        VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
+        VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT
     );
-
-    m_VertexBuffer->Map(); // 把这块 GPU 内存映射到 CPU 可访问的地址空间
-    m_VertexBuffer->CopyToMapped(m_BaseVertices.data(), bufferSize); // 把顶点数据从 CPU 搬进了 host-visible 内存
-    // HOST_VISIBLE 持久映射 水面顶点位置每帧变化（波浪计算），CPU 需要频繁更新
-    // 到了 Stage 6，这种方式会被替换为“静态基础网格 + 在着色器里采样位移图来实现波浪变形”
-    // 把重复的、并行度高的计算从 CPU 搬到 GPU，把动态更新的缓冲变成静态缓冲加动态纹理，从而提升性能
+    
+    // 通过 commandPool.CopyBuffer 发送一条 GPU 拷贝命令，将数据从 staging 搬运到显存
+    // 函数返回后，顶点数据永久驻留在显存中，GPU 读取时带宽最高、延迟最低，适合不再频繁修改的静态网格
+    commandPool.CopyBuffer(
+        device,
+        graphicsQueue,
+        stagingBuffer,
+        *m_VertexBuffer,
+        bufferSize
+    );
 }
 
 void WaterGrid::CreateIndexBuffer(
@@ -147,6 +190,9 @@ const std::vector<WaterVertex>& WaterGrid::GetBaseVertices() const
 
 void WaterGrid::UpdateVertices(const std::vector<WaterVertex>& vertices)
 {
+    if(m_UploadMode != WaterGridUploadMode::DynamicHostVisible){
+        throw std::runtime_error("WaterGrid::UpdateVertices is only valid for DynamicHostVisible mode");
+    }
     if(vertices.size() != m_BaseVertices.size()){
         throw std::runtime_error("WaterGrid::UpdateVertices vertex count mismatch");
     }
