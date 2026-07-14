@@ -231,7 +231,7 @@ void Stage6CPUFFTApp::CreateTessendorfSource()
     base.spectrumAmplitude = 2.5f; // 全局频谱振幅缩放因子，用于整体调节波高
     base.shortWaveDamping = 0.001f; // 短波阻尼系数，抑制高频毛细波的强度，使海面更平滑自然
     base.gravity = 9.81f; // 重力加速度（m/s^2），用于色散关系 ω = √(g k)
-    base.choppyLambda = 3.0f; // choppy 水平位移强度系数（典型值 0.5~1.5），越大波峰越尖锐
+    base.choppyLambda = 1.0f; // choppy 水平位移强度系数（典型值 0.5~1.5），越大波峰越尖锐
     base.oppositeWindDamping = 0.07f; // 逆风方向波浪能量的额外衰减因子，减少背风面的波浪
     base.randomSeed = 1337; // 随机种子，确保同一种子生成完全相同的海面（可重现性）
 

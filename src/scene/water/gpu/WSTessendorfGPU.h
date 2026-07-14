@@ -4,6 +4,7 @@
 #include "scene/water/gpu/GPUFFT2D.h"
 #include "scene/water/sources/IGPUWaterSurfaceSource.h"
 #include "scene/water/sources/WSTessendorfCPU.h"
+#include "scene/water/sources/WSTessendorfCascadesCPU.h"
 
 #include "vulkan/Descriptors.h"
 
@@ -45,7 +46,7 @@ public:
         VkQueue queue,
         uint32_t frameCount,
         VkSampler sampler,
-        const TessendorfSpectrumParams& params
+        const MultiCascadeParams& params
     );
 
     void SetFrameIndex(uint32_t frameIndex);
@@ -62,6 +63,8 @@ public:
 
     VkDescriptorImageInfo GetFrameDisplacementInfo(uint32_t frameIndex) const;
     VkDescriptorImageInfo GetFrameNormalAuxInfo(uint32_t frameIndex) const;
+    VkDescriptorImageInfo GetFrameDisplacementInfo(uint32_t frameIndex, uint32_t cascadeIndex) const;
+    VkDescriptorImageInfo GetFrameNormalAuxInfo(uint32_t frameIndex, uint32_t cascadeIndex) const;
 
 private:
     void InitializeImagesToGeneral();
@@ -71,10 +74,10 @@ private:
     void CreateDescriptorPool();
     void CreateDescriptorSets();
 
-    void RecordSpectrumUpdate(VkCommandBuffer commandBuffer);
-    void RecordRowFFT(VkCommandBuffer commandBuffer);
-    void RecordColumnFFT(VkCommandBuffer commandBuffer);
-    void RecordOutput(VkCommandBuffer commandBuffer);
+    void RecordSpectrumUpdate(VkCommandBuffer commandBuffer, uint32_t cascadeIndex);
+    bool RecordRowFFT(VkCommandBuffer commandBuffer, uint32_t cascadeIndex, bool inputIsPing);
+    bool RecordColumnFFT(VkCommandBuffer commandBuffer, uint32_t cascadeIndex, bool inputIsPing);
+    void RecordOutput(VkCommandBuffer commandBuffer, uint32_t cascadeIndex, bool inputIsPing);
 
     void RecordBufferBarrier(
         VkCommandBuffer commandBuffer,
@@ -88,6 +91,7 @@ private:
 
     void RecordPackedBarrier(
         VkCommandBuffer commandBuffer,
+        uint32_t cascadeIndex,
         GPUFFTFrameResources& resources,
         bool ping,
         VkAccessFlags srcAccess,
@@ -110,25 +114,27 @@ private:
     uint32_t m_Resolution = 0;
 
     float m_Time = 0.0f;
-    float m_PatchLength = 0.0f;
+    std::array<float, kMaxFFTCascades> m_PatchLengths{};
+    std::array<float, kMaxFFTCascades> m_AmplitudeScales{1.0f, 1.0f, 1.0f};
     float m_ChoppyLambda = 1.0f;
 
-    std::unique_ptr<WSTessendorfCPU> m_CPUInitialSource;
-    std::unique_ptr<GPUFFT2D> m_GPUFFT;
+    std::array<std::unique_ptr<WSTessendorfCPU>, kMaxFFTCascades> m_CPUInitialSources;
+    std::array<std::unique_ptr<GPUFFT2D>, kMaxFFTCascades> m_GPUFFTs;
 
-    std::unique_ptr<DescriptorSetLayout> m_SpectrumSetLayout;
-    std::unique_ptr<DescriptorSetLayout> m_StockhamSetLayout;
-    std::unique_ptr<DescriptorSetLayout> m_OutputSetLayout;
-    std::unique_ptr<DescriptorPool> m_DescriptorPool;
+    std::unique_ptr<vkp::DescriptorSetLayout> m_SpectrumSetLayout;
+    std::unique_ptr<vkp::DescriptorSetLayout> m_StockhamSetLayout;
+    std::unique_ptr<vkp::DescriptorSetLayout> m_OutputSetLayout;
+    std::unique_ptr<vkp::DescriptorPool> m_DescriptorPool;
 
     std::unique_ptr<ComputePipeline> m_SpectrumPipeline;
     std::unique_ptr<ComputePipeline> m_StockhamPipeline;
     std::unique_ptr<ComputePipeline> m_OutputPipeline;
 
-    std::vector<VkDescriptorSet> m_SpectrumSets;
-    std::vector<VkDescriptorSet> m_PingToPongSets;
-    std::vector<VkDescriptorSet> m_PongToPingSets;
-    std::vector<VkDescriptorSet> m_OutputSets;
+    std::array<std::vector<VkDescriptorSet>, kMaxFFTCascades> m_SpectrumSets;
+    std::array<std::vector<VkDescriptorSet>, kMaxFFTCascades> m_PingToPongSets;
+    std::array<std::vector<VkDescriptorSet>, kMaxFFTCascades> m_PongToPingSets;
+    std::array<std::vector<VkDescriptorSet>, kMaxFFTCascades> m_OutputPingSets;
+    std::array<std::vector<VkDescriptorSet>, kMaxFFTCascades> m_OutputPongSets;
 
     WaterSurfaceGPUResources m_GPUResources{};
 };
