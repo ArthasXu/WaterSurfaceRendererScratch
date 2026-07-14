@@ -10,10 +10,13 @@ namespace vkp
 struct QueueFamilyIndices{                      // 用于存储队列族索引
     std::optional<uint32_t> graphicsFamily;     // 队列族索引，用于图形命令
     std::optional<uint32_t> presentFamily;      // 队列族索引，用于呈现命令
+    std::optional<uint32_t> computeFamily;      // 队列族索引，用于计算命令
 
     bool isComplete() const
     {
-        return graphicsFamily.has_value() && presentFamily.has_value();
+        return graphicsFamily.has_value() && 
+                presentFamily.has_value() &&
+                computeFamily.has_value();
     }
 };
 
@@ -34,6 +37,7 @@ public:
     operator VkPhysicalDevice() const;
     VkPhysicalDevice GetHandle() const;
     const QueueFamilyIndices& GetQueueFamilyIndices() const;
+    bool GraphicsQueueSupportsCompute() const;
     SwapChainSupportDetails QuerySwapChainSupport() const;
 
 private:

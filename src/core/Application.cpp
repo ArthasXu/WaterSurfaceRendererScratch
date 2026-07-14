@@ -67,6 +67,13 @@ void Application::SetupVulkan() { // 设置Vulkan
     m_Instance = std::make_unique<vkp::Instance>(enableValidationLayers); // 创建实例
     m_Surface = std::make_unique<vkp::Surface>(*m_Instance, m_Window->GetNativeWindow()); // 创建表面
     m_PhysicalDevice = std::make_unique<vkp::PhysicalDevice>(*m_Instance, *m_Surface); // 选择物理设备
+    
+    if(!m_PhysicalDevice->GraphicsQueueSupportsCompute()){ // 如果图形队列不支持计算
+        throw std::runtime_error(
+            "Stage 6 P4B requires graphics queue family to support compute in the first implementation"
+        );
+    }
+    
     m_Device = std::make_unique<vkp::Device>(*m_PhysicalDevice, m_PhysicalDevice->GetQueueFamilyIndices()); // 创建逻辑设备
 
     

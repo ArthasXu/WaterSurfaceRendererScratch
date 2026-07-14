@@ -31,6 +31,14 @@ const QueueFamilyIndices& PhysicalDevice::GetQueueFamilyIndices() const{
     return m_QueueFamilyIndices;
 }
 
+bool PhysicalDevice::GraphicsQueueSupportsCompute() const
+{
+    return m_QueueFamilyIndices.graphicsFamily.has_value() &&
+           m_QueueFamilyIndices.computeFamily.has_value() &&
+           m_QueueFamilyIndices.graphicsFamily.value() ==
+               m_QueueFamilyIndices.computeFamily.value();
+}
+
 SwapChainSupportDetails PhysicalDevice::QuerySwapChainSupport() const{
     return querySwapChainSupport(m_PhysicalDevice);
 }
@@ -78,6 +86,10 @@ void PhysicalDevice::pickPhysicalDevice(){ // 选择物理设备
     std::cout << "  " << selectedProperties.deviceName << "\n\n";
     std::cout << "Graphics queue family: " << m_QueueFamilyIndices.graphicsFamily.value() << "\n";
     std::cout << "Present queue family: " << m_QueueFamilyIndices.presentFamily.value() << "\n";
+    std::cout << "Compute queue family: " << m_QueueFamilyIndices.computeFamily.value() << "\n";
+    std::cout << "Graphics queue supports compute: "
+        << (GraphicsQueueSupportsCompute() ? "YES" : "NO")
+        << "\n";
     std::cout << "Swapchain support: OK\n";
 }
 
@@ -91,12 +103,22 @@ QueueFamilyIndices PhysicalDevice::findQueueFamilies(VkPhysicalDevice device) co
     for(uint32_t i = 0; i < queueFamilyCount; ++i){ // 遍历队列族
         if(queueFamilies[i].queueFlags & VK_QUEUE_GRAPHICS_BIT){ // 如果队列族支持图形
             indices.graphicsFamily = i; // 记录图形队列族索引
+
+            if(queueFamilies[i].queueFlags & VK_QUEUE_COMPUTE_BIT){
+                indices.computeFamily = i; // 记录计算队列族索引
+            }
         }
         VkBool32 presentSupport = false; // 记录是否支持呈现
         vkGetPhysicalDeviceSurfaceSupportKHR(device, i, m_Surface, &presentSupport); // 获取是否支持呈现
         if(presentSupport){ // 如果支持呈现
             indices.presentFamily = i; // 记录呈现队列族索引
         }
+
+        if(!indices.computeFamily.has_value() &&
+            (queueFamilies[i].queueFlags & VK_QUEUE_COMPUTE_BIT)){ // 如果计算队列族索引为空且队列族支持计算
+            indices.computeFamily = i;
+        }
+
         if(indices.isComplete()){ // 如果队列族索引完整
             break;
         }
