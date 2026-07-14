@@ -224,26 +224,9 @@ void Stage6CPUFFTApp::CreateWaterGrid()
 
 void Stage6CPUFFTApp::CreateTessendorfSource()
 {
-    water::TessendorfSpectrumParams base{}; // 用于创建多层级联
-    base.resolution = m_FFTResolution; // 频域网格分辨率（N x N），决定波浪细节的丰富程度和 FFT 计算量
-    base.windDirection = glm::normalize(glm::vec2(1.0f, 0.25f)); // 主风向（二维单位向量），控制波浪能量的方向性，这里略微偏向 x 轴
-    base.windSpeed = 25.0f; // 风速（米/秒），影响 Phillips 谱的强度，风速越大波浪越高
-    base.spectrumAmplitude = 2.5f; // 全局频谱振幅缩放因子，用于整体调节波高
-    base.shortWaveDamping = 0.001f; // 短波阻尼系数，抑制高频毛细波的强度，使海面更平滑自然
-    base.gravity = 9.81f; // 重力加速度（m/s^2），用于色散关系 ω = √(g k)
-    base.choppyLambda = 1.0f; // choppy 水平位移强度系数（典型值 0.5~1.5），越大波峰越尖锐
-    base.oppositeWindDamping = 0.07f; // 逆风方向波浪能量的额外衰减因子，减少背风面的波浪
-    base.randomSeed = 1337; // 随机种子，确保同一种子生成完全相同的海面（可重现性）
-
-    water::MultiCascadeParams params{}; // 多层级联参数
-    params.baseSpectrum = base; // 基础频谱参数
-    params.resolution = m_FFTResolution; // 频域网格分辨率（N x N），决定波浪细节的丰富程度和 FFT 计算量
-    params.baseSeed = 1337; // 随机种子，确保同一种子生成完全相同的海面（可重现性）
-    params.shortPatchLength = m_CascadePatchLengths[0]; // 短波补丁边长（米），决定短波波长和频域采样间距
-    params.midPatchLength = m_CascadePatchLengths[1]; // 中波补丁边长（米），决定中波波长和频域采样间距
-    params.longPatchLength = m_CascadePatchLengths[2]; // 长波补丁边长（米），决定长波波长和频域采样间距
-
-    m_Cascades = std::make_unique<water::WSTessendorfCascadesCPU>(params); // 创建多层级联波浪源
+    m_Cascades = std::make_unique<water::WSTessendorfCascadesCPU>(
+        m_OceanConfig.spectrum
+    );
 }
 
 void Stage6CPUFFTApp::CreateSamplers()
@@ -586,16 +569,16 @@ void Stage6CPUFFTApp::UpdateWaterParamsUniformBuffer(uint32_t frameIndex)
 {
     water::WaterParamsUBO ubo{}; // CPU 端的 UBO 结构体
     ubo.patchLengths = glm::vec4(
-        m_CascadePatchLengths[0],
-        m_CascadePatchLengths[1],
-        m_CascadePatchLengths[2],
+        m_OceanConfig.spectrum.shortPatchLength,
+        m_OceanConfig.spectrum.midPatchLength,
+        m_OceanConfig.spectrum.longPatchLength,
         0.0f
     ); // 每个级联的补丁边长（米），决定波浪波长和频域采样间距
 
     ubo.amplitudeScales = glm::vec4(
-        m_CascadeAmplitudeScales[0],
-        m_CascadeAmplitudeScales[1],
-        m_CascadeAmplitudeScales[2],
+        m_OceanConfig.amplitudeScales[0],
+        m_OceanConfig.amplitudeScales[1],
+        m_OceanConfig.amplitudeScales[2],
         0.0f
     ); // 每个级联的振幅缩放因子，影响波浪高度
 

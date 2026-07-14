@@ -14,7 +14,9 @@ WSTessendorfGPU::WSTessendorfGPU(
     VkQueue queue,
     uint32_t frameCount,
     VkSampler sampler,
-    const MultiCascadeParams& params
+    const MultiCascadeParams& params,
+    const std::array<float, kMaxFFTCascades>& amplitudeScales,
+    SpectrumInitializationMode initializationMode
 )
     : m_PhysicalDevice(physicalDevice),
       m_Device(device),
@@ -23,8 +25,11 @@ WSTessendorfGPU::WSTessendorfGPU(
       m_Sampler(sampler),
       m_FrameCount(frameCount),
       m_Resolution(params.resolution),
-      m_ChoppyLambda(params.baseSpectrum.choppyLambda)
+      m_ChoppyLambda(params.baseSpectrum.choppyLambda),
+      m_InitializationMode(initializationMode)
 {
+    m_AmplitudeScales = amplitudeScales;
+
     m_PatchLengths = {
         params.shortPatchLength,
         params.midPatchLength,
@@ -75,14 +80,9 @@ WSTessendorfGPU::WSTessendorfGPU(
     CreateDescriptorSets();
 }
 
-void WSTessendorfGPU::SetFrameIndex(uint32_t frameIndex)
+const WaterSurfaceGPUResources& WSTessendorfGPU::GetGPUResources(uint32_t frameIndex) const
 {
-    m_FrameIndex = frameIndex;
-}
-
-const WaterSurfaceGPUResources& WSTessendorfGPU::GetGPUResources() const
-{
-    return m_GPUResources;
+    return m_GPUResourcesPerFrame.at(frameIndex);
 }
 
 uint32_t WSTessendorfGPU::GetResolution() const
@@ -90,9 +90,9 @@ uint32_t WSTessendorfGPU::GetResolution() const
     return m_Resolution;
 }
 
-float WSTessendorfGPU::GetPatchLength() const
+float WSTessendorfGPU::GetCascadePatchLength(uint32_t cascadeIndex) const
 {
-    return m_PatchLengths[1];
+    return m_PatchLengths[cascadeIndex];
 }
 
 VkDescriptorImageInfo WSTessendorfGPU::GetFrameDisplacementInfo(uint32_t frameIndex) const
@@ -423,22 +423,47 @@ void WSTessendorfGPU::CreateDescriptorSets()
     }
 
     // 第三步：填充 GPU 资源描述结构，供渲染时绑定
-    m_GPUResources.cascadeCount = kMaxFFTCascades;
 
-    for(uint32_t cascadeIndex = 0; cascadeIndex < kMaxFFTCascades; cascadeIndex++){
-        // 取第一个飞行帧的图像资源（所有帧共享相同的图像对象）
-        GPUFFTFrameResources& frame0 =
-            m_GPUFFTs[cascadeIndex]->GetFrameResources(0);
+    // 在之前的实现中，m_GPUResources 只存储了一份 GPU 资源描述信息，
+    // 并且通过 GetFrameResources(0) 直接取了第一个飞行帧的图像。
+    // 这样做在只有 1 个飞行帧（例如测试程序 GPUFFTHeightTestApp）时没有问题，
+    // 但在实时渲染的多飞行帧场景下会导致严重的资源错乱和同步错误
 
-        // 以“通用布局下的采样器”形式提供，后续渲染前会通过屏障转为只读
-        m_GPUResources.cascades[cascadeIndex].displacement =
-            frame0.displacementImage->GetGeneralSampledDescriptorInfo(m_Sampler);
-        m_GPUResources.cascades[cascadeIndex].normalAux =
-            frame0.normalAuxImage->GetGeneralSampledDescriptorInfo(m_Sampler);
+    // 改为 m_GPUResourcesPerFrame（按飞行帧索引的数组） 后：
+    // 每个飞行帧都持有自己的一套 WaterSurfaceGPUResources，
+    // 其中的 displacement 和 normalAux 描述符信息来自该帧该层的真实图像。
+    // 在渲染时，你可以通过 m_GPUResourcesPerFrame[currentFrame] 获取到正确的资源元数据
+    // （例如传递给 AccumulateCascade 需要的 patch 长度、振幅等），并保证与当前绑定的描述符集完全一致。
+    // 这确保了 CPU 更新目标、描述符集绑定、着色器采样 三者始终指向同一帧的同一纹理，
+    // 消除了多帧间的数据竞争和图像错配。
+    m_GPUResourcesPerFrame.clear();
+    m_GPUResourcesPerFrame.resize(m_FrameCount);
 
-        m_GPUResources.cascades[cascadeIndex].patchLength = m_PatchLengths[cascadeIndex];
-        m_GPUResources.cascades[cascadeIndex].resolution = m_Resolution;
-        m_GPUResources.cascades[cascadeIndex].amplitudeScale = m_AmplitudeScales[cascadeIndex];
+    for(uint32_t frameIndex = 0; frameIndex < m_FrameCount; frameIndex++){
+        WaterSurfaceGPUResources& resources =
+            m_GPUResourcesPerFrame[frameIndex];
+
+        resources.cascadeCount = kMaxFFTCascades;
+
+        for(uint32_t cascadeIndex = 0; cascadeIndex < kMaxFFTCascades; cascadeIndex++){
+            GPUFFTFrameResources& frame =
+                m_GPUFFTs[cascadeIndex]->GetFrameResources(frameIndex);
+
+            resources.cascades[cascadeIndex].displacement =
+                frame.displacementImage->GetGeneralSampledDescriptorInfo(m_Sampler);
+
+            resources.cascades[cascadeIndex].normalAux =
+                frame.normalAuxImage->GetGeneralSampledDescriptorInfo(m_Sampler);
+
+            resources.cascades[cascadeIndex].patchLength =
+                m_PatchLengths[cascadeIndex];
+
+            resources.cascades[cascadeIndex].resolution =
+                m_Resolution;
+
+            resources.cascades[cascadeIndex].amplitudeScale =
+                m_AmplitudeScales[cascadeIndex];
+        }
     }
 }
 
@@ -520,9 +545,12 @@ uint32_t WSTessendorfGPU::Log2(uint32_t value) const
 // 它按顺序为每一层 Cascade 执行频谱演化、二维 IFFT、输出到纹理，并通过图像屏障正确衔接不同阶段的数据访问
 void WSTessendorfGPU::UpdateGPU(
     VkCommandBuffer commandBuffer,
+    uint32_t frameIndex,
     float deltaTime
 )
 {
+    m_FrameIndex = frameIndex;
+
     m_Time += deltaTime;
 
     for(uint32_t cascadeIndex = 0; cascadeIndex < kMaxFFTCascades; cascadeIndex++){

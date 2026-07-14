@@ -4,6 +4,7 @@
 
 #include "scene/Camera.h"
 #include "scene/water/common/FFTResourceContract.h"
+#include "scene/water/common/Stage6OceanConfig.h"
 #include "scene/water/render/WaterGrid.h"
 #include "scene/water/render/WaterSampler.h"
 #include "scene/water/gpu/WSTessendorfGPU.h"
@@ -103,18 +104,11 @@ private:
     int m_DebugMode = 0;
 
     // 配置参数：决定 FFT 网格大小和物理范围，供创建 WSTessendorfCPU 和分配纹理使用。
-    uint32_t m_FFTResolution = 256;
-    std::array<float, water::kMaxFFTCascades> m_CascadePatchLengths{
-        64.0f,
-        256.0f,
-        1024.0f
-    };
+    water::Stage6OceanConfig m_OceanConfig =
+        water::MakeStage6ReferenceOceanConfig();
 
-    std::array<float, water::kMaxFFTCascades> m_CascadeAmplitudeScales{
-        1.0f,
-        1.0f,
-        0.1f
-    };
+    uint32_t m_FFTResolution =
+        m_OceanConfig.spectrum.resolution;
 
     float m_LastSimulationDeltaTime = 0.0f;
 
