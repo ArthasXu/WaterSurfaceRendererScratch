@@ -1,0 +1,157 @@
+#version 450
+
+layout(local_size_x = 64) in;
+
+struct Complex
+{
+    float real;
+    float imag;
+};
+
+struct GPUWaveData
+{
+    vec2 waveVector;
+    float waveNumber;
+    float dispersion;
+};
+
+layout(set = 0, binding = 0) readonly buffer H0Buffer
+{
+    Complex h0[];
+};
+
+layout(set = 0, binding = 1) readonly buffer H0MinusConjugateBuffer
+{
+    Complex h0MinusConjugate[];
+};
+
+layout(set = 0, binding = 2) readonly buffer WaveDataBuffer
+{
+    GPUWaveData waveData[];
+};
+
+// 采用 vec4 打包缓冲区并打乱物理量分布，是为了最大化显存带宽利用率、实现单次 IFFT 并行处理多个频域分量，并保持索引一致性
+// GPU 的存储子系统以 16 字节为一个访问单元，vec4 正好对齐这个边界。
+// 使用 vec4[] 数组能保证每个元素对齐，避免非对齐访问带来的性能损失
+// GPU 读取显存（DRAM）想象成一个只能整行整行取书的巨型图书馆
+// 每次最少必须取出一整行（假设一行是 32 字节），且每一行的开头都有固定的编号（比如 0, 32, 64...）
+// 对齐访问：你要的数据（比如一个 vec4，正好 16 字节），刚好完整地放在某一行的内部，或者刚好完整地占满连续的几行
+// 过程：硬件只需要发一次指令，读取相关的行，就能拿到完整数据。没有任何浪费，这就是最高效的合并访问。
+layout(set = 0, binding = 3) writeonly buffer Packed0Buffer
+{
+    vec4 packed0[];
+};
+
+layout(set = 0, binding = 4) writeonly buffer Packed1Buffer
+{
+    vec4 packed1[];
+};
+
+layout(set = 0, binding = 5) writeonly buffer Packed2Buffer
+{
+    vec4 packed2[];
+};
+
+layout(set = 0, binding = 6) writeonly buffer Packed3Buffer
+{
+    vec4 packed3[];
+};
+
+layout(push_constant) uniform SpectrumPushConstants
+{
+    uint resolution;
+    float time;
+} pc;
+
+vec2 ComplexMul(vec2 a, vec2 b)
+{
+    return vec2(
+        a.x * b.x - a.y * b.y,
+        a.x * b.y + a.y * b.x
+    );
+}
+
+vec2 ComplexScale(vec2 value, float scale)
+{
+    return value * scale;
+}
+
+vec2 ComplexI(float scale, vec2 h)
+{
+    return vec2(
+        -scale * h.y,
+         scale * h.x
+    );
+}
+
+vec2 ComplexMinusI(float scale, vec2 h)
+{
+    return vec2(
+         scale * h.y,
+        -scale * h.x
+    );
+}
+
+// 频谱演化与输出打包阶段 根据时间更新 h(k,t)
+void main()
+{
+    uint index = gl_GlobalInvocationID.x;
+    uint total = pc.resolution * pc.resolution;
+
+    if(index >= total){
+        return;
+    }
+
+    vec2 h0Value = vec2(
+        h0[index].real,
+        h0[index].imag
+    );
+
+    vec2 h0MinusValue = vec2(
+        h0MinusConjugate[index].real,
+        h0MinusConjugate[index].imag
+    );
+
+    float omega = waveData[index].dispersion;
+    float phase = omega * pc.time;
+
+    vec2 positivePhase = vec2(cos(phase), sin(phase));
+    vec2 negativePhase = vec2(cos(phase), -sin(phase));
+
+    vec2 h =
+        ComplexMul(h0Value, positivePhase) +
+        ComplexMul(h0MinusValue, negativePhase);
+
+    vec2 k = waveData[index].waveVector;
+    float kLength = waveData[index].waveNumber;
+
+    vec2 slopeX = ComplexI(k.x, h);
+    vec2 slopeZ = ComplexI(k.y, h);
+
+    vec2 displacementX = vec2(0.0);
+    vec2 displacementZ = vec2(0.0);
+    vec2 dDxdx = vec2(0.0);
+    vec2 dDzdz = vec2(0.0);
+    vec2 dDxdz = vec2(0.0);
+
+    // 在 GPU 上，分支（if-else）可能导致线程发散：同一个 warp/wave 中的线程如果走不同分支，会降低并行效率。
+    // 但这里的情况是：总共 resolution × resolution 个频率，
+    // 只有 一个 线程（k=0）进入 if(kLength > 1e-6) 的 false 路径，其余成千上万个线程都执行 true 路径。
+    // 在 NVIDIA GPU 上，一个 warp 有 32 个线程。如果这个 k=0 的线程与其它线程落在同一 warp，
+    // 该 warp 会串行执行两条分支，但只有一个线程跑 false 路径，开销微乎其微。
+    // 这种极低频率的分支对整体性能几乎没有影响，且逻辑清晰，易于验证和调试。
+    // 因此，保留这个 if 是合理的，无需强行消除。
+    if(kLength > 1e-6){
+        displacementX = ComplexMinusI(k.x / kLength, h);
+        displacementZ = ComplexMinusI(k.y / kLength, h);
+
+        dDxdx = ComplexScale(h, k.x * k.x / kLength);
+        dDzdz = ComplexScale(h, k.y * k.y / kLength);
+        dDxdz = ComplexScale(h, k.x * k.y / kLength);
+    }
+
+    packed0[index] = vec4(h, displacementX);
+    packed1[index] = vec4(displacementZ, slopeX);
+    packed2[index] = vec4(slopeZ, dDxdx);
+    packed3[index] = vec4(dDzdz, dDxdz);
+}

@@ -87,6 +87,11 @@ void Buffer::FlushMappedRange(VkDeviceSize size, VkDeviceSize offset){ // 刷新
     vkFlushMappedMemoryRanges(m_Device, 1, &mappedRange); // 刷新映射的内存范围
 }
 
+void* Buffer::GetMappedData() const
+{
+    return m_Mapped;
+}
+
 uint32_t Buffer::FindMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties) const{ // 查找内存类型
     VkPhysicalDeviceMemoryProperties memoryProperties{}; // 内存属性
     vkGetPhysicalDeviceMemoryProperties(m_PhysicalDevice, &memoryProperties); // 获取物理设备内存属性

@@ -1,0 +1,158 @@
+#version 450
+
+layout(local_size_x = 64) in;
+
+layout(set = 0, binding = 0) readonly buffer Input0Buffer
+{
+    vec4 input0[];
+};
+
+layout(set = 0, binding = 1) readonly buffer Input1Buffer
+{
+    vec4 input1[];
+};
+
+layout(set = 0, binding = 2) readonly buffer Input2Buffer
+{
+    vec4 input2[];
+};
+
+layout(set = 0, binding = 3) readonly buffer Input3Buffer
+{
+    vec4 input3[];
+};
+
+layout(set = 0, binding = 4) writeonly buffer Output0Buffer
+{
+    vec4 output0[];
+};
+
+layout(set = 0, binding = 5) writeonly buffer Output1Buffer
+{
+    vec4 output1[];
+};
+
+layout(set = 0, binding = 6) writeonly buffer Output2Buffer
+{
+    vec4 output2[];
+};
+
+layout(set = 0, binding = 7) writeonly buffer Output3Buffer
+{
+    vec4 output3[];
+};
+
+layout(push_constant) uniform FFTPushConstants
+{
+    uint resolution;
+    uint stage;
+    uint direction;
+    uint inverse;
+} pc;
+
+vec2 ComplexMul(vec2 a, vec2 b)
+{
+    return vec2(
+        a.x * b.x - a.y * b.y,
+        a.x * b.y + a.y * b.x
+    );
+}
+
+vec4 TwiddlePacked(vec4 value, vec2 twiddle)
+{
+    return vec4(
+        ComplexMul(value.xy, twiddle),
+        ComplexMul(value.zw, twiddle)
+    );
+}
+
+uint Address(uint line, uint localIndex)
+{
+    if(pc.direction == 0){
+        return line * pc.resolution + localIndex;
+    }
+
+    return localIndex * pc.resolution + line;
+}
+
+// Stockham 算法的 Radix-2 蝶形核心
+// 当 pc.inverse != 0 时，signValue = 1.0，计算的是 exp(+i * 2π k r / N)，对应逆变换（IFFT）；
+// 当 pc.inverse == 0 时，signValue = -1.0，计算的是 exp(-i * 2π k r / N)，对应正变换（FFT）
+void main()
+{
+    // 总行数 = 分辨率，每行执行 N/2 个蝶形
+    uint n = pc.resolution;
+    uint butterfliesPerLine = n / 2;
+    uint totalButterflies = butterfliesPerLine * n; // 对于二维行变换，每一行需要 N/2 个蝶形，共 N 行
+
+    uint globalIndex = gl_GlobalInvocationID.x;
+
+    // 超出范围则直接返回（当线程总数大于蝶形总数时）
+    if(globalIndex >= totalButterflies){
+        return;
+    }
+
+    // 当前迭代级数 p = 2^stage，合并的子序列半长
+    uint p = 1u << pc.stage;
+    uint r = n / (2u * p);
+
+    // 二维索引转一维：当前行和当前蝶形编号 每个线程通过自己的全局 ID 反算出自己属于哪一行以及该行内的哪个蝶形
+    uint line = globalIndex / butterfliesPerLine;
+    uint butterfly = globalIndex % butterfliesPerLine;
+
+    // 蝶形局部索引：k 为子序列内偏移，j 为子序列对编号
+    uint k = butterfly % p;
+    uint j = butterfly / p;
+
+    // Stockham 输入地址：同一行中，前块和后块相隔 N/2 的两个元素
+    uint inputLocal0 = j * p + k;
+    uint inputLocal1 = inputLocal0 + n / 2u;
+
+    // Stockham 输出地址：新块的前半段和后半段，自动有序
+    uint outputLocal0 = j * (2u * p) + k;
+    uint outputLocal1 = outputLocal0 + p;
+
+    // 加上行偏移，得到全局缓冲区地址
+    uint readIndex0 = Address(line, inputLocal0);
+    uint readIndex1 = Address(line, inputLocal1);
+    uint writeIndex0 = Address(line, outputLocal0);
+    uint writeIndex1 = Address(line, outputLocal1);
+
+    // 方向因子：逆变换用 +1，正变换用 -1
+    float signValue = pc.inverse != 0u ? 1.0 : -1.0;
+
+    // 旋转因子角度：±2π * k * r / N
+    float angle =
+        signValue *
+        6.28318530717958647692 *
+        float(k * r) /
+        float(n);
+
+    vec2 twiddle = vec2(cos(angle), sin(angle));
+
+    // 读取四个打包的 vec4 数据（高度、位移、斜率等），执行蝶形运算
+    vec4 a0 = input0[readIndex0];
+    vec4 b0 = TwiddlePacked(input0[readIndex1], twiddle);
+
+    vec4 a1 = input1[readIndex0];
+    vec4 b1 = TwiddlePacked(input1[readIndex1], twiddle);
+
+    vec4 a2 = input2[readIndex0];
+    vec4 b2 = TwiddlePacked(input2[readIndex1], twiddle);
+
+    vec4 a3 = input3[readIndex0];
+    vec4 b3 = TwiddlePacked(input3[readIndex1], twiddle);
+
+    // Radix-2 蝶形：和写入输出前半段，差写入后半段
+    output0[writeIndex0] = a0 + b0;
+    output0[writeIndex1] = a0 - b0;
+
+    output1[writeIndex0] = a1 + b1;
+    output1[writeIndex1] = a1 - b1;
+
+    output2[writeIndex0] = a2 + b2;
+    output2[writeIndex1] = a2 - b2;
+
+    output3[writeIndex0] = a3 + b3;
+    output3[writeIndex1] = a3 - b3;
+}
