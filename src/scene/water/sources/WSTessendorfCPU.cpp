@@ -759,6 +759,26 @@ std::complex<float> WSTessendorfCPU::GetH0(uint32_t x, uint32_t z) const
     return m_H0[Index(x, z)];
 }
 
+const std::vector<std::complex<float>>& WSTessendorfCPU::GetH0Field() const
+{
+    return m_H0;
+}
+
+const std::vector<std::complex<float>>& WSTessendorfCPU::GetH0MinusConjugateField() const
+{
+    return m_H0MinusConjugate;
+}
+
+const std::vector<glm::vec2>& WSTessendorfCPU::GetWaveVectors() const
+{
+    return m_WaveVectors;
+}
+
+const std::vector<float>& WSTessendorfCPU::GetDispersionField() const
+{
+    return m_Dispersion;
+}
+
 std::complex<float> WSTessendorfCPU::GetH0MinusConjugate(uint32_t x, uint32_t z) const
 {
     return m_H0MinusConjugate[Index(x, z)];

@@ -90,6 +90,11 @@ public:
     std::complex<float> GetH0MinusConjugate(uint32_t x, uint32_t z) const; // 获取 h0*(-k)，用于频谱对称性
     std::complex<float> GetHeightSpectrum(uint32_t x, uint32_t z) const; // 获取高度频谱 ̃h(k,t)
     
+    const std::vector<std::complex<float>>& GetH0Field() const; // 获取所有 h0(k) 的一维数组
+    const std::vector<std::complex<float>>& GetH0MinusConjugateField() const; // 获取所有 h0*(-k) 的一维数组
+    const std::vector<glm::vec2>& GetWaveVectors() const; // 获取所有波矢量 k = (kx, kz) 的一维数组
+    const std::vector<float>& GetDispersionField() const; // 获取所有角频率 ω(k) 的一维数组
+    
     float ComputeH0Checksum(uint32_t maxCount = 16) const; // 计算前 maxCount 个 h0 的校验和，用于验证随机振幅的可重现性
     float ComputeFrameChecksum() const; // 计算当前帧的校验和，用于验证模拟结果的一致性
 

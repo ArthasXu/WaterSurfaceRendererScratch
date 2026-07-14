@@ -26,6 +26,7 @@ public:
     void Unmap();                           // 取消映射缓冲区
     void CopyToMapped(const void* data, VkDeviceSize size, VkDeviceSize offset = 0);    // 将数据复制到映射的缓冲区
     void FlushMappedRange(VkDeviceSize size, VkDeviceSize offset = 0);                  // 刷新映射的缓冲区范围
+    void* GetMappedData() const;            // 获取映射的缓冲区数据指针 readback buffer Map() 后，需要拿裸指针比较 GPU 输出
 
 private:
     uint32_t FindMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties) const; // 查找内存类型
