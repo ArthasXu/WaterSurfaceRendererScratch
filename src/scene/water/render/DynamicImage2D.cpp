@@ -262,6 +262,62 @@ void DynamicImage2D::RecordUpload(
     );
 }
 
+void DynamicImage2D::RecordTransitionToGeneral(VkCommandBuffer commandBuffer)
+{
+    if(m_CurrentLayout == VK_IMAGE_LAYOUT_GENERAL){
+        return;
+    }
+
+    RecordTransition(
+        commandBuffer,
+        m_CurrentLayout,
+        VK_IMAGE_LAYOUT_GENERAL,
+        VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+        0,
+        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+        VK_ACCESS_SHADER_WRITE_BIT
+    );
+}
+
+void DynamicImage2D::RecordComputeWriteToGraphicsReadBarrier(VkCommandBuffer commandBuffer)
+{
+    RecordTransition(
+        commandBuffer,
+        VK_IMAGE_LAYOUT_GENERAL,
+        VK_IMAGE_LAYOUT_GENERAL,
+        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+        VK_ACCESS_SHADER_WRITE_BIT,
+        VK_PIPELINE_STAGE_VERTEX_SHADER_BIT | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+        VK_ACCESS_SHADER_READ_BIT
+    );
+}
+
+void DynamicImage2D::RecordGraphicsReadToComputeWriteBarrier(VkCommandBuffer commandBuffer)
+{
+    RecordTransition(
+        commandBuffer,
+        VK_IMAGE_LAYOUT_GENERAL,
+        VK_IMAGE_LAYOUT_GENERAL,
+        VK_PIPELINE_STAGE_VERTEX_SHADER_BIT | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+        VK_ACCESS_SHADER_READ_BIT,
+        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+        VK_ACCESS_SHADER_WRITE_BIT
+    );
+}
+
+void DynamicImage2D::RecordComputeWriteToTransferReadBarrier(VkCommandBuffer commandBuffer)
+{
+    RecordTransition(
+        commandBuffer,
+        VK_IMAGE_LAYOUT_GENERAL,
+        VK_IMAGE_LAYOUT_GENERAL,
+        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+        VK_ACCESS_SHADER_WRITE_BIT,
+        VK_PIPELINE_STAGE_TRANSFER_BIT,
+        VK_ACCESS_TRANSFER_READ_BIT
+    );
+}
+
 // 用于更新描述符集时绑定图像资源的数据结构，专门把 VkImageView 和 VkSampler 组合到一起，
 // 并指定图像布局，告诉着色器“该 binding 用哪张图、怎么采样、处于什么布局”
 VkDescriptorImageInfo DynamicImage2D::GetDescriptorInfo(VkSampler sampler) const
@@ -270,6 +326,24 @@ VkDescriptorImageInfo DynamicImage2D::GetDescriptorInfo(VkSampler sampler) const
     info.sampler = sampler;
     info.imageView = m_ImageView;
     info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL; // 描述符更新时图像必须处于的布局，这里是着色器读取布局
+    return info;
+}
+
+VkDescriptorImageInfo DynamicImage2D::GetGeneralSampledDescriptorInfo(VkSampler sampler) const
+{
+    VkDescriptorImageInfo info{};
+    info.sampler = sampler;
+    info.imageView = m_ImageView;
+    info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+    return info;
+}
+
+VkDescriptorImageInfo DynamicImage2D::GetStorageDescriptorInfo() const
+{
+    VkDescriptorImageInfo info{};
+    info.sampler = VK_NULL_HANDLE;
+    info.imageView = m_ImageView;
+    info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
     return info;
 }
 

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "scene/water/common/FFTResourceContract.h"
+
 #include <vulkan/vulkan.h>
 
 #include <array>
@@ -16,8 +18,6 @@ struct WaterCascadeGPUResource
     uint32_t resolution = 0; // 分辨率
     float amplitudeScale = 1.0f; // 振幅缩放
 };
-
-constexpr uint32_t kMaxFFTCascades = 3; // 最大FFT级联数
 
 struct WaterSurfaceGPUResources
 {
