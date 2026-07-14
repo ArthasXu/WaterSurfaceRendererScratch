@@ -46,20 +46,22 @@ public:
         VkQueue queue,
         uint32_t frameCount,
         VkSampler sampler,
-        const MultiCascadeParams& params
+        const MultiCascadeParams& params,
+        const std::array<float, kMaxFFTCascades>& amplitudeScales,
+        SpectrumInitializationMode initializationMode = SpectrumInitializationMode::CPUReferenceUpload
     );
 
-    void SetFrameIndex(uint32_t frameIndex);
 
     void UpdateGPU(
         VkCommandBuffer commandBuffer,
+        uint32_t frameIndex,
         float deltaTime
     ) override;
 
-    const WaterSurfaceGPUResources& GetGPUResources() const override;
+    const WaterSurfaceGPUResources& GetGPUResources(uint32_t frameIndex) const override;
 
     uint32_t GetResolution() const;
-    float GetPatchLength() const;
+    float GetCascadePatchLength(uint32_t cascadeIndex) const;
 
     VkDescriptorImageInfo GetFrameDisplacementInfo(uint32_t frameIndex) const;
     VkDescriptorImageInfo GetFrameNormalAuxInfo(uint32_t frameIndex) const;
@@ -136,6 +138,9 @@ private:
     std::array<std::vector<VkDescriptorSet>, kMaxFFTCascades> m_OutputPingSets;
     std::array<std::vector<VkDescriptorSet>, kMaxFFTCascades> m_OutputPongSets;
 
-    WaterSurfaceGPUResources m_GPUResources{};
+    std::vector<WaterSurfaceGPUResources> m_GPUResourcesPerFrame;
+
+    SpectrumInitializationMode m_InitializationMode =
+        SpectrumInitializationMode::CPUReferenceUpload;
 };
 }

@@ -18,6 +18,12 @@
 
 namespace water
 {
+enum class SpectrumInitializationMode
+{
+    CPUReferenceUpload,
+    GPUCompute
+};
+    
 struct Complex
 {
     float real;

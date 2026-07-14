@@ -1,0 +1,215 @@
+#version 450
+
+layout(local_size_x = 64) in;
+
+// GPU 端复数结构
+struct Complex
+{
+    float real;
+    float imag;
+};
+
+// 存储每个频域网格点的波矢量、波数和色散
+struct GPUWaveData
+{
+    vec2 waveVector;
+    float waveNumber;
+    float dispersion;
+};
+
+// 预先上传的高斯随机数数组（每个复数由两个 float 表示）。每个频域点需要两个随机数来生成 h0 的实部和虚部
+layout(set = 0, binding = 0) readonly buffer GaussianBuffer
+{
+    vec2 gaussian[];
+};
+
+layout(set = 0, binding = 1) writeonly buffer H0Buffer
+{
+    Complex h0[];
+};
+
+layout(set = 0, binding = 2) writeonly buffer H0MinusConjugateBuffer
+{
+    Complex h0MinusConjugate[];
+};
+
+layout(set = 0, binding = 3) writeonly buffer WaveDataBuffer
+{
+    GPUWaveData waveData[];
+};
+
+// 三个输出缓冲区，分别存储：初始复振幅 h0(k)、共轭项 h0*(-k)、波数据（k, k, ω）。
+layout(push_constant) uniform SpectrumInitPushConstants {
+    uint resolution;          // FFT 分辨率 N
+    float patchLength;        // 补丁物理边长 L
+    float windSpeed;          // 风速
+    float spectrumAmplitude;  // 频谱振幅缩放 A
+    float shortWaveDamping;   // 短波阻尼
+    float gravity;            // 重力加速度 g
+    float oppositeWindDamping;// 逆风阻尼
+    float fadeInStart;        // Cascade 淡入起始波数
+    float fadeInEnd;          // 淡入结束波数
+    float fadeOutStart;       // 淡出起始波数
+    float fadeOutEnd;         // 淡出结束波数
+    float padding0;
+    vec2 windDirection;       // 风向单位向量
+} pc;
+
+// 用于 Cascade 频段间平滑过渡，避免硬边界
+float SmoothStep(float edge0, float edge1, float x)
+{
+    if(abs(edge1 - edge0) < 1e-6){
+        return x >= edge1 ? 1.0 : 0.0;
+    }
+
+    float t = clamp((x - edge0) / (edge1 - edge0), 0.0, 1.0);
+    return t * t * (3.0 - 2.0 * t);
+}
+
+// 将无符号频域索引转换为有符号索引（如 N/2 处为负频率）
+int SignedFrequencyIndex(uint value, uint n)
+{
+    if(value <= n / 2u){
+        return int(value);
+    }
+
+    return int(value) - int(n);
+}
+
+// 计算当前波数对应的 Cascade 频段权重
+float BandWeight(float waveNumber)
+{
+    float lowWeight = 1.0;
+    float highWeight = 1.0;
+
+    if(pc.fadeInEnd > pc.fadeInStart){
+        lowWeight = SmoothStep(
+            pc.fadeInStart,
+            pc.fadeInEnd,
+            waveNumber
+        );
+    }
+
+    if(pc.fadeOutEnd > pc.fadeOutStart){
+        highWeight =
+            1.0 - SmoothStep(
+                pc.fadeOutStart,
+                pc.fadeOutEnd,
+                waveNumber
+            );
+    }
+
+    return lowWeight * highWeight;
+}
+
+// 完全复现 CPU 版 WSTessendorfCPU::PhillipsSpectrum，计算波矢量 k 的 Phillips 谱值
+float PhillipsSpectrum(vec2 waveVector)
+{
+    float kLength = length(waveVector);
+
+    if(kLength < 1e-6){
+        return 0.0;
+    }
+
+    vec2 kHat = waveVector / kLength;
+    vec2 windHat = normalize(pc.windDirection);
+
+    float windSpeed = max(pc.windSpeed, 1e-6);
+    float largestWave = windSpeed * windSpeed / pc.gravity;
+    float dampingLength = largestWave * pc.shortWaveDamping;
+
+    float kLengthSquared = kLength * kLength;
+    float kLengthFourth = kLengthSquared * kLengthSquared;
+
+    float directional = dot(kHat, windHat);
+    float directionalPower = directional * directional;
+
+    if(directional < 0.0){
+        directionalPower *= pc.oppositeWindDamping;
+    }
+
+    float longWaveSuppress =
+        exp(-1.0 / (kLengthSquared * largestWave * largestWave));
+
+    float shortWaveSuppress =
+        exp(-kLengthSquared * dampingLength * dampingLength);
+
+    float spectrum =
+        pc.spectrumAmplitude *
+        longWaveSuppress *
+        directionalPower *
+        shortWaveSuppress /
+        kLengthFourth;
+
+    if(isnan(spectrum) || isinf(spectrum)){
+        return 0.0;
+    }
+
+    return max(spectrum, 0.0) * BandWeight(kLength);
+}
+
+// 根据 Phillips 谱和预先上传的高斯随机数计算初始复振幅
+vec2 ComputeH0(uint index, vec2 waveVector)
+{
+    float phillips = PhillipsSpectrum(waveVector);
+    float scale = sqrt(phillips * 0.5);
+    return gaussian[index] * scale;
+}
+
+// 每个线程负责一个频域格点 (x, z)，执行以下操作：
+    // 计算波矢量
+        // sx, sz 是有符号频率索引，waveVector = (2π·sx/L, 2π·sz/L)。对应 CPU 版 ComputeWaveVectors。
+    // 计算波数和色散
+        // waveNumber = length(waveVector)
+        // dispersion = sqrt(g * waveNumber)（深水波色散关系）
+    // 生成初始频谱 h0
+        // 调用 ComputeH0，写入 h0[index]。
+    // 生成共轭项 h0MinusConjugate
+        // 计算负波矢量 -waveVector 对应的索引 minusIndex。
+        // 用该位置的随机数重新计算 h0_minus = ComputeH0(minusIndex, minusWaveVector)。
+        // 共轭项为 (h0_minus.real, -h0_minus.imag)，存入 h0MinusConjugate[index]。
+        // 这是保证 IFFT 后高度场为实数的关键步骤。
+    // 存储波数据
+        // 将波矢量、波数、色散写入 waveData[index]
+void main()
+{
+    uint index = gl_GlobalInvocationID.x;
+    uint total = pc.resolution * pc.resolution;
+
+    if(index >= total){
+        return;
+    }
+
+    uint x = index % pc.resolution;
+    uint z = index / pc.resolution;
+
+    int sx = SignedFrequencyIndex(x, pc.resolution);
+    int sz = SignedFrequencyIndex(z, pc.resolution);
+
+    vec2 waveVector = vec2(
+        6.28318530717958647692 * float(sx) / pc.patchLength,
+        6.28318530717958647692 * float(sz) / pc.patchLength
+    );
+
+    float waveNumber = length(waveVector);
+    float dispersion = waveNumber > 1e-6
+        ? sqrt(pc.gravity * waveNumber)
+        : 0.0;
+
+    h0[index].real = ComputeH0(index, waveVector).x;
+    h0[index].imag = ComputeH0(index, waveVector).y;
+
+    uint minusX = (pc.resolution - x) % pc.resolution;
+    uint minusZ = (pc.resolution - z) % pc.resolution;
+    uint minusIndex = minusZ * pc.resolution + minusX;
+
+    vec2 minusWaveVector = -waveVector;
+    vec2 h0Minus = ComputeH0(minusIndex, minusWaveVector);
+
+    h0MinusConjugate[index].real = h0Minus.x;
+    h0MinusConjugate[index].imag = -h0Minus.y;
+
+    waveData[index].waveVector = waveVector;
+    waveData[index].waveNumber = waveNumber;
+    waveData[index].dispersion = dispersion;
+}

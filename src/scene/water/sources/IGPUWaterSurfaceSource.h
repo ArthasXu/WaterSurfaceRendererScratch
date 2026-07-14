@@ -39,9 +39,10 @@ public:
 
     virtual void UpdateGPU(
         VkCommandBuffer commandBuffer,
+        uint32_t frameIndex,
         float deltaTime
     ) = 0; // 更新GPU水面高度
 
-    virtual const WaterSurfaceGPUResources& GetGPUResources() const = 0; // 获取GPU资源
+    virtual const WaterSurfaceGPUResources& GetGPUResources(uint32_t frameIndex) const = 0; // 获取GPU资源
 };
 }
