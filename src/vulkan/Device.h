@@ -21,8 +21,10 @@ public:
 
     VkQueue GetGraphicsQueue() const;
     VkQueue GetPresentQueue() const;
+    VkQueue GetComputeQueue() const;
     uint32_t GetGraphicsQueueFamily() const;
     uint32_t GetPresentQueueFamily() const;
+    uint32_t GetComputeQueueFamily() const;
 
     uint32_t FindMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties) const;
     VkDeviceSize GetUniformBufferAlignment(VkDeviceSize instanceSize) const;
@@ -54,6 +56,7 @@ private:
     VkDevice m_Device = VK_NULL_HANDLE;                     // 逻辑设备句柄
     VkQueue m_GraphicsQueue = VK_NULL_HANDLE;               // 图形队列句柄
     VkQueue m_PresentQueue = VK_NULL_HANDLE;                // 呈现队列句柄
+    VkQueue m_ComputeQueue = VK_NULL_HANDLE;                // 计算队列句柄
     QueueFamilyIndices m_QueueFamilyIndices;                // 队列族索引
     bool m_SupportsFillModeNonSolid = false;                // 是否支持非实心填充模式
 };

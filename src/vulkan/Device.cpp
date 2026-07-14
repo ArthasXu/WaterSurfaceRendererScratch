@@ -47,6 +47,11 @@ VkQueue Device::GetPresentQueue() const
     return m_PresentQueue;
 }
 
+VkQueue Device::GetComputeQueue() const
+{
+    return m_ComputeQueue;
+}
+
 uint32_t Device::GetGraphicsQueueFamily() const
 {
     return m_QueueFamilyIndices.graphicsFamily.value();
@@ -57,13 +62,19 @@ uint32_t Device::GetPresentQueueFamily() const
     return m_QueueFamilyIndices.presentFamily.value();
 }
 
+uint32_t Device::GetComputeQueueFamily() const
+{
+    return m_QueueFamilyIndices.computeFamily.value();
+}
+
 void Device::createLogicalDevice(){ // 创建逻辑设备
     QueueFamilyIndices indices = m_QueueFamilyIndices; // 查找队列族索引
 
     std::vector<VkDeviceQueueCreateInfo> queueCreateInfos; // 队列创建信息数组
     std::set<uint32_t> uniqueQueueFamilies = {
         indices.graphicsFamily.value(),
-        indices.presentFamily.value()
+        indices.presentFamily.value(),
+        indices.computeFamily.value()
     }; // 唯一的队列族索引
 
     float queuePriority = 1.0f; // 队列优先级
@@ -109,6 +120,9 @@ void Device::createLogicalDevice(){ // 创建逻辑设备
 
     vkGetDeviceQueue(m_Device, indices.presentFamily.value(), 0, &m_PresentQueue); // 获取呈现队列
     std::cout<<"Present queue: OK\n";
+
+    vkGetDeviceQueue(m_Device, indices.computeFamily.value(), 0, &m_ComputeQueue);
+    std::cout<<"Compute queue: OK\n";
 }
 
 uint32_t Device::FindMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties) const

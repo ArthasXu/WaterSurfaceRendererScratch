@@ -134,7 +134,7 @@ void Pipeline::createGraphicsPipeline(
     rasterizer.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO; // 结构体类型
     rasterizer.depthClampEnable = VK_FALSE; // 深度剪裁, 禁用
     rasterizer.rasterizerDiscardEnable = VK_FALSE; // 光栅化丢弃, 禁用
-    rasterizer.polygonMode = config.polygonMode; // 多边形模式, 填充
+    rasterizer.polygonMode = config.polygonMode; // 多边形模式
     rasterizer.lineWidth = 1.0f; // 线宽, 1.0
     rasterizer.cullMode = config.cullMode; // 剔除模式, GPU 自动剔除背面三角形
     rasterizer.frontFace = config.frontFace; // 正面朝向, 定义了哪个方向是“正面”

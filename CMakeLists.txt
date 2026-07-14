@@ -284,3 +284,72 @@ target_link_libraries(stage6_fft_cpu_upload
     spdlog::spdlog
     FFTW3::fftw3
 )
+
+# stage6_stockham_cpu
+add_executable(stage6_stockham_cpu
+    src/main/stage6/stockham_cpu_main.cpp
+
+    src/scene/water/gpu/StockhamFFTCPU.cpp
+)
+
+target_include_directories(stage6_stockham_cpu
+    PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+)
+
+target_compile_features(stage6_stockham_cpu
+    PRIVATE
+    cxx_std_17
+)
+
+target_link_libraries(stage6_stockham_cpu
+    PRIVATE
+    glm::glm
+    FFTW3::fftw3
+)
+
+# stage6_compute_pipeline_test
+add_executable(stage6_compute_pipeline_test
+    src/main/stage6/compute_pipeline_test_main.cpp
+
+    src/core/Application.cpp
+    src/core/Window.cpp
+    src/core/Timer.cpp
+    src/core/Log.cpp
+
+    src/scene/water/render/DepthBuffer.cpp
+    src/scene/water/gpu/ComputePipeline.cpp
+
+    src/vulkan/Instance.cpp
+    src/vulkan/Surface.cpp
+    src/vulkan/PhysicalDevice.cpp
+    src/vulkan/Device.cpp
+    src/vulkan/Image.cpp
+    src/vulkan/ImageView.cpp
+    src/vulkan/RenderPass.cpp
+    src/vulkan/ShaderModule.cpp
+    src/vulkan/Pipeline.cpp
+    src/vulkan/SwapChain.cpp
+    src/vulkan/CommandPool.cpp
+    src/vulkan/CommandBuffer.cpp
+    src/vulkan/SyncObjects.cpp
+    src/vulkan/Buffer.cpp
+)
+
+target_include_directories(stage6_compute_pipeline_test
+    PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+)
+
+target_compile_features(stage6_compute_pipeline_test
+    PRIVATE
+    cxx_std_17
+)
+
+target_link_libraries(stage6_compute_pipeline_test
+    PRIVATE
+    Vulkan::Vulkan
+    glfw
+    glm::glm
+    spdlog::spdlog
+)
