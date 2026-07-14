@@ -30,8 +30,22 @@
 // 然后在顶点着色器里采样这些纹理，直接在 GPU 上完成顶点偏移和法线重构。
 // 因此，CPU 端不再需要存储全量的变形顶点数组，变形计算完全发生在 GPU 上
 
-// 这种改变带来了显著优势：避免了每帧将大量顶点从 CPU 搬到 GPU 的带宽瓶颈，
-// 并且为后续的 GPU Compute FFT 和 Cascade 多层叠加奠定了架构基础
+// Stage 6（GPU FFT）：将 FFT 计算本身也迁移到 GPU 上，形成“零拷贝”数据闭环。
+// CPU 只负责一次性的频谱初始化（生成 h0、波矢量、色散表）并上传到设备本地缓冲区。
+// 每帧运行时，由 Compute Shader 接管整个管线：
+//   1. 频谱演化着色器：根据当前时间 t，将 h0 时间演化后写入打包缓冲区
+//   2. Stockham IFFT 着色器：对打包缓冲区执行二维逆 FFT（ping-pong 交替），频域数据转为空间域
+//   3. 输出着色器：从打包缓冲区读取空间域数据（高度、位移、斜率、Jacobian），写入位移图和法线辅助图
+// 顶点着色器直接从这些纹理采样，完成顶点偏移。
+// 整个 FFT 计算过程中，数据从未离开 GPU 显存，CPU 仅需每帧传递时间 t 和少量控制参数。
+// 三级 Cascade（长波、中波、短波）各自拥有独立的 ping-pong 缓冲区和输出纹理，
+// 通过相同的 Compute Pipeline 调度，实现不同频段波浪的并行合成。
+
+// 这种设计带来的优势：
+//   - 彻底消除 CPU 端 FFT 的计算瓶颈（原 CPU 三层 Cascade 平均 26ms，GPU 版本可降至 1ms 以内）
+//   - 减少 CPU → GPU 的数据传输：每帧仅传递时间参数和 push constants，无需上传数 MB 的位移场数据
+//   - 为后续实时多层 FFT 海浪叠加（近中远波谱 + LOD 分级网格）和泡沫/白浪判据提供高性能计算基础
+//   - Compute Shader 与图形管线在同一命令缓冲中执行，通过管线屏障精确同步，无需跨 API 互操作
 class Stage6GPUFFTApp : public core::Application
 {
 protected:
@@ -60,7 +74,6 @@ private:
     void CreateDescriptorSetLayout();
     void CreatePipelines();
     void CreateWaterGrid();
-    void CreateTessendorfSource();
     void CreateSamplers();
     void CreateUniformBuffers();
     void CreateGPUFFTSource();
@@ -90,8 +103,18 @@ private:
     int m_DebugMode = 0;
 
     // 配置参数：决定 FFT 网格大小和物理范围，供创建 WSTessendorfCPU 和分配纹理使用。
-    uint32_t m_FFTResolution = 64;
-    float m_PatchLength = 256.0f;
+    uint32_t m_FFTResolution = 256;
+    std::array<float, water::kMaxFFTCascades> m_CascadePatchLengths{
+        64.0f,
+        256.0f,
+        1024.0f
+    };
+
+    std::array<float, water::kMaxFFTCascades> m_CascadeAmplitudeScales{
+        1.0f,
+        1.0f,
+        0.1f
+    };
 
     float m_LastSimulationDeltaTime = 0.0f;
 

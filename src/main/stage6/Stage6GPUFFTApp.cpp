@@ -214,17 +214,24 @@ void Stage6GPUFFTApp::CreateSamplers()
 
 void Stage6GPUFFTApp::CreateGPUFFTSource()
 {
-    water::TessendorfSpectrumParams params{};
+    water::TessendorfSpectrumParams base{};
+    base.resolution = m_FFTResolution;
+    base.windDirection = glm::normalize(glm::vec2(1.0f, 0.25f));
+    base.windSpeed = 25.0f;
+    base.spectrumAmplitude = 100.0f;
+    base.shortWaveDamping = 0.001f;
+    base.gravity = 9.81f;
+    base.choppyLambda = 1.0f;
+    base.oppositeWindDamping = 0.07f;
+    base.randomSeed = 1337;
+
+    water::MultiCascadeParams params{};
+    params.baseSpectrum = base;
     params.resolution = m_FFTResolution;
-    params.patchLength = m_PatchLength;
-    params.windDirection = glm::normalize(glm::vec2(1.0f, 0.25f));
-    params.windSpeed = 25.0f;
-    params.spectrumAmplitude = 2.5f;
-    params.shortWaveDamping = 0.001f;
-    params.gravity = 9.81f;
-    params.choppyLambda = 1.0f;
-    params.oppositeWindDamping = 0.07f;
-    params.randomSeed = 1337;
+    params.baseSeed = 1337;
+    params.shortPatchLength = m_CascadePatchLengths[0];
+    params.midPatchLength = m_CascadePatchLengths[1];
+    params.longPatchLength = m_CascadePatchLengths[2];
 
     m_TessendorfGPU = std::make_unique<water::WSTessendorfGPU>(
         GetPhysicalDevice(),
@@ -288,6 +295,11 @@ void Stage6GPUFFTApp::CreateDescriptorPool()
 }
 
 // 为每一个飞行帧分配描述符集，并将具体的缓冲区和纹理绑定到着色器的槽位上。
+// 负责创建图形着色器（顶点/片段着色器） 使用的描述符集
+// 用途：为水面渲染绑定摄像机矩阵、水体参数、位移图、法线辅助图等资源。
+// 绑定内容：CameraUBO、WaterParamsUBO、fftDisplacement0~2（三层的位移纹理）、fftNormalAux0~2（三层的法线辅助纹理）等。
+// 着色器类型：顶点着色器（.vert）、片段着色器（.frag）。
+// 描述符集布局：m_DescriptorSetLayout（在 Stage6GPUFFTApp 中创建，与计算管线的布局不同）。
 void Stage6GPUFFTApp::CreateDescriptorSets()
 {
     // 为每个飞行帧预留一个描述符集的空位
@@ -308,15 +320,20 @@ void Stage6GPUFFTApp::CreateDescriptorSets()
         waterParamsInfo.offset = 0;
         waterParamsInfo.range = sizeof(water::WaterParamsUBO);   // 绑定整个 UBO
 
-        // 3. 准备 位移图 的绑定信息。
-        //    GetDescriptorInfo 内部会封装 VkImageView 和 VkSampler，
-        //    并指定图像布局为 SHADER_READ_ONLY_OPTIMAL，供着色器采样。
-        // 4. 准备 法线辅助图 的绑定信息，同样使用 FFTSampler
-        VkDescriptorImageInfo displacementInfo =
-            m_TessendorfGPU->GetFrameDisplacementInfo(i);
+        std::array<VkDescriptorImageInfo, water::kMaxFFTCascades> displacementInfos{};
+        std::array<VkDescriptorImageInfo, water::kMaxFFTCascades> normalAuxInfos{};
 
-        VkDescriptorImageInfo normalAuxInfo =
-            m_TessendorfGPU->GetFrameNormalAuxInfo(i);
+        for(uint32_t cascadeIndex = 0; cascadeIndex < water::kMaxFFTCascades; cascadeIndex++){
+            // 3. 准备 位移图 的绑定信息。
+            //    GetDescriptorInfo 内部会封装 VkImageView 和 VkSampler，
+            //    并指定图像布局为 SHADER_READ_ONLY_OPTIMAL，供着色器采样。
+            displacementInfos[cascadeIndex] =
+                m_TessendorfGPU->GetFrameDisplacementInfo(i, cascadeIndex);
+
+            // 4. 准备 法线辅助图 的绑定信息，同样使用 FFTSampler
+            normalAuxInfos[cascadeIndex] =
+                m_TessendorfGPU->GetFrameNormalAuxInfo(i, cascadeIndex);
+        }
 
         // 5. 用 DescriptorWriter 将上述资源按顺序写入描述符集
         //    binding 0：camera UBO 每一帧，在 UpdateCameraUniformBuffer 中生成视图矩阵 投影矩阵 着色器通过 binding = 0 读取这个 UBO，完成顶点到裁剪空间的变换
@@ -326,12 +343,12 @@ void Stage6GPUFFTApp::CreateDescriptorSets()
         bool success = vkp::DescriptorWriter(*m_DescriptorSetLayout, *m_DescriptorPool)
             .WriteBuffer(0, &cameraInfo)
             .WriteBuffer(1, &waterParamsInfo)
-            .WriteImage(2, &displacementInfo)
-            .WriteImage(3, &normalAuxInfo)
-            .WriteImage(4, &displacementInfo)
-            .WriteImage(5, &normalAuxInfo)
-            .WriteImage(6, &displacementInfo)
-            .WriteImage(7, &normalAuxInfo)
+            .WriteImage(2, &displacementInfos[0])
+            .WriteImage(3, &normalAuxInfos[0])
+            .WriteImage(4, &displacementInfos[1])
+            .WriteImage(5, &normalAuxInfos[1])
+            .WriteImage(6, &displacementInfos[2])
+            .WriteImage(7, &normalAuxInfos[2])
             .Build(m_DescriptorSets[i]); // 完成分配与写入
 
         // 如果分配或写入失败（比如池子空间不足），立即抛出异常
@@ -423,25 +440,25 @@ void Stage6GPUFFTApp::UpdateWaterParamsUniformBuffer(uint32_t frameIndex)
 {
     water::WaterParamsUBO ubo{}; // CPU 端的 UBO 结构体
     ubo.patchLengths = glm::vec4(
-        m_PatchLength,
-        m_PatchLength,
-        m_PatchLength,
+        m_CascadePatchLengths[0],
+        m_CascadePatchLengths[1],
+        m_CascadePatchLengths[2],
         0.0f
-    ); // 每个级联的补丁边长（米），决定波浪波长和频域采样间距
+    );// 每个级联的补丁边长（米），决定波浪波长和频域采样间距
 
     ubo.amplitudeScales = glm::vec4(
-        1.0f,
-        0.0f,
-        0.0f,
+        m_CascadeAmplitudeScales[0],
+        m_CascadeAmplitudeScales[1],
+        m_CascadeAmplitudeScales[2],
         0.0f
     ); // 每个级联的振幅缩放因子，影响波浪高度
 
     ubo.metadata = glm::ivec4(
-        1,
+        static_cast<int>(water::kMaxFFTCascades),
         0,
         0,
         0
-    ); // 元数据，包括最大级联数
+    );// 元数据，包括最大级联数
 
     ubo.simulation = glm::vec4(
         m_Time,
