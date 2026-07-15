@@ -29,11 +29,24 @@ layout(set = 0, binding = 5) uniform sampler2D fftNormalAux1;
 layout(set = 0, binding = 6) uniform sampler2D fftDisplacement2;
 layout(set = 0, binding = 7) uniform sampler2D fftNormalAux2;
 
+layout(set = 0, binding = 8) uniform BoreFrontUBO
+{
+    vec4 originSpeedTime;
+    vec4 directionLengthFade;
+    vec4 motionDebug;
+    vec4 lutInfo;
+} bore;
+
+layout(set = 0, binding = 9) uniform sampler2D frontParameterLUT;
+layout(set = 0, binding = 10) uniform sampler2D frontDerivativeLUT;
+
 layout(location = 0) out vec3 fragWorldPosition;
 layout(location = 1) out vec3 fragWorldNormal;
 layout(location = 2) out vec2 fragUV;
 layout(location = 3) out vec4 fragDisplacement;
 layout(location = 4) out vec4 fragNormalAux;
+layout(location = 5) out vec4 fragBoreDebug0;
+layout(location = 6) out vec4 fragBoreDebug1;
 
 void AccumulateCascade(
     sampler2D displacementTexture,
@@ -62,6 +75,88 @@ void main(){
     // 将顶点从模型空间变换到世界空间，得到未变形的水面基础位置
     vec3 baseWorldPosition =
         (camera.model * vec4(inPosition, 1.0)).xyz;
+
+    vec2 boreDirection =
+        normalize(bore.directionLengthFade.xy);
+
+    vec2 boreTangent =
+        vec2(-boreDirection.y, boreDirection.x);
+
+    vec2 boreRelative =
+        baseWorldPosition.xz -
+        bore.originSpeedTime.xy;
+
+    float alongFront =
+        dot(boreRelative, boreTangent);
+
+    float crossFront =
+        dot(boreRelative, boreDirection);
+
+    float frontLength =
+        bore.directionLengthFade.z;
+
+    float frontU =
+        alongFront / frontLength + 0.5;
+
+    float frontUClamped =
+        clamp(frontU, 0.0, 1.0);
+
+    float edgeFade =
+        bore.directionLengthFade.w;
+
+    float lengthMask =
+        smoothstep(0.0, edgeFade, frontU) *
+        (1.0 - smoothstep(1.0 - edgeFade, 1.0, frontU));
+
+    vec4 frontParams =
+        textureLod(
+            frontParameterLUT,
+            vec2(frontUClamped, 0.5),
+            0.0
+        );
+
+    vec4 derivativeData =
+        textureLod(
+            frontDerivativeLUT,
+            vec2(frontUClamped, 0.5),
+            0.0
+        );
+
+    float useLUT =
+        bore.lutInfo.z;
+
+    float offsetMeters =
+        mix(0.0, frontParams.r, useLUT);
+
+    float frontPosition =
+        bore.motionDebug.x +
+        bore.originSpeedTime.z *
+        bore.originSpeedTime.w +
+        offsetMeters;
+
+    float signedDistance =
+        crossFront - frontPosition;
+
+    float dOffsetDu =
+        mix(0.0, derivativeData.r, useLUT);
+
+    float dOffsetDa =
+        dOffsetDu / frontLength;
+
+    vec2 localFrontNormal =
+        normalize(
+            boreDirection -
+            dOffsetDa * boreTangent
+        );
+
+    float amplitudeMultiplier =
+        mix(1.0, frontParams.g, useLUT);
+
+    float foamMultiplier =
+        mix(1.0, frontParams.b, useLUT);
+
+    float profilePhaseOffset =
+        mix(0.0, frontParams.a, useLUT);
 
     // 从位移纹理中获取当前顶点的水平位移和高度
     // jacobian = 1：网格局部面积不变，水面只是整体平移或转动。
@@ -123,6 +218,25 @@ void main(){
     // 应用垂直位移（波浪高度放大 10 倍）
     worldPosition.y += displacement.y * 10.0;
 
+    float debugBandWidth =
+        max(bore.motionDebug.y, 0.001);
+
+    float debugBand =
+        exp(
+            -signedDistance *
+            signedDistance /
+            (debugBandWidth *
+            debugBandWidth)
+        );
+
+    float debugHeight =
+        debugBand *
+        lengthMask *
+        bore.motionDebug.z *
+        bore.motionDebug.w;
+
+    worldPosition.y += debugHeight;
+
     // 根据控制参数缩放斜率，用于最终法线重建
     slope *= water.simulation.z;
     
@@ -139,6 +253,19 @@ void main(){
     fragUV = fftUV;
     fragDisplacement = displacement;
     fragNormalAux = vec4(slope, 0.0, 0.0);
+
+    fragBoreDebug0 = vec4(
+        signedDistance,
+        lengthMask,
+        frontUClamped,
+        amplitudeMultiplier
+    );
+
+    fragBoreDebug1 = vec4(
+        localFrontNormal,
+        foamMultiplier,
+        profilePhaseOffset
+    );
 
     // MVP 变换到裁剪空间，输出最终顶点位置
     gl_Position =

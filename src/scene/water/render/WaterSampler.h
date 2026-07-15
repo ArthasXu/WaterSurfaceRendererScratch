@@ -7,7 +7,11 @@ namespace water
 class WaterSampler
 {
 public:
-    WaterSampler(VkDevice device, VkFilter filter);
+    WaterSampler(
+        VkDevice device, 
+        VkFilter filter,
+        VkSamplerAddressMode addressMode = VK_SAMPLER_ADDRESS_MODE_REPEAT
+    );
     ~WaterSampler();
 
     WaterSampler(const WaterSampler&) = delete;

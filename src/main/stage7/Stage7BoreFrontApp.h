@@ -8,6 +8,10 @@
 #include "scene/water/render/WaterGrid.h"
 #include "scene/water/render/WaterSampler.h"
 #include "scene/water/gpu/WSTessendorfGPU.h"
+#include "scene/water/bore/BoreFrontTypes.h"
+#include "scene/water/bore/FrontParameterLUT.h"
+#include "scene/water/common/BoreResourceContract.h"
+#include "scene/water/render/StaticFloatTexture2D.h"
 
 #include "vulkan/Buffer.h"
 #include "vulkan/Descriptors.h"
@@ -76,6 +80,7 @@ private:
     void CreatePipelines();
     void CreateWaterGrid();
     void CreateSamplers();
+    void CreateBoreFrontResources();
     void CreateUniformBuffers();
     void CreateGPUFFTSource();
     void CreateDescriptorPool();
@@ -84,6 +89,7 @@ private:
     void UpdateCamera(float deltaTime);
     void UpdateCameraUniformBuffer(uint32_t frameIndex);
     void UpdateWaterParamsUniformBuffer(uint32_t frameIndex);
+    void UpdateBoreFrontUniformBuffer(uint32_t frameIndex);
     void UpdateWindowTitle();
 
 private:
@@ -111,6 +117,16 @@ private:
         m_OceanConfig.spectrum.resolution;
 
     float m_LastSimulationDeltaTime = 0.0f;
+    float m_BoreTime = 0.0f;
+    float m_LastBoreDeltaTime = 0.0f;
+
+    bool m_BorePaused = false;
+    bool m_BoreEnabled = true;
+    bool m_BoreUseLUT = true;
+    bool m_BoreDebugRidgeEnabled = true;
+
+    water::BoreFrontParams m_BoreFrontParams{};
+    water::FrontLUTData m_FrontLUT{};
 
     // 波浪模拟源：每帧执行频谱演化与 IFFT，生成空间域的位移、法线等数据
     std::unique_ptr<water::WSTessendorfGPU> m_TessendorfGPU;
@@ -118,6 +134,7 @@ private:
 
     // 采样器：控制着色器如何读取位移图（重复寻址、最近点过滤等）。
     std::unique_ptr<water::WaterSampler> m_FFTSampler;
+    std::unique_ptr<water::WaterSampler> m_FrontLUTSampler;
 
     std::unique_ptr<vkp::Pipeline> m_SolidPipeline;
     std::unique_ptr<vkp::Pipeline> m_WireframePipeline;
@@ -128,6 +145,9 @@ private:
     std::vector<std::unique_ptr<vkp::Buffer>> m_CameraUniformBuffers;
     // 水体参数 UBO：将 FFT 分辨率、补丁长度、choppy 强度等参数传给着色器。
     std::vector<std::unique_ptr<vkp::Buffer>> m_WaterParamsUniformBuffers;
+    std::vector<std::unique_ptr<vkp::Buffer>> m_BoreFrontUniformBuffers;
 
     std::vector<VkDescriptorSet> m_DescriptorSets;
+    std::unique_ptr<water::StaticFloatTexture2D> m_FrontParameterTexture;
+    std::unique_ptr<water::StaticFloatTexture2D> m_FrontDerivativeTexture;
 };

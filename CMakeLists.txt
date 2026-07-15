@@ -587,6 +587,10 @@ add_executable(stage7_bore_front
     src/scene/water/render/WaterGrid.cpp
     src/scene/water/render/WaterSampler.cpp
     src/scene/water/render/WaterVertex.cpp
+    src/scene/water/render/StaticFloatTexture2D.cpp
+
+    src/scene/water/bore/FrontParameterLUT.cpp
+    src/scene/water/bore/BoreFrontField.cpp
 
     src/scene/water/sources/WSTessendorfCPU.cpp
     src/scene/water/sources/WSTessendorfCascadesCPU.cpp
