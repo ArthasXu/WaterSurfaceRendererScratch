@@ -1,6 +1,8 @@
 build/
 .vs/
 out/
+output/
+debug/
 CMakeFiles/
 CMakeCache.txt
 *.user

@@ -130,8 +130,8 @@ void Stage7BoreFrontApp::CreatePipelines()
     m_SolidPipeline = std::make_unique<vkp::Pipeline>(
         GetDevice(),
         GetRenderPass(),
-        "shaders/water/stage7_bore_front.vert.spv"
-        "shaders/water/stage7_bore_front.frag.spv"
+        "shaders/water/stage7_bore_front.vert.spv",
+        "shaders/water/stage7_bore_front.frag.spv",
         config
     );
 
@@ -142,8 +142,8 @@ void Stage7BoreFrontApp::CreatePipelines()
         m_WireframePipeline = std::make_unique<vkp::Pipeline>(
             GetDevice(),
             GetRenderPass(),
-            "shaders/water/stage7_bore_front.vert.spv"
-            "shaders/water/stage7_bore_front.frag.spv"
+            "shaders/water/stage7_bore_front.vert.spv",
+            "shaders/water/stage7_bore_front.frag.spv",
             wireframeConfig
         );
     }

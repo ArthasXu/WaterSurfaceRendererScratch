@@ -626,3 +626,49 @@ target_link_libraries(stage7_bore_front
     spdlog::spdlog
     FFTW3::fftw3
 )
+
+# stage7_bore_front_cpu_test
+add_executable(stage7_bore_front_cpu_test
+    src/main/stage7/stage7_bore_front_cpu_test.cpp
+
+    src/scene/water/bore/BoreFrontField.cpp
+    src/scene/water/bore/FrontParameterLUT.cpp
+)
+
+target_include_directories(stage7_bore_front_cpu_test
+    PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+)
+
+target_compile_features(stage7_bore_front_cpu_test
+    PRIVATE
+    cxx_std_17
+)
+
+target_link_libraries(stage7_bore_front_cpu_test
+    PRIVATE
+    glm::glm
+)
+
+# stage7_bore_front_debug
+add_executable(stage7_bore_front_debug
+    src/main/stage7/stage7_bore_front_debug_main.cpp
+
+    src/scene/water/bore/BoreFrontField.cpp
+    src/scene/water/bore/FrontParameterLUT.cpp
+)
+
+target_include_directories(stage7_bore_front_debug
+    PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+)
+
+target_compile_features(stage7_bore_front_debug
+    PRIVATE
+    cxx_std_17
+)
+
+target_link_libraries(stage7_bore_front_debug
+    PRIVATE
+    glm::glm
+)
