@@ -47,7 +47,7 @@
 //   - 减少 CPU → GPU 的数据传输：每帧仅传递时间参数和 push constants，无需上传数 MB 的位移场数据
 //   - 为后续实时多层 FFT 海浪叠加（近中远波谱 + LOD 分级网格）和泡沫/白浪判据提供高性能计算基础
 //   - Compute Shader 与图形管线在同一命令缓冲中执行，通过管线屏障精确同步，无需跨 API 互操作
-class Stage6GPUFFTApp : public core::Application
+class Stage7BoreFrontApp : public core::Application
 {
 protected:
     void Start() override;
