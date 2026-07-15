@@ -78,6 +78,7 @@ void Stage7BoreFrontApp::Start()
     CreatePipelines();
     CreateWaterGrid();
     CreateSamplers();
+    CreateBoreFrontResources();
     // descriptor sets 需要 WSTessendorfGPU 的 frame image info，所以先建 GPU source
     CreateGPUFFTSource();
     CreateUniformBuffers();
@@ -91,14 +92,18 @@ void Stage7BoreFrontApp::ShutdownApp()
     m_WireframePipeline.reset();
 
     m_DescriptorSets.clear();
+    m_FrontDerivativeTexture.reset();
+    m_FrontParameterTexture.reset();
     m_DescriptorPool.reset();
     m_DescriptorSetLayout.reset();
 
     m_TessendorfGPU.reset();
     m_FFTSampler.reset();
+    m_FrontLUTSampler.reset();
 
     m_WaterParamsUniformBuffers.clear();
     m_CameraUniformBuffers.clear();
+    m_BoreFrontUniformBuffers.clear();
 
     m_WaterGrid.reset();
 }
@@ -168,6 +173,9 @@ void Stage7BoreFrontApp::CreateDescriptorSetLayout()
         .AddBinding(5, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT)
         .AddBinding(6, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT)
         .AddBinding(7, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT)
+        .AddBinding(8, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT)
+        .AddBinding(9, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT)
+        .AddBinding(10, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT)
         .Build();
 }
 
@@ -211,6 +219,47 @@ void Stage7BoreFrontApp::CreateSamplers()
         GetDevice(),
         filter
     );
+
+    m_FrontLUTSampler = std::make_unique<water::WaterSampler>(
+        GetDevice(),
+        VK_FILTER_LINEAR,
+        VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE
+    );
+}
+
+void Stage7BoreFrontApp::CreateBoreFrontResources()
+{
+    m_BoreFrontParams.origin = glm::vec2(0.0f);
+    m_BoreFrontParams.direction = glm::normalize(glm::vec2(1.0f, 0.15f));
+    m_BoreFrontParams.speed = 8.0f;
+    m_BoreFrontParams.frontLength = 1000.0f;
+    m_BoreFrontParams.initialOffset = -100.0f;
+    m_BoreFrontParams.edgeFadeFraction = 0.03f;
+
+    m_FrontLUT =
+        water::GenerateDeterministicFrontLUT(1024);
+
+    m_FrontParameterTexture =
+        std::make_unique<water::StaticFloatTexture2D>(
+            GetPhysicalDevice(),
+            GetDevice(),
+            GetCommandPool(),
+            GetDevice().GetGraphicsQueue(),
+            m_FrontLUT.resolution,
+            1,
+            m_FrontLUT.parameters
+        );
+
+    m_FrontDerivativeTexture =
+        std::make_unique<water::StaticFloatTexture2D>(
+            GetPhysicalDevice(),
+            GetDevice(),
+            GetCommandPool(),
+            GetDevice().GetGraphicsQueue(),
+            m_FrontLUT.resolution,
+            1,
+            m_FrontLUT.derivatives
+        );
 }
 
 void Stage7BoreFrontApp::CreateGPUFFTSource()
@@ -229,13 +278,16 @@ void Stage7BoreFrontApp::CreateGPUFFTSource()
 
 void Stage7BoreFrontApp::CreateUniformBuffers()
 {
+    m_BoreFrontUniformBuffers.clear();
     m_CameraUniformBuffers.clear();
     m_WaterParamsUniformBuffers.clear();
 
     m_CameraUniformBuffers.reserve(GetMaxFramesInFlight());
     m_WaterParamsUniformBuffers.reserve(GetMaxFramesInFlight());
+    m_BoreFrontUniformBuffers.reserve(GetMaxFramesInFlight());
 
     for(uint32_t i = 0; i < GetMaxFramesInFlight(); i++){
+        // 创建相机 UBO
         auto cameraBuffer = std::make_unique<vkp::Buffer>(
             GetPhysicalDevice(),
             GetDevice(),
@@ -243,11 +295,10 @@ void Stage7BoreFrontApp::CreateUniformBuffers()
             VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
             VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
         );
-
         cameraBuffer->Map();
-
         m_CameraUniformBuffers.push_back(std::move(cameraBuffer));
 
+        // 创建水体参数 UBO
         auto waterParamsBuffer = std::make_unique<vkp::Buffer>(
             GetPhysicalDevice(),
             GetDevice(),
@@ -255,10 +306,20 @@ void Stage7BoreFrontApp::CreateUniformBuffers()
             VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
             VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
         );
-
         waterParamsBuffer->Map();
-
         m_WaterParamsUniformBuffers.push_back(std::move(waterParamsBuffer));
+
+        // 创建 BoreFront UBO
+        auto boreFrontBuffer = std::make_unique<vkp::Buffer>(
+            GetPhysicalDevice(),
+            GetDevice(),
+            sizeof(water::BoreFrontUBO),
+            VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
+        );
+        boreFrontBuffer->Map();
+        m_BoreFrontUniformBuffers.push_back(std::move(boreFrontBuffer));
     }
 }
 
@@ -268,11 +329,11 @@ void Stage7BoreFrontApp::CreateDescriptorPool()
         .SetMaxSets(GetMaxFramesInFlight())
         .AddPoolSize(
             VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-            GetMaxFramesInFlight() * 2
+            GetMaxFramesInFlight() * 3
         )
         .AddPoolSize(
             VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-            GetMaxFramesInFlight() * 6
+            GetMaxFramesInFlight() * 8
         )
         .Build();
 }
@@ -303,12 +364,23 @@ void Stage7BoreFrontApp::CreateDescriptorSets()
         waterParamsInfo.offset = 0;
         waterParamsInfo.range = sizeof(water::WaterParamsUBO);   // 绑定整个 UBO
 
+        VkDescriptorBufferInfo boreFrontInfo{};
+        boreFrontInfo.buffer = *m_BoreFrontUniformBuffers[i];
+        boreFrontInfo.offset = 0;
+        boreFrontInfo.range = sizeof(water::BoreFrontUBO);
+
         // 3. 准备 位移图 的绑定信息。
         //    GetDescriptorInfo 内部会封装 VkImageView 和 VkSampler，
         //    并指定图像布局为 SHADER_READ_ONLY_OPTIMAL，供着色器采样
         // 4. 准备 法线辅助图 的绑定信息，同样使用 FFTSampler
         water::WaterSurfaceGPUResources gpuResources =
             m_TessendorfGPU->GetGPUResources(i);
+
+        VkDescriptorImageInfo frontParameterInfo =
+            m_FrontParameterTexture->GetDescriptorInfo(*m_FrontLUTSampler);
+
+        VkDescriptorImageInfo frontDerivativeInfo =
+            m_FrontDerivativeTexture->GetDescriptorInfo(*m_FrontLUTSampler);
 
         // 5. 用 DescriptorWriter 将上述资源按顺序写入描述符集
         //    binding 0：camera UBO 每一帧，在 UpdateCameraUniformBuffer 中生成视图矩阵 投影矩阵 着色器通过 binding = 0 读取这个 UBO，完成顶点到裁剪空间的变换
@@ -324,6 +396,9 @@ void Stage7BoreFrontApp::CreateDescriptorSets()
             .WriteImage(5, &gpuResources.cascades[1].normalAux)
             .WriteImage(6, &gpuResources.cascades[2].displacement)
             .WriteImage(7, &gpuResources.cascades[2].normalAux)
+            .WriteBuffer(8, &boreFrontInfo)
+            .WriteImage(9, &frontParameterInfo)
+            .WriteImage(10, &frontDerivativeInfo)
             .Build(m_DescriptorSets[i]); // 完成分配与写入
 
         // 如果分配或写入失败（比如池子空间不足），立即抛出异常
@@ -382,6 +457,15 @@ void Stage7BoreFrontApp::Update(core::Timestep timestep)
     m_LastSimulationDeltaTime = simulationDeltaTime;
     m_Time += simulationDeltaTime;
 
+    float boreDeltaTime = 0.0f;
+
+    if(!m_BorePaused){
+        boreDeltaTime = deltaTime;
+    }
+
+    m_LastBoreDeltaTime = boreDeltaTime;
+    m_BoreTime += boreDeltaTime;
+
     UpdateWindowTitle();
 }
 
@@ -389,6 +473,7 @@ void Stage7BoreFrontApp::PrepareFrame(uint32_t frameIndex, uint32_t imageIndex)
 {
     UpdateCameraUniformBuffer(frameIndex);
     UpdateWaterParamsUniformBuffer(frameIndex);
+    UpdateBoreFrontUniformBuffer(frameIndex);
 }
 
 void Stage7BoreFrontApp::UpdateCameraUniformBuffer(uint32_t frameIndex)
@@ -443,6 +528,63 @@ void Stage7BoreFrontApp::UpdateWaterParamsUniformBuffer(uint32_t frameIndex)
     ); // 时间、模拟参数和调试模式
 
     m_WaterParamsUniformBuffers[frameIndex]->CopyToMapped(
+        &ubo,
+        sizeof(ubo)
+    );
+}
+
+void Stage7BoreFrontApp::UpdateBoreFrontUniformBuffer(uint32_t frameIndex)
+{
+    glm::vec2 direction =
+        glm::normalize(m_BoreFrontParams.direction);
+
+    water::BoreFrontUBO ubo{};
+
+    // ubo.originSpeedTime：
+        // .x, .y = 波前原点 origin（世界坐标）某一特定时刻，波锋线（Front Line）在推进方向上所处的几何位置
+        // .z = 推进速度 speed（米/秒）
+        // .w = 当前累计时间 m_BoreTime（秒），即 speed * time 中的 time，由 CPU 每帧累积
+    ubo.originSpeedTime = glm::vec4(
+        m_BoreFrontParams.origin,
+        m_BoreFrontParams.speed,
+        m_BoreTime
+    );
+
+    // ubo.directionLengthFade：
+        // .x, .y = 波前推进方向 direction（归一化单位向量）
+        // .z = 波前总长度 frontLength（米）
+        // .w = 两端淡出比例 edgeFadeFraction（例如 0.03 表示两端各 3% 长度用于平滑消失）
+    ubo.directionLengthFade = glm::vec4(
+        direction,
+        m_BoreFrontParams.frontLength,
+        m_BoreFrontParams.edgeFadeFraction
+    );
+
+    // ubo.motionDebug：
+        // .x = 初始偏移量 initialOffset（米）
+        // .y = 波前剖面宽度 profileWidth（此处固定为 5.0 米）
+        // .z = 浪尖掩码强度 ridgeStrength（调试模式启用时为 10.0，否则为 0）
+        // .w = 是否启用涌潮效果 boreEnabled（1.0 启用，0.0 关闭）
+    ubo.motionDebug = glm::vec4(
+        m_BoreFrontParams.initialOffset,
+        5.0f,
+        m_BoreDebugRidgeEnabled ? 10.0f : 0.0f,
+        m_BoreEnabled ? 1.0f : 0.0f
+    );
+
+    // ubo.lutInfo：
+        // .x = Front LUT 的采样分辨率（如 1024）
+        // .y = 分辨率的倒数（用于着色器中将采样点索引映射到 0~1 纹理坐标）
+        // .z = 是否使用 LUT（1.0 启用弯曲波前，0.0 使用直线波前）
+        // .w = 预留（目前为 0.0）
+    ubo.lutInfo = glm::vec4(
+        static_cast<float>(m_FrontLUT.resolution),
+        1.0f / static_cast<float>(m_FrontLUT.resolution),
+        m_BoreUseLUT ? 1.0f : 0.0f,
+        0.0f
+    );
+
+    m_BoreFrontUniformBuffers[frameIndex]->CopyToMapped(
         &ubo,
         sizeof(ubo)
     );
@@ -571,8 +713,10 @@ void Stage7BoreFrontApp::OnFramebufferResize(int width, int height)
 
 void Stage7BoreFrontApp::OnKey(int key, int scancode, int action, int mods)
 {
+    // 保留基类的默认按键行为（如 ESC 退出等）
     core::Application::OnKey(key, scancode, action, mods);
 
+    // 忽略非法键值，防止数组越界
     if(key < 0 || key >= 1024){
         return;
     }
@@ -580,45 +724,136 @@ void Stage7BoreFrontApp::OnKey(int key, int scancode, int action, int mods)
     if(action == GLFW_PRESS){
         m_Keys[key] = true;
 
+        // F1：基础水面光照（片段着色器 mode = 0）
+        // 显示带简单漫反射光照的水面颜色，用于评估波浪几何体在光照下的真实感
         if(key == GLFW_KEY_F1){
             m_DebugMode = 0;
         }
 
+        // F2：高度场灰度图（片段着色器 mode = 1）
+        // 将 FFT 波浪高度映射为灰度，亮处为波峰、暗处为波谷，检查波浪垂直位移分布
         if(key == GLFW_KEY_F2){
             m_DebugMode = 1;
         }
 
+        // F3：水平位移可视化（片段着色器 mode = 2）
+        // 用红蓝通道分别显示 X/Z 方向的水平位移（choppy），中间灰表示无偏移
         if(key == GLFW_KEY_F3){
             m_DebugMode = 2;
         }
 
+        // F4：法线扰动斜率可视化（片段着色器 mode = 3）
+        // 将法线辅助纹理中的 slopeX/slopeZ 映射到红/蓝通道，检验法线扰动是否正确
         if(key == GLFW_KEY_F4){
             m_DebugMode = 3;
         }
 
+        // F5：波浪破碎/泡沫判据可视化（片段着色器 mode = 4）
+        // 根据 Jacobian 行列式显示泡沫候选区域，越白表示越可能产生白浪
         if(key == GLFW_KEY_F5){
             m_DebugMode = 4;
         }
 
+        // F6：世界空间法线可视化（片段着色器 mode = 5）
+        // RGB 编码世界空间法线方向，绿 = 朝上，红/蓝 = 倾斜，纯色表示法线朝向异常
         if(key == GLFW_KEY_F6){
             m_DebugMode = 5;
         }
 
+        // F7：波前带符号距离可视化（片段着色器 mode = 6）
+        // 蓝红分区 + 白色波前峰线，检查涌潮推进方向、波前位置是否正确
+        if(key == GLFW_KEY_F7){
+            m_DebugMode = 6;
+        }
+
+        // F8：波前长度淡入淡出掩码（片段着色器 mode = 7）
+        // 检查 1 km 波前两端的平滑消失效果，边缘应为渐变而非硬切
+        if(key == GLFW_KEY_F8){
+            m_DebugMode = 7;
+        }
+
+        // F9：标准化波前线坐标（片段着色器 mode = 8）
+        // 检查 frontU 从 0 到 1 的映射是否正确，绿红渐变应沿波前切向变化
+        if(key == GLFW_KEY_F9){
+            m_DebugMode = 8;
+        }
+
+        // F10：局部波前法线方向（片段着色器 mode = 9）
+        // 直线波前时法线应均匀一致，弯曲波前时法线应随 LUT 偏移旋转
+        if(key == GLFW_KEY_F10){
+            m_DebugMode = 9;
+        }
+
+        // F11：振幅乘数（片段着色器 mode = 10）
+        // 检查 Front LUT 的 G 通道是否正确控制波高空间分布
+        if(key == GLFW_KEY_F11){
+            m_DebugMode = 10;
+        }
+
+        // F12：泡沫乘数（片段着色器 mode = 11）
+        // 检查 Front LUT 的 B 通道是否正确控制泡沫强度空间分布
+        if(key == GLFW_KEY_F12){
+            m_DebugMode = 11;
+        }
+
+        // M：轮廓相位偏移可视化（profilePhaseOffset，Front LUT 的 A 通道）
+        // 灰阶表示 Wave Profile 动画沿波前线的相位偏移量
+        // 0 = 黑色（无偏移），1 = 白色（最大偏移）
+        if(key == GLFW_KEY_M){
+            m_DebugMode = (m_DebugMode + 1) % 13;
+        }
+
+        // Tab：切换线框渲染模式
+        // 在实体填充和三角形线框之间切换，用于观察水面网格密度和变形情况
         if(key == GLFW_KEY_TAB){
             m_UseWireframe = !m_UseWireframe;
         }
 
+        // P：暂停/继续水面模拟
+        // 暂停时波浪停止演化（时间不再推进），便于观察某一时刻的波形细节
         if(key == GLFW_KEY_P){
             m_Paused = !m_Paused;
         }
 
+        // O：单步执行一帧
+        // 按下后模拟前进一帧（固定 1/60 秒）然后暂停，用于逐帧调试波浪动画
         if(key == GLFW_KEY_O){
             m_StepOnce = true;
+        }
+
+        // R：重置涌潮波前时间
+        // 将 BoreTime 归零，使一线潮回到初始位置（origin + initialOffset）
+        if(key == GLFW_KEY_R){
+            m_BoreTime = 0.0f;
+        }
+
+        // C：切换 Front LUT 的使用
+        // true = 使用弯曲波前（从 LUT 采样偏移量和法线修正），false = 直线波前
+        if(key == GLFW_KEY_C){
+            m_BoreUseLUT = !m_BoreUseLUT;
+        }
+
+        // B：整体开关涌潮效果
+        // true = 叠加一线潮位移到水面网格，false = 仅显示背景 FFT 波浪
+        if(key == GLFW_KEY_B){
+            m_BoreEnabled = !m_BoreEnabled;
+        }
+
+        // T：切换涌潮浪尖掩码调试
+        // 控制 ridgeStrength 参数，启用时浪尖区域会以 0.35 的强度增强泡沫/位移
+        if(key == GLFW_KEY_T){
+            m_BoreDebugRidgeEnabled = !m_BoreDebugRidgeEnabled;
+        }
+
+        // I：暂停/继续涌潮时间
+        // 暂停时 BoreTime 不再累加，波前停在当前位置，但背景波浪仍可正常演化
+        if(key == GLFW_KEY_I){
+            m_BorePaused = !m_BorePaused;
         }
     }
     else if(action == GLFW_RELEASE){
         m_Keys[key] = false;
-    }
+    }   
 }
 
 void Stage7BoreFrontApp::OnMouseMove(double x, double y)
