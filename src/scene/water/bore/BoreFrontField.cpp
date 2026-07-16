@@ -57,6 +57,14 @@ BoreFrontField::BoreFrontField(const BoreFrontParams& params)
     if(glm::length(m_Params.direction) < 1e-6f){
         throw std::runtime_error("BoreFrontField direction must be non-zero");
     }
+
+    if (m_Params.edgeFadeFraction < 0.0f ||
+        m_Params.edgeFadeFraction > 0.5f)
+    {
+        throw std::runtime_error(
+            "BoreFrontField edgeFadeFraction must be in [0, 0.5]"
+        );
+    }
 }
 
 // 基础几何采样

@@ -565,6 +565,7 @@ void Stage7BoreFrontApp::UpdateBoreFrontUniformBuffer(uint32_t frameIndex)
         // .y = 波前剖面宽度 profileWidth（此处固定为 5.0 米）
         // .z = 浪尖掩码强度 ridgeStrength（调试模式启用时为 10.0，否则为 0）
         // .w = 是否启用涌潮效果 boreEnabled（1.0 启用，0.0 关闭）
+    // Stage 8 Profile 接入后，默认关闭该 Ridge，避免重复叠加
     ubo.motionDebug = glm::vec4(
         m_BoreFrontParams.initialOffset,
         5.0f,
