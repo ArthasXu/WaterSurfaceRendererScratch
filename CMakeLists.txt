@@ -676,3 +676,92 @@ target_link_libraries(stage7_bore_front_debug
     PRIVATE
     glm::glm
 )
+
+# stage8_bore_profile
+add_executable(stage8_bore_profile
+    src/main/stage8/stage8_main.cpp
+    src/main/stage8/Stage8BoreProfileApp.cpp
+
+    src/core/Application.cpp
+    src/core/Window.cpp
+    src/core/Timer.cpp
+    src/core/Log.cpp
+
+    src/scene/Camera.cpp
+
+    src/scene/water/gpu/ComputePipeline.cpp
+    src/scene/water/gpu/GPUFFT2D.cpp
+    src/scene/water/gpu/WSTessendorfGPU.cpp
+
+    src/scene/water/render/DepthBuffer.cpp
+    src/scene/water/render/DynamicImage2D.cpp
+    src/scene/water/render/WaterGrid.cpp
+    src/scene/water/render/WaterSampler.cpp
+    src/scene/water/render/WaterVertex.cpp
+    src/scene/water/render/StaticFloatTexture2D.cpp
+
+    src/scene/water/bore/FrontParameterLUT.cpp
+    src/scene/water/bore/BoreFrontField.cpp
+    src/scene/water/bore/BoreWaveProfile.cpp
+
+    src/scene/water/sources/WSTessendorfCPU.cpp
+    src/scene/water/sources/WSTessendorfCascadesCPU.cpp
+
+    src/vulkan/Instance.cpp
+    src/vulkan/Surface.cpp
+    src/vulkan/PhysicalDevice.cpp
+    src/vulkan/Image.cpp
+    src/vulkan/ImageView.cpp
+    src/vulkan/Device.cpp
+    src/vulkan/RenderPass.cpp
+    src/vulkan/ShaderModule.cpp
+    src/vulkan/Pipeline.cpp
+    src/vulkan/SwapChain.cpp
+    src/vulkan/CommandPool.cpp
+    src/vulkan/CommandBuffer.cpp
+    src/vulkan/SyncObjects.cpp
+    src/vulkan/Buffer.cpp
+    src/vulkan/Descriptors.cpp
+)
+
+target_include_directories(stage8_bore_profile
+    PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+)
+
+target_compile_features(stage8_bore_profile
+    PRIVATE
+    cxx_std_17
+)
+
+target_link_libraries(stage8_bore_profile
+    PRIVATE
+    Vulkan::Vulkan
+    glfw
+    glm::glm
+    spdlog::spdlog
+    FFTW3::fftw3
+)
+
+# stage8_bore_profile_cpu_test
+add_executable(stage8_bore_profile_cpu_test
+    src/main/stage8/stage8_profile_cpu_test.cpp
+
+    src/scene/water/bore/BoreWaveProfile.cpp
+    src/scene/water/debug/BoreProfileWriter.cpp
+)
+
+target_include_directories(stage8_bore_profile_cpu_test
+    PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+)
+
+target_compile_features(stage8_bore_profile_cpu_test
+    PRIVATE
+    cxx_std_17
+)
+
+target_link_libraries(stage8_bore_profile_cpu_test
+    PRIVATE
+    glm::glm
+)
