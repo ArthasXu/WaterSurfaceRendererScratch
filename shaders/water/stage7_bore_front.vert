@@ -168,7 +168,7 @@ void main(){
     vec2 slope = vec2(0.0);
     float breakingHint = 0.0;
 
-    // 累加第0层（低频/长波）的位移、斜率、泡沫判据
+    // 累加第0层（短波 / 高频）的位移、斜率、泡沫判据
     AccumulateCascade(
         fftDisplacement0,           // 第0层位移纹理
         fftNormalAux0,              // 第0层法线辅助纹理
@@ -192,7 +192,7 @@ void main(){
         breakingHint
     );
 
-    // 累加第2层（高频/短波）的位移、斜率、泡沫判据
+    // 累加第2层（长波 / 低频）的位移、斜率、泡沫判据
     AccumulateCascade(
         fftDisplacement2,
         fftNormalAux2,

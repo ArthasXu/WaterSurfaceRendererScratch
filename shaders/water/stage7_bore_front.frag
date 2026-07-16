@@ -109,14 +109,30 @@ void main()
         float debugBandWidth = 5.0;  // 波前峰高亮带的宽度（米）
 
         // 在波前峰附近产生一条亮线，距离越近越亮
-        float frontLine = 1.0 - smoothstep(0.0, debugBandWidth, abs(signedDistance));
+        float lengthMask = fragBoreDebug0.y;
+        float frontLine =
+            (
+                1.0 -
+                smoothstep(
+                    0.0,
+                    debugBandWidth,
+                    abs(signedDistance)
+                )
+            ) * lengthMask;
 
         // 前方用蓝色表示，后方用橙红色表示
         vec3 sideColor = signedDistance > 0.0
             ? vec3(0.2, 0.4, 1.0)   // 前方：蓝
             : vec3(1.0, 0.25, 0.15); // 后方：橙红
 
-        outColor = vec4(mix(sideColor, vec3(1.0), frontLine), 1.0);
+        vec3 fieldColor =
+            mix(
+                vec3(0.04),
+                sideColor,
+                lengthMask
+            );
+        
+        outColor = vec4(mix(fieldColor, vec3(1.0), frontLine), 1.0);
         return;
     }
 
