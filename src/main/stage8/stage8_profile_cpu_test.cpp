@@ -104,6 +104,17 @@ int main()
         std::cout << "maxForward = " << maxForward << "\n";
         std::cout << "maxFoamWithoutCrest = " << maxFoamWithoutCrest << "\n";
 
+        water::BoreWaveProfileData animatedProfile =
+            water::GenerateAnimatedBoreWaveProfile(config);
+
+        Require(animatedProfile.width == config.distanceResolution, "Unexpected animated profile width");
+        Require(animatedProfile.height == config.phaseResolution, "Unexpected animated profile height");
+
+        water::WriteBoreProfileDebugPGMs(
+            "output/stage8",
+            animatedProfile
+        );
+
         return 0;
     }
     catch(const std::exception& e){

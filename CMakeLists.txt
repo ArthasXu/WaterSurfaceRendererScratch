@@ -699,6 +699,7 @@ add_executable(stage8_bore_profile
     src/scene/water/render/WaterSampler.cpp
     src/scene/water/render/WaterVertex.cpp
     src/scene/water/render/StaticFloatTexture2D.cpp
+    src/scene/water/render/StaticDataTexture2D.cpp
 
     src/scene/water/bore/FrontParameterLUT.cpp
     src/scene/water/bore/BoreFrontField.cpp

@@ -12,6 +12,9 @@
 #include "scene/water/bore/FrontParameterLUT.h"
 #include "scene/water/common/BoreResourceContract.h"
 #include "scene/water/render/StaticFloatTexture2D.h"
+#include "scene/water/bore/BoreProfileTypes.h"
+#include "scene/water/bore/BoreProfileResourceContract.h"
+#include "scene/water/render/StaticDataTexture2D.h"
 
 #include "vulkan/Buffer.h"
 #include "vulkan/Descriptors.h"
@@ -81,6 +84,7 @@ private:
     void CreateWaterGrid();
     void CreateSamplers();
     void CreateBoreFrontResources();
+    void CreateBoreProfileResources();
     void CreateUniformBuffers();
     void CreateGPUFFTSource();
     void CreateDescriptorPool();
@@ -90,6 +94,7 @@ private:
     void UpdateCameraUniformBuffer(uint32_t frameIndex);
     void UpdateWaterParamsUniformBuffer(uint32_t frameIndex);
     void UpdateBoreFrontUniformBuffer(uint32_t frameIndex);
+    void UpdateBoreProfileUniformBuffer(uint32_t frameIndex);
     void UpdateWindowTitle();
 
 private:
@@ -128,6 +133,21 @@ private:
     water::BoreFrontParams m_BoreFrontParams{};
     water::FrontLUTData m_FrontLUT{};
 
+    // Wave Profile
+    water::BoreWaveProfileConfig m_BoreProfileConfig{};
+    water::BoreWaveProfileData m_BoreProfileData{};
+
+    float m_ProfileTime = 0.0f;
+    float m_EventRepeatDuration = 30.0f;
+
+    water::BoreProfileAnimationMode m_ProfileMode =
+        water::BoreProfileAnimationMode::OneShot;
+
+    bool m_ProfilePaused = false;
+    bool m_ProfileEnabled = true;
+    bool m_FFTEnabled = true;
+    bool m_AutoRepeatEvent = false;
+
     // 波浪模拟源：每帧执行频谱演化与 IFFT，生成空间域的位移、法线等数据
     std::unique_ptr<water::WSTessendorfGPU> m_TessendorfGPU;
     std::unique_ptr<water::WaterGrid> m_WaterGrid;
@@ -135,6 +155,7 @@ private:
     // 采样器：控制着色器如何读取位移图（重复寻址、最近点过滤等）。
     std::unique_ptr<water::WaterSampler> m_FFTSampler;
     std::unique_ptr<water::WaterSampler> m_FrontLUTSampler;
+    std::unique_ptr<water::WaterSampler> m_BoreProfileSampler;
 
     std::unique_ptr<vkp::Pipeline> m_SolidPipeline;
     std::unique_ptr<vkp::Pipeline> m_WireframePipeline;
@@ -146,8 +167,11 @@ private:
     // 水体参数 UBO：将 FFT 分辨率、补丁长度、choppy 强度等参数传给着色器。
     std::vector<std::unique_ptr<vkp::Buffer>> m_WaterParamsUniformBuffers;
     std::vector<std::unique_ptr<vkp::Buffer>> m_BoreFrontUniformBuffers;
+    std::vector<std::unique_ptr<vkp::Buffer>> m_BoreProfileUniformBuffers;
 
     std::vector<VkDescriptorSet> m_DescriptorSets;
     std::unique_ptr<water::StaticFloatTexture2D> m_FrontParameterTexture;
     std::unique_ptr<water::StaticFloatTexture2D> m_FrontDerivativeTexture;
+    std::unique_ptr<water::StaticDataTexture2D> m_BoreProfileDisplacementTexture;
+    std::unique_ptr<water::StaticDataTexture2D> m_BoreProfileDerivativeTexture;
 };

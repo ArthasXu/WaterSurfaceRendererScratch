@@ -14,6 +14,11 @@ layout(location = 4) in vec4 fragNormalAux;
 layout(location = 5) in vec4 fragBoreDebug0;
 layout(location = 6) in vec4 fragBoreDebug1;
 
+layout(location = 7) in vec4 fragBoreProfile0;
+layout(location = 8) in vec4 fragBoreProfile1;
+layout(location = 9) in vec4 fragComposition;
+layout(location = 10) in vec4 fragSlopeDebug;
+
 // 摄像机 UBO（绑定 set=0, binding=0）
 layout(set = 0, binding = 0) uniform CameraUBO {
     mat4 model;         // 物体自身变换（平移、旋转、缩放）
@@ -187,6 +192,141 @@ void main()
     if(mode == 12){
         float profilePhaseOffset = fragBoreDebug1.w;
         outColor = vec4(vec3(profilePhaseOffset), 1.0);
+        return;
+    }
+
+    // 模式 13：Wave Profile 的距离轴纹理坐标（profileU）
+    // 绿→红渐变表示 signedDistance 映射到 [0, 1] 的纹理 U 坐标
+    // 用于验证采样坐标映射是否正确
+    if(mode == 13){
+        float signedDistance = fragBoreDebug0.x;
+        float profileHalfWidth = 30.0;           // 与配置中的 profileHalfWidth 一致
+        float profileU =
+            clamp(
+                signedDistance /
+                (2.0 * profileHalfWidth) +
+                0.5,
+                0.0,
+                1.0
+            );
+
+        outColor = vec4(profileU, 1.0 - profileU, 0.2, 1.0);
+        return;
+    }
+
+    // 模式 14：动画相位偏移（与 mode 12 相同，可能预留用于显示不同层级的相位）
+    if(mode == 14){
+        float profilePhaseOffset = fragBoreDebug1.w;
+        outColor = vec4(vec3(profilePhaseOffset), 1.0);
+        return;
+    }
+
+    // ===== Wave Profile 位移纹理采样结果可视化 =====
+
+    // 模式 15：前向水平位移（Wave Profile 位移纹理的 R 通道）
+    // 灰阶 = forward displacement
+    // 中间灰为 0，亮 = 正位移（向前推），暗 = 负位移（向后拉/回流）
+    if(mode == 15){
+        float forward = fragBoreProfile0.x;
+        outColor = vec4(vec3(0.5 + forward * 0.1), 1.0);
+        return;
+    }
+
+    // 模式 16：向上垂直位移 / 波高（Wave Profile 位移纹理的 G 通道）
+    // 灰阶 = upward displacement
+    // 中间灰为 0，亮 = 波峰（正高度），暗 = 波谷（负高度）
+    if(mode == 16){
+        float upward = fragBoreProfile0.y;
+        outColor = vec4(vec3(0.5 + upward * 0.1), 1.0);
+        return;
+    }
+
+    // 模式 17：泡沫源（Wave Profile 位移纹理的 B 通道）
+    // 灰阶 = foamSource
+    // 亮 = 泡沫最强区域，暗 = 无泡沫
+    if(mode == 17){
+        float foamSource = fragBoreProfile0.z;
+        outColor = vec4(vec3(foamSource), 1.0);
+        return;
+    }
+
+    // 模式 18：浪尖掩码（Wave Profile 位移纹理的 A 通道）
+    // 灰阶 = crestMask
+    // 亮 = 浪尖区域，暗 = 非浪尖区域
+    if(mode == 18){
+        float crestMask = fragBoreProfile0.w;
+        outColor = vec4(vec3(crestMask), 1.0);
+        return;
+    }
+
+    // ===== Wave Profile 导数纹理采样结果可视化 =====
+
+    // 模式 19：向上位移的导数 dUpward/ds（Wave Profile 导数纹理的 G 通道）
+    // 灰阶 = 波高随距离的变化率（坡度）
+    // 中间灰为 0，亮 = 正坡度（水面上升），暗 = 负坡度（水面下降）
+    if(mode == 19){
+        float dUpwardDs = fragBoreProfile1.y;
+        outColor = vec4(vec3(0.5 + dUpwardDs * 0.5), 1.0);
+        return;
+    }
+
+    // 模式 20：流速（Wave Profile 导数纹理的 B 通道）
+    // 灰阶 = flowSpeed
+    // 亮 = 高流速（波峰处增强），暗 = 低流速
+    // 除以 12.0 是为了将典型流速范围映射到 [0, 1]
+    if(mode == 20){
+        float flowSpeed = fragBoreProfile1.z;
+        outColor = vec4(vec3(flowSpeed / 12.0), 1.0);
+        return;
+    }
+
+    // 模式 21：破碎权重（Wave Profile 导数纹理的 A 通道）
+    // 灰阶 = breakingWeight
+    // 亮 = 高破碎概率，暗 = 低破碎概率
+    if(mode == 21){
+        float breakingWeight = fragBoreProfile1.w;
+        outColor = vec4(vec3(breakingWeight), 1.0);
+        return;
+    }
+
+    // ===== 合成结果与法线调试 =====
+
+    // 模式 22：最终合成位移（fragComposition.xyz）
+    // RGB = (fftDisplacement.xz + boreHorizontal, fftDisplacement.y + boreVertical)
+    // 用于查看 FFT + Bore 叠加后的最终位移向量
+    if(mode == 22){
+        outColor = vec4(
+            fragComposition.x,      // X 水平位移
+            fragComposition.y,      // Y 垂直位移（高度）
+            fragComposition.z,      // Z 水平位移
+            1.0
+        );
+        return;
+    }
+
+    // 模式 23：最终合成坡度可视化（fragSlopeDebug.xy）
+    // 红 = slopeX，蓝 = slopeZ
+    // 用于检查 FFT + Bore 叠加后的总坡度方向
+    if(mode == 23){
+        outColor = vec4(SignedColor(fragSlopeDebug.xy, 0.25), 1.0);
+        return;
+    }
+
+    // 模式 24：最终世界空间法线可视化
+    // RGB = 法线方向映射到 [0, 1]
+    // 绿 = 朝上，红/蓝 = 倾斜
+    if(mode == 24){
+        outColor = vec4(normalize(fragWorldNormal) * 0.5 + 0.5, 1.0);
+        return;
+    }
+
+    // 模式 25：潮后掩码可视化（fragComposition.w）
+    // 灰阶 = backMask
+    // 亮 = 波前后方（已淹没），暗 = 波前前方（未到达）
+    // 用于检查潮后水位抬升的空间范围
+    if(mode == 25){
+        float backMask = fragComposition.w;
+        outColor = vec4(vec3(backMask), 1.0);
         return;
     }
 

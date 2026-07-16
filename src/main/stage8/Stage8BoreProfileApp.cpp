@@ -3,9 +3,11 @@
 #include "core/Log.h"
 
 #include "scene/water/render/WaterVertex.h"
+#include "scene/water/bore/BoreWaveProfile.h"
 
 #include <GLFW/glfw3.h>
 #include <glm/gtc/constants.hpp>
+#include <glm/gtc/packing.hpp>
 
 #include <array>
 #include <cmath>
@@ -66,6 +68,47 @@
 //   → 片段着色器输出最终颜色
 // CPU 仅每帧传递时间参数和少量 push constants，无大数据传输。
 
+namespace
+{
+struct PackedHalf4
+{
+    uint32_t rg = 0;
+    uint32_t ba = 0;
+};
+
+static_assert(sizeof(PackedHalf4) == 8);
+
+PackedHalf4 PackHalf4(glm::vec4 value)
+{
+    PackedHalf4 packed{};
+    packed.rg =
+        glm::packHalf2x16(
+            glm::vec2(value.x, value.y)
+        );
+
+    packed.ba =
+        glm::packHalf2x16(
+            glm::vec2(value.z, value.w)
+        );
+
+    return packed;
+}
+
+std::vector<PackedHalf4> PackHalf4Vector(
+    const std::vector<glm::vec4>& values
+)
+{
+    std::vector<PackedHalf4> packed;
+    packed.reserve(values.size());
+
+    for(const glm::vec4& value : values){
+        packed.push_back(PackHalf4(value));
+    }
+
+    return packed;
+}
+}
+
 void Stage8BoreProfileApp::Start()
 {
     VKP_INFO("Stage8BoreProfileApp started");
@@ -79,6 +122,7 @@ void Stage8BoreProfileApp::Start()
     CreateWaterGrid();
     CreateSamplers();
     CreateBoreFrontResources();
+    CreateBoreProfileResources();
     // descriptor sets 需要 WSTessendorfGPU 的 frame image info，所以先建 GPU source
     CreateGPUFFTSource();
     CreateUniformBuffers();
@@ -94,16 +138,20 @@ void Stage8BoreProfileApp::ShutdownApp()
     m_DescriptorSets.clear();
     m_FrontDerivativeTexture.reset();
     m_FrontParameterTexture.reset();
+    m_BoreProfileDerivativeTexture.reset();
+    m_BoreProfileDisplacementTexture.reset();
     m_DescriptorPool.reset();
     m_DescriptorSetLayout.reset();
 
     m_TessendorfGPU.reset();
     m_FFTSampler.reset();
     m_FrontLUTSampler.reset();
+    m_BoreProfileSampler.reset();
 
     m_WaterParamsUniformBuffers.clear();
     m_CameraUniformBuffers.clear();
     m_BoreFrontUniformBuffers.clear();
+    m_BoreProfileUniformBuffers.clear();
 
     m_WaterGrid.reset();
 }
@@ -176,6 +224,9 @@ void Stage8BoreProfileApp::CreateDescriptorSetLayout()
         .AddBinding(8, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT)
         .AddBinding(9, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT)
         .AddBinding(10, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT)
+        .AddBinding(11, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT)
+        .AddBinding(12, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT)
+        .AddBinding(13, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT)
         .Build();
 }
 
@@ -225,6 +276,12 @@ void Stage8BoreProfileApp::CreateSamplers()
         VK_FILTER_LINEAR,
         VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE
     );
+
+    m_BoreProfileSampler = std::make_unique<water::WaterSampler>(
+        GetDevice(),
+        VK_FILTER_LINEAR,
+        VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE
+    );
 }
 
 void Stage8BoreProfileApp::CreateBoreFrontResources()
@@ -262,6 +319,104 @@ void Stage8BoreProfileApp::CreateBoreFrontResources()
         );
 }
 
+void Stage8BoreProfileApp::CreateBoreProfileResources()
+{
+    m_BoreProfileConfig = water::BoreWaveProfileConfig{};
+    m_BoreProfileData =
+        water::GenerateAnimatedBoreWaveProfile(m_BoreProfileConfig);
+
+    VkFormat profileFormat =
+        VK_FORMAT_R16G16B16A16_SFLOAT;
+
+    VkFormatFeatureFlags requiredFeatures =
+        VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT |
+        VK_FORMAT_FEATURE_TRANSFER_DST_BIT |
+        VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT;
+
+    bool supportsHalf =
+        GetDevice().SupportsFormatFeatures(
+            profileFormat,
+            VK_IMAGE_TILING_OPTIMAL,
+            requiredFeatures
+        );
+
+    if(supportsHalf){
+        std::vector<PackedHalf4> displacementHalf =
+            PackHalf4Vector(m_BoreProfileData.displacement);
+
+        std::vector<PackedHalf4> derivativeHalf =
+            PackHalf4Vector(m_BoreProfileData.derivative);
+
+        m_BoreProfileDisplacementTexture =
+            std::make_unique<water::StaticDataTexture2D>(
+                GetPhysicalDevice(),
+                GetDevice(),
+                GetCommandPool(),
+                GetDevice().GetGraphicsQueue(),
+                m_BoreProfileData.width,
+                m_BoreProfileData.height,
+                VK_FORMAT_R16G16B16A16_SFLOAT,
+                displacementHalf.data(),
+                static_cast<VkDeviceSize>(
+                    displacementHalf.size() *
+                    sizeof(PackedHalf4)
+                )
+            );
+
+        m_BoreProfileDerivativeTexture =
+            std::make_unique<water::StaticDataTexture2D>(
+                GetPhysicalDevice(),
+                GetDevice(),
+                GetCommandPool(),
+                GetDevice().GetGraphicsQueue(),
+                m_BoreProfileData.width,
+                m_BoreProfileData.height,
+                VK_FORMAT_R16G16B16A16_SFLOAT,
+                derivativeHalf.data(),
+                static_cast<VkDeviceSize>(
+                    derivativeHalf.size() *
+                    sizeof(PackedHalf4)
+                )
+            );
+    }
+    else{
+        std::cerr
+            << "Warning: RGBA16F linear sampled image unsupported, falling back to RGBA32F\n";
+
+        m_BoreProfileDisplacementTexture =
+            std::make_unique<water::StaticDataTexture2D>(
+                GetPhysicalDevice(),
+                GetDevice(),
+                GetCommandPool(),
+                GetDevice().GetGraphicsQueue(),
+                m_BoreProfileData.width,
+                m_BoreProfileData.height,
+                VK_FORMAT_R32G32B32A32_SFLOAT,
+                m_BoreProfileData.displacement.data(),
+                static_cast<VkDeviceSize>(
+                    m_BoreProfileData.displacement.size() *
+                    sizeof(glm::vec4)
+                )
+            );
+
+        m_BoreProfileDerivativeTexture =
+            std::make_unique<water::StaticDataTexture2D>(
+                GetPhysicalDevice(),
+                GetDevice(),
+                GetCommandPool(),
+                GetDevice().GetGraphicsQueue(),
+                m_BoreProfileData.width,
+                m_BoreProfileData.height,
+                VK_FORMAT_R32G32B32A32_SFLOAT,
+                m_BoreProfileData.derivative.data(),
+                static_cast<VkDeviceSize>(
+                    m_BoreProfileData.derivative.size() *
+                    sizeof(glm::vec4)
+                )
+            );
+    }
+}
+
 void Stage8BoreProfileApp::CreateGPUFFTSource()
 {
     m_TessendorfGPU = std::make_unique<water::WSTessendorfGPU>(
@@ -279,12 +434,14 @@ void Stage8BoreProfileApp::CreateGPUFFTSource()
 void Stage8BoreProfileApp::CreateUniformBuffers()
 {
     m_BoreFrontUniformBuffers.clear();
+    m_BoreProfileUniformBuffers.clear();
     m_CameraUniformBuffers.clear();
     m_WaterParamsUniformBuffers.clear();
 
     m_CameraUniformBuffers.reserve(GetMaxFramesInFlight());
     m_WaterParamsUniformBuffers.reserve(GetMaxFramesInFlight());
     m_BoreFrontUniformBuffers.reserve(GetMaxFramesInFlight());
+    m_BoreProfileUniformBuffers.reserve(GetMaxFramesInFlight());
 
     for(uint32_t i = 0; i < GetMaxFramesInFlight(); i++){
         // 创建相机 UBO
@@ -320,6 +477,20 @@ void Stage8BoreProfileApp::CreateUniformBuffers()
         );
         boreFrontBuffer->Map();
         m_BoreFrontUniformBuffers.push_back(std::move(boreFrontBuffer));
+
+        // 创建 BoreProfile UBO
+        auto boreProfileBuffer = std::make_unique<vkp::Buffer>(
+            GetPhysicalDevice(),
+            GetDevice(),
+            sizeof(water::BoreProfileUBO),
+            VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
+        );
+
+        boreProfileBuffer->Map();
+
+        m_BoreProfileUniformBuffers.push_back(std::move(boreProfileBuffer));
     }
 }
 
@@ -329,11 +500,11 @@ void Stage8BoreProfileApp::CreateDescriptorPool()
         .SetMaxSets(GetMaxFramesInFlight())
         .AddPoolSize(
             VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-            GetMaxFramesInFlight() * 3
+            GetMaxFramesInFlight() * 4
         )
         .AddPoolSize(
             VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-            GetMaxFramesInFlight() * 8
+            GetMaxFramesInFlight() * 10
         )
         .Build();
 }
@@ -369,6 +540,11 @@ void Stage8BoreProfileApp::CreateDescriptorSets()
         boreFrontInfo.offset = 0;
         boreFrontInfo.range = sizeof(water::BoreFrontUBO);
 
+        VkDescriptorBufferInfo boreProfileInfo{};
+        boreProfileInfo.buffer = *m_BoreProfileUniformBuffers[i];
+        boreProfileInfo.offset = 0;
+        boreProfileInfo.range = sizeof(water::BoreProfileUBO);
+
         // 3. 准备 位移图 的绑定信息。
         //    GetDescriptorInfo 内部会封装 VkImageView 和 VkSampler，
         //    并指定图像布局为 SHADER_READ_ONLY_OPTIMAL，供着色器采样
@@ -381,6 +557,16 @@ void Stage8BoreProfileApp::CreateDescriptorSets()
 
         VkDescriptorImageInfo frontDerivativeInfo =
             m_FrontDerivativeTexture->GetDescriptorInfo(*m_FrontLUTSampler);
+
+        VkDescriptorImageInfo boreProfileDisplacementInfo =
+            m_BoreProfileDisplacementTexture->GetDescriptorInfo(
+                *m_BoreProfileSampler
+            );
+
+        VkDescriptorImageInfo boreProfileDerivativeInfo =
+            m_BoreProfileDerivativeTexture->GetDescriptorInfo(
+                *m_BoreProfileSampler
+            );
 
         // 5. 用 DescriptorWriter 将上述资源按顺序写入描述符集
         //    binding 0：camera UBO 每一帧，在 UpdateCameraUniformBuffer 中生成视图矩阵 投影矩阵 着色器通过 binding = 0 读取这个 UBO，完成顶点到裁剪空间的变换
@@ -399,6 +585,9 @@ void Stage8BoreProfileApp::CreateDescriptorSets()
             .WriteBuffer(8, &boreFrontInfo)
             .WriteImage(9, &frontParameterInfo)
             .WriteImage(10, &frontDerivativeInfo)
+            .WriteBuffer(11, &boreProfileInfo)
+            .WriteImage(12, &boreProfileDisplacementInfo)
+            .WriteImage(13, &boreProfileDerivativeInfo)
             .Build(m_DescriptorSets[i]); // 完成分配与写入
 
         // 如果分配或写入失败（比如池子空间不足），立即抛出异常
@@ -467,6 +656,28 @@ void Stage8BoreProfileApp::Update(core::Timestep timestep)
     m_BoreTime += boreDeltaTime;
 
     UpdateWindowTitle();
+
+    float profileDeltaTime = 0.0f;
+
+    if(!m_ProfilePaused){
+        profileDeltaTime = deltaTime;
+    }
+
+    if(m_ProfileMode == water::BoreProfileAnimationMode::OneShot){
+        m_ProfileTime =
+            std::min(
+                m_ProfileTime + profileDeltaTime,
+                m_BoreProfileConfig.duration
+            );
+    }
+    else{
+        m_ProfileTime += profileDeltaTime;
+    }
+
+    if(m_AutoRepeatEvent && m_BoreTime > m_EventRepeatDuration){
+        m_BoreTime = 0.0f;
+        m_ProfileTime = 0.0f;
+    }
 }
 
 void Stage8BoreProfileApp::PrepareFrame(uint32_t frameIndex, uint32_t imageIndex)
@@ -474,6 +685,7 @@ void Stage8BoreProfileApp::PrepareFrame(uint32_t frameIndex, uint32_t imageIndex
     UpdateCameraUniformBuffer(frameIndex);
     UpdateWaterParamsUniformBuffer(frameIndex);
     UpdateBoreFrontUniformBuffer(frameIndex);
+    UpdateBoreProfileUniformBuffer(frameIndex);
 }
 
 void Stage8BoreProfileApp::UpdateCameraUniformBuffer(uint32_t frameIndex)
@@ -591,6 +803,65 @@ void Stage8BoreProfileApp::UpdateBoreFrontUniformBuffer(uint32_t frameIndex)
     );
 }
 
+void Stage8BoreProfileApp::UpdateBoreProfileUniformBuffer(uint32_t frameIndex)
+{
+    water::BoreProfileUBO ubo{};
+
+    // ===== domain：涌潮剖面的空间与时域参数 =====
+    // x = profileHalfWidth（米）：剖面覆盖的半宽度，控制涌潮波形沿距离轴的影响范围
+    // y = waterRiseHeight（米）：潮后水位抬升高度，模拟涨潮时整体水位上升
+    // z = riseWidth（米）：水位抬升的过渡宽度，控制从无到有的平滑过渡距离
+    // w = duration（秒）：单次 OneShot 动画的总时长
+    ubo.domain = glm::vec4(
+        m_BoreProfileConfig.profileHalfWidth,  // 剖面半宽度（如 30.0 米）
+        1.5f,                                  // 潮后水位抬升高度
+        8.0f,                                  // 抬升过渡宽度
+        m_BoreProfileConfig.duration           // 动画时长（如 24 秒）
+    );
+
+    // ===== animation：涌潮动画控制参数 =====
+    // x = profileTime（秒）：当前动画时间，驱动 Wave Profile 的 V 轴采样，控制翻卷进度
+    // y = profileWidth：剖面宽度缩放因子，在着色器中用于映射 signedDistance 到纹理 U 轴
+    // z = animationMode：动画模式（0 = OneShot 单次播放，1 = Looping 循环播放）
+    // w = profileEnabled：剖面效果开关（1.0 = 启用涌潮，0.0 = 关闭）
+    ubo.animation = glm::vec4(
+        m_ProfileTime,                          // 当前动画时间 驱动 Wave Profile 翻卷动画
+        0.08f,                                  // 剖面宽度缩放（典型值 0.05~0.1）
+        static_cast<float>(m_ProfileMode),      // 动画模式（OneShot=0, Looping=1）
+        m_ProfileEnabled ? 1.0f : 0.0f          // 效果开关
+    );
+
+    // ===== geometry：几何变换缩放因子 =====
+    // x = globalAmplitude：全局振幅缩放，整体调节涌潮波高
+    // y = forwardScale：前向水平位移缩放，控制推挤强度
+    // z = upwardScale：向上垂直位移缩放，控制浪高
+    // w = activeRegionMask：当前点是否在涌潮活跃区域内（由 Flow Map / SDF 控制）
+    ubo.geometry = glm::vec4(
+        1.0f,  // 全局振幅缩放（默认 1.0，调大波更高）
+        3.0f,  // 前向位移缩放
+        1.0f,  // 向上位移缩放
+        1.0f   // 区域掩码（1.0 = 全部生效）
+    );
+
+    // ===== suppression：FFT 背景波浪抑制系数（潮头浪尖处压低 FFT 波浪） =====
+    // x = shortWaveSuppression：短波（高频）抑制系数，推荐 0.2~0.4
+    // y = midWaveSuppression：中波抑制系数，推荐 0.35~0.7
+    // z = longWaveSuppression：长波（低频）抑制系数，推荐 0.7~1.0
+    // w = 预留（未使用）
+    // 原则：短波在潮头处被压得最狠，长涌浪保留最多，这样更自然
+    ubo.suppression = glm::vec4(
+        0.20f,  // 短波抑制（潮头处短波降至 20%）
+        0.35f,  // 中波抑制（潮头处中波降至 35%）
+        0.80f,  // 长波抑制（潮头处长波保留 80%）
+        0.0f    // 预留
+    );
+
+    m_BoreProfileUniformBuffers[frameIndex]->CopyToMapped(
+        &ubo,
+        sizeof(ubo)
+    );
+}
+
 void Stage8BoreProfileApp::Render(VkCommandBuffer commandBuffer, uint32_t imageIndex)
 {
     VkCommandBufferBeginInfo beginInfo{};
@@ -694,7 +965,7 @@ void Stage8BoreProfileApp::UpdateWindowTitle()
     const glm::vec3& pos = m_Camera.GetPosition();
 
     std::ostringstream title;
-    title << "Stage 7 - Bore Front Field | pos=("
+    title << "Stage 8 - Bore Wave Profile | pos=("
         << pos.x << ", "
         << pos.y << ", "
         << pos.z << ") mode="
@@ -797,11 +1068,8 @@ void Stage8BoreProfileApp::OnKey(int key, int scancode, int action, int mods)
             m_DebugMode = 11;
         }
 
-        // M：轮廓相位偏移可视化（profilePhaseOffset，Front LUT 的 A 通道）
-        // 灰阶表示 Wave Profile 动画沿波前线的相位偏移量
-        // 0 = 黑色（无偏移），1 = 白色（最大偏移）
         if(key == GLFW_KEY_M){
-            m_DebugMode = (m_DebugMode + 1) % 13;
+            m_DebugMode = (m_DebugMode + 1) % 26;
         }
 
         // Tab：切换线框渲染模式
@@ -826,6 +1094,7 @@ void Stage8BoreProfileApp::OnKey(int key, int scancode, int action, int mods)
         // 将 BoreTime 归零，使一线潮回到初始位置（origin + initialOffset）
         if(key == GLFW_KEY_R){
             m_BoreTime = 0.0f;
+            m_ProfileTime = 0.0f;
         }
 
         // C：切换 Front LUT 的使用
@@ -850,6 +1119,44 @@ void Stage8BoreProfileApp::OnKey(int key, int scancode, int action, int mods)
         // 暂停时 BoreTime 不再累加，波前停在当前位置，但背景波浪仍可正常演化
         if(key == GLFW_KEY_I){
             m_BorePaused = !m_BorePaused;
+        }
+
+        // L：切换涌潮剖面动画模式（OneShot / Looping）
+        // OneShot = 播放一次完整生命周期后停止
+        // Looping = 循环播放，用于持续近岸破浪效果
+        if(key == GLFW_KEY_L){
+            if(m_ProfileMode == water::BoreProfileAnimationMode::OneShot){
+                m_ProfileMode = water::BoreProfileAnimationMode::Looping;
+            }
+            else{
+                m_ProfileMode = water::BoreProfileAnimationMode::OneShot;
+            }
+        }
+
+        // K：暂停/继续剖面动画时间
+        // 暂停时 ProfileTime 不再累加，翻卷动画冻结，便于观察特定帧的波形
+        if(key == GLFW_KEY_K){
+            m_ProfilePaused = !m_ProfilePaused;
+        }
+
+        // Y：切换自动重复事件模式
+        // 启用后涌潮会按设定间隔自动重复触发 OneShot 事件
+        // 用于模拟一阵一阵出现的涌潮
+        if(key == GLFW_KEY_Y){
+            m_AutoRepeatEvent = !m_AutoRepeatEvent;
+        }
+
+        // G：切换涌潮剖面效果开关
+        // 关闭后只显示背景 FFT 波浪，不叠加 Wave Profile 位移
+        if(key == GLFW_KEY_G){
+            m_ProfileEnabled = !m_ProfileEnabled;
+        }
+
+        // H：切换 FFT 背景波浪开关
+        // 关闭后只显示涌潮剖面，不显示背景波浪
+        // 用于单独观察涌潮波形的几何形状
+        if(key == GLFW_KEY_H){
+            m_FFTEnabled = !m_FFTEnabled;
         }
     }
     else if(action == GLFW_RELEASE){
