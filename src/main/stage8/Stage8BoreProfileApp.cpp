@@ -727,7 +727,7 @@ void Stage8BoreProfileApp::UpdateWaterParamsUniformBuffer(uint32_t frameIndex)
 
     ubo.metadata = glm::ivec4(
         static_cast<int>(water::kMaxFFTCascades),
-        0,
+        m_FFTEnabled ? 1 : 0,
         0,
         0
     );// 元数据，包括最大级联数
@@ -1069,7 +1069,7 @@ void Stage8BoreProfileApp::OnKey(int key, int scancode, int action, int mods)
         }
 
         if(key == GLFW_KEY_M){
-            m_DebugMode = (m_DebugMode + 1) % 26;
+            m_DebugMode = (m_DebugMode + 1) % 27;
         }
 
         // Tab：切换线框渲染模式

@@ -62,6 +62,7 @@ layout(location = 7) out vec4 fragBoreProfile0;
 layout(location = 8) out vec4 fragBoreProfile1;
 layout(location = 9) out vec4 fragComposition;
 layout(location = 10) out vec4 fragSlopeDebug;
+layout(location = 11) out vec4 fragFinalDisplacement;
 
 struct CascadeSample
 {
@@ -363,9 +364,9 @@ void main(){
     float longWeight =
         mix(1.0, suppressionAtCrest.z, crestMask);
 
-    // FFT 整体开关（通过 water.simulation.w 控制，默认 1.0）
+    // FFT 整体开关
     float fftEnabled =
-        water.simulation.w >= -0.5 ? 1.0 : 0.0;
+        water.metadata.y != 0 ? 1.0 : 0.0;
 
     // ===== 第五步：合成最终的 FFT 位移与斜率 =====
 
@@ -393,7 +394,7 @@ void main(){
         max(
             max(shortWave.breaking, midWave.breaking),
             longWave.breaking
-        );
+        ) * fftEnabled;
 
     // ===== 第七步：打包位移向量（xyz = 位移，w = 泡沫强度） =====
 
@@ -505,22 +506,26 @@ void main(){
         localFrontNormal;
 
     // ===== 第五步：合成最终世界坐标（FFT + Bore） =====
+    // 水平位移：FFT 水平位移（缩放后）+ 涌潮水平位移
+    // 垂直位移：FFT 高度 + 涌潮垂直位移
+    vec3 finalDisplacement =
+        vec3(
+            fftDisplacement.x *         // FFT 水平位移（已包含三个 Cascade 的加权结果）
+                water.simulation.y *    // choppy 强度
+                5.0 +                   // 视觉效果放大因子
+                boreHorizontal.x,       // 涌潮水平位移
+            fftDisplacement.y *         // FFT 垂直位移（高度）
+                10.0 +                  // 视觉效果放大因子
+                boreVertical,           // 涌潮垂直位移（波高 + 水位抬升）
+            fftDisplacement.z *
+                water.simulation.y *
+                5.0 +
+                boreHorizontal.y
+        );
 
     vec3 worldPosition =
-        baseWorldPosition;          // 静态网格的世界空间基础位置
-
-    // 水平位移：FFT 水平位移（缩放后）+ 涌潮水平位移
-    worldPosition.xz +=
-        fftDisplacement.xz *        // FFT 水平位移（已包含三个 Cascade 的加权结果）
-        water.simulation.y *        // choppy 强度
-        5.0 +                       // 视觉效果放大因子
-        boreHorizontal;             // 涌潮水平位移
-
-    // 垂直位移：FFT 高度 + 涌潮垂直位移
-    worldPosition.y +=
-        fftDisplacement.y *         // FFT 垂直位移（高度）
-        10.0 +                      // 视觉效果放大因子
-        boreVertical;               // 涌潮垂直位移（波高 + 水位抬升）
+        baseWorldPosition +
+        finalDisplacement;
 
     // ===== 第六步：合成最终坡度并重建法线 =====
 
@@ -582,6 +587,12 @@ void main(){
             midWeight,
             longWeight,
             backMask
+        );
+
+    fragFinalDisplacement =
+        vec4(
+            finalDisplacement,
+            0.0
         );
 
     fragSlopeDebug =

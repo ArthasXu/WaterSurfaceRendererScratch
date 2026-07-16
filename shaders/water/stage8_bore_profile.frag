@@ -18,6 +18,7 @@ layout(location = 7) in vec4 fragBoreProfile0;
 layout(location = 8) in vec4 fragBoreProfile1;
 layout(location = 9) in vec4 fragComposition;
 layout(location = 10) in vec4 fragSlopeDebug;
+layout(location = 11) in vec4 fragFinalDisplacement;
 
 // 摄像机 UBO（绑定 set=0, binding=0）
 layout(set = 0, binding = 0) uniform CameraUBO {
@@ -291,14 +292,14 @@ void main()
 
     // ===== 合成结果与法线调试 =====
 
-    // 模式 22：最终合成位移（fragComposition.xyz）
-    // RGB = (fftDisplacement.xz + boreHorizontal, fftDisplacement.y + boreVertical)
-    // 用于查看 FFT + Bore 叠加后的最终位移向量
+    // 模式 22：FFT suppression weights
+    // R = shortWeight, G = midWeight, B = longWeight
+    // crestMask 区域中短波应压得最强，长波保留最多
     if(mode == 22){
         outColor = vec4(
-            fragComposition.x,      // X 水平位移
-            fragComposition.y,      // Y 垂直位移（高度）
-            fragComposition.z,      // Z 水平位移
+            fragComposition.x,
+            fragComposition.y,
+            fragComposition.z,
             1.0
         );
         return;
@@ -308,7 +309,7 @@ void main()
     // 红 = slopeX，蓝 = slopeZ
     // 用于检查 FFT + Bore 叠加后的总坡度方向
     if(mode == 23){
-        outColor = vec4(SignedColor(fragSlopeDebug.xy, 0.25), 1.0);
+        outColor = vec4(SignedColor(fragSlopeDebug.zw, 0.25), 1.0);
         return;
     }
 
@@ -327,6 +328,18 @@ void main()
     if(mode == 25){
         float backMask = fragComposition.w;
         outColor = vec4(vec3(backMask), 1.0);
+        return;
+    }
+
+    // 模式 26：最终位移
+    // RGB = 实际加到 worldPosition 上的 X/Y/Z 位移
+    if(mode == 26){
+        outColor = vec4(
+            0.5 + fragFinalDisplacement.x * 0.05,
+            0.5 + fragFinalDisplacement.y * 0.05,
+            0.5 + fragFinalDisplacement.z * 0.05,
+            1.0
+        );
         return;
     }
 
