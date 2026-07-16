@@ -11,4 +11,8 @@ BoreWaveProfileData GenerateStaticBoreWaveProfile(
     const BoreWaveProfileConfig& config,
     float phase
 );
+
+BoreWaveProfileData GenerateAnimatedBoreWaveProfile(
+    const BoreWaveProfileConfig& config
+);
 }
