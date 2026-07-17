@@ -68,6 +68,10 @@ VkFormat StaticDataTexture2D::GetFormat() const
 
 VkDeviceSize StaticDataTexture2D::GetBytesPerTexel() const
 {
+    if(m_Format == VK_FORMAT_R8G8B8A8_UNORM){
+        return 4;
+    }
+    
     if(m_Format == VK_FORMAT_R16G16B16A16_SFLOAT){
         return 8;
     }
