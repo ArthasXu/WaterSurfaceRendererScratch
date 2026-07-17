@@ -53,9 +53,13 @@ layout(set = 1, binding = 0) uniform FoamParamsUBO
     vec4 thresholds;
     vec4 appearance;
     vec4 state;
+    vec4 runtime;
 } foam;
 
 layout(set = 1, binding = 1) uniform sampler2D foamDetailTexture;
+
+layout(set = 1, binding = 2) uniform sampler2D foamState0;
+layout(set = 1, binding = 3) uniform sampler2D foamState1;
 
 // 片段着色器输出颜色
 layout(location = 0) out vec4 outColor;
@@ -216,6 +220,23 @@ void main()
             patternedSource
         );
 
+    vec2 stateUV =
+        fragWorldPosition.xz /
+        vec2(256.0) +
+        vec2(0.5);
+
+    float stateFoam =
+        foam.runtime.x < 0.5
+        ? texture(foamState0, stateUV).r
+        : texture(foamState1, stateUV).r;
+
+    float finalFoam =
+        mix(
+            foamCoverage,
+            stateFoam,
+            foam.appearance.w
+        );
+
     // 模式 0：基础漫反射光照
     if(mode == 0){
         // 主光源方向（斜上方）
@@ -233,7 +254,7 @@ void main()
             mix(
                 litColor,
                 foamColor,
-                foamCoverage
+                finalFoam
             );
 
         outColor = vec4(litColor, 1.0);
@@ -572,6 +593,16 @@ void main()
             0.0,
             1.0
         );
+        return;
+    }
+    
+    if(mode == 38){
+        outColor = vec4(vec3(stateFoam), 1.0);
+        return;
+    }
+
+    if(mode == 39){
+        outColor = vec4(vec3(finalFoam), 1.0);
         return;
     }
 
