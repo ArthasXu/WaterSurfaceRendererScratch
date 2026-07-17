@@ -4,6 +4,7 @@
 
 #include "scene/water/render/WaterVertex.h"
 #include "scene/water/bore/BoreWaveProfile.h"
+#include "scene/water/foam/FoamDetailGenerator.h"
 
 #include <GLFW/glfw3.h>
 #include <glm/gtc/constants.hpp>
@@ -118,16 +119,19 @@ void Stage9WaterApp::Start()
     m_Camera.AddYawPitch(0.0f, -300.0f);
 
     CreateDescriptorSetLayout();
+    CreateAppearanceDescriptorSetLayout();
     CreatePipelines();
     CreateWaterGrid();
     CreateSamplers();
     CreateBoreFrontResources();
     CreateBoreProfileResources();
-    // descriptor sets 需要 WSTessendorfGPU 的 frame image info，所以先建 GPU source
+    CreateFoamResources();
     CreateGPUFFTSource();
     CreateUniformBuffers();
     CreateDescriptorPool();
+    CreateAppearanceDescriptorPool();
     CreateDescriptorSets();
+    CreateAppearanceDescriptorSets();
 }
 
 void Stage9WaterApp::ShutdownApp()
@@ -136,18 +140,28 @@ void Stage9WaterApp::ShutdownApp()
     m_WireframePipeline.reset();
 
     m_DescriptorSets.clear();
+    m_AppearanceDescriptorSets.clear();
+
+    m_FoamDetailTexture.reset();
     m_FrontDerivativeTexture.reset();
     m_FrontParameterTexture.reset();
     m_BoreProfileDerivativeTexture.reset();
     m_BoreProfileDisplacementTexture.reset();
+
+    m_AppearanceDescriptorPool.reset();
     m_DescriptorPool.reset();
+
+    m_AppearanceDescriptorSetLayout.reset();
     m_DescriptorSetLayout.reset();
 
     m_TessendorfGPU.reset();
+
+    m_FoamDetailSampler.reset();
     m_FFTSampler.reset();
     m_FrontLUTSampler.reset();
     m_BoreProfileSampler.reset();
 
+    m_FoamParamsUniformBuffers.clear();
     m_WaterParamsUniformBuffers.clear();
     m_CameraUniformBuffers.clear();
     m_BoreFrontUniformBuffers.clear();
@@ -160,7 +174,10 @@ void Stage9WaterApp::CreatePipelines()
 {
     vkp::PipelineConfig config{};
 
-    config.descriptorSetLayouts = {*m_DescriptorSetLayout};
+    config.descriptorSetLayouts = {
+        *m_DescriptorSetLayout,
+        *m_AppearanceDescriptorSetLayout
+    };
 
     auto bindingDescription = water::WaterVertex::GetBindingDescription();
     auto attributeDescriptions = water::WaterVertex::GetAttributeDescriptions();
@@ -206,28 +223,63 @@ void Stage9WaterApp::CreatePipelines()
     // 这个描述符集有多少个 binding。
     // 每个 binding 的类型是什么（UBO、纹理、存储缓冲等）。
     // 哪些着色器阶段可以访问（顶点、片段、计算）。
+
+// ===== 几何描述符集布局（set = 0）：水面几何与物理资源 =====
+// 包含相机、FFT 波浪、涌潮波前（BoreFront）和涌潮剖面（BoreProfile）的全部资源
 void Stage9WaterApp::CreateDescriptorSetLayout()
 {
-    // 2 个 UBO + 6 个纹理
-    // CameraUBO + WaterParamsUBO
-    // 三层 FFT 分别负责短波（High）、中波（Mid）、长波（Low），
-    // 每层都需要一张位移图和一张法线辅助图，所以总共 2×3 = 6 个纹理绑定
     m_DescriptorSetLayout = vkp::DescriptorSetLayout::Builder(GetDevice())
+        // Binding 0：CameraUBO（MVP 矩阵 + 调试模式），顶点/片段着色器可访问
         .AddBinding(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT)
+        // Binding 1：WaterParamsUBO（三层 FFT 的 patch 长度、振幅缩放、时间、choppy/法线强度），顶点/片段着色器可访问
         .AddBinding(1, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT)
+        // Binding 2：fftDisplacement0（短波/高频位移纹理），顶点/片段着色器可访问
         .AddBinding(2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT)
+        // Binding 3：fftNormalAux0（短波/高频法线辅助纹理），顶点/片段着色器可访问
         .AddBinding(3, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT)
+        // Binding 4：fftDisplacement1（中波/中频位移纹理），顶点/片段着色器可访问
         .AddBinding(4, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT)
+        // Binding 5：fftNormalAux1（中波/中频法线辅助纹理），顶点/片段着色器可访问
         .AddBinding(5, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT)
+        // Binding 6：fftDisplacement2（长波/低频位移纹理），顶点/片段着色器可访问
         .AddBinding(6, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT)
+        // Binding 7：fftNormalAux2（长波/低频法线辅助纹理），顶点/片段着色器可访问
         .AddBinding(7, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT)
+        // Binding 8：BoreFrontUBO（涌潮波前原点、速度、时间、方向、长度、淡出、LUT 信息），顶点/片段着色器可访问
         .AddBinding(8, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT)
+        // Binding 9：frontParameterLUT（波前弯曲偏移、振幅乘数、泡沫乘数、相位偏移），顶点/片段着色器可访问
         .AddBinding(9, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT)
+        // Binding 10：frontDerivativeLUT（波前偏移导数，用于局部法线修正），顶点/片段着色器可访问
         .AddBinding(10, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT)
+        // Binding 11：BoreProfileUBO（剖面尺寸、动画时间、FFT 抑制系数、水位抬升参数等），顶点/片段着色器可访问
         .AddBinding(11, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT)
+        // Binding 12：boreProfileDisplacement（Wave Profile 位移纹理，含前向/向上位移、泡沫源、浪尖掩码），顶点/片段着色器可访问
         .AddBinding(12, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT)
+        // Binding 13：boreProfileDerivative（Wave Profile 导数纹理，含 dForward/ds、dUpward/ds、流速、破碎权重），顶点/片段着色器可访问
         .AddBinding(13, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT)
         .Build();
+}
+
+// ===== 外观描述符集布局（set = 1）：泡沫与材质资源 =====
+// 与几何/物理管线完全解耦，未来适配不同材质或 FFT 源时只需替换此 set
+void Stage9WaterApp::CreateAppearanceDescriptorSetLayout()
+{
+    m_AppearanceDescriptorSetLayout =
+        vkp::DescriptorSetLayout::Builder(GetDevice())
+            // Binding 0：FoamParamsUBO（动画时间、泡沫源权重、阈值、外观参数、状态参数），顶点/片段着色器可访问
+            .AddBinding(
+                0,
+                VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+                VK_SHADER_STAGE_VERTEX_BIT |
+                    VK_SHADER_STAGE_FRAGMENT_BIT
+            )
+            // Binding 1：FoamDetailTexture（预生成的周期性泡沫细胞纹理，R=覆盖度，GB=法线扰动，A=破碎噪声），片段着色器可访问
+            .AddBinding(
+                1,
+                VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                VK_SHADER_STAGE_FRAGMENT_BIT
+            )
+            .Build();
 }
 
 void Stage9WaterApp::CreateWaterGrid()
@@ -281,6 +333,12 @@ void Stage9WaterApp::CreateSamplers()
         GetDevice(),
         VK_FILTER_LINEAR,
         VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE
+    );
+
+    m_FoamDetailSampler = std::make_unique<water::WaterSampler>(
+        GetDevice(),
+        VK_FILTER_LINEAR,
+        VK_SAMPLER_ADDRESS_MODE_REPEAT
     );
 }
 
@@ -417,6 +475,32 @@ void Stage9WaterApp::CreateBoreProfileResources()
     }
 }
 
+void Stage9WaterApp::CreateFoamResources()
+{
+    m_FoamDetailData =
+        water::GenerateFoamDetailTexture(
+            256,
+            256,
+            1337u
+        );
+
+    m_FoamDetailTexture =
+        std::make_unique<water::StaticDataTexture2D>(
+            GetPhysicalDevice(),
+            GetDevice(),
+            GetCommandPool(),
+            GetDevice().GetGraphicsQueue(),
+            m_FoamDetailData.width,
+            m_FoamDetailData.height,
+            VK_FORMAT_R8G8B8A8_UNORM,
+            m_FoamDetailData.pixels.data(),
+            static_cast<VkDeviceSize>(
+                m_FoamDetailData.pixels.size() *
+                sizeof(water::FoamDetailPixel)
+            )
+        );
+}
+
 void Stage9WaterApp::CreateGPUFFTSource()
 {
     m_TessendorfGPU = std::make_unique<water::WSTessendorfGPU>(
@@ -435,6 +519,7 @@ void Stage9WaterApp::CreateUniformBuffers()
 {
     m_BoreFrontUniformBuffers.clear();
     m_BoreProfileUniformBuffers.clear();
+    m_FoamParamsUniformBuffers.clear();
     m_CameraUniformBuffers.clear();
     m_WaterParamsUniformBuffers.clear();
 
@@ -442,6 +527,7 @@ void Stage9WaterApp::CreateUniformBuffers()
     m_WaterParamsUniformBuffers.reserve(GetMaxFramesInFlight());
     m_BoreFrontUniformBuffers.reserve(GetMaxFramesInFlight());
     m_BoreProfileUniformBuffers.reserve(GetMaxFramesInFlight());
+    m_FoamParamsUniformBuffers.reserve(GetMaxFramesInFlight());
 
     for(uint32_t i = 0; i < GetMaxFramesInFlight(); i++){
         // 创建相机 UBO
@@ -487,10 +573,20 @@ void Stage9WaterApp::CreateUniformBuffers()
             VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
                 VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
         );
-
         boreProfileBuffer->Map();
-
         m_BoreProfileUniformBuffers.push_back(std::move(boreProfileBuffer));
+
+        // 创建泡沫参数 UBO
+        auto foamParamsBuffer = std::make_unique<vkp::Buffer>(
+            GetPhysicalDevice(),
+            GetDevice(),
+            sizeof(water::FoamParamsUBO),
+            VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
+        );
+        foamParamsBuffer->Map();
+        m_FoamParamsUniformBuffers.push_back(std::move(foamParamsBuffer));
     }
 }
 
@@ -507,6 +603,22 @@ void Stage9WaterApp::CreateDescriptorPool()
             GetMaxFramesInFlight() * 10
         )
         .Build();
+}
+
+void Stage9WaterApp::CreateAppearanceDescriptorPool()
+{
+    m_AppearanceDescriptorPool =
+        vkp::DescriptorPool::Builder(GetDevice())
+            .SetMaxSets(GetMaxFramesInFlight())
+            .AddPoolSize(
+                VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+                GetMaxFramesInFlight()
+            )
+            .AddPoolSize(
+                VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                GetMaxFramesInFlight()
+            )
+            .Build();
 }
 
 // 为每一个飞行帧分配描述符集，并将具体的缓冲区和纹理绑定到着色器的槽位上。
@@ -593,6 +705,36 @@ void Stage9WaterApp::CreateDescriptorSets()
         // 如果分配或写入失败（比如池子空间不足），立即抛出异常
         if(!success){
             throw std::runtime_error("Failed to allocate Stage6 GPU FFT descriptor set");
+        }
+    }
+}
+
+void Stage9WaterApp::CreateAppearanceDescriptorSets()
+{
+    m_AppearanceDescriptorSets.resize(GetMaxFramesInFlight());
+
+    for(uint32_t i = 0; i < GetMaxFramesInFlight(); i++){
+        VkDescriptorBufferInfo foamParamsInfo{};
+        foamParamsInfo.buffer = *m_FoamParamsUniformBuffers[i];
+        foamParamsInfo.offset = 0;
+        foamParamsInfo.range = sizeof(water::FoamParamsUBO);
+
+        VkDescriptorImageInfo foamDetailInfo =
+            m_FoamDetailTexture->GetDescriptorInfo(
+                *m_FoamDetailSampler
+            );
+
+        bool success =
+            vkp::DescriptorWriter(
+                *m_AppearanceDescriptorSetLayout,
+                *m_AppearanceDescriptorPool
+            )
+                .WriteBuffer(0, &foamParamsInfo)
+                .WriteImage(1, &foamDetailInfo)
+                .Build(m_AppearanceDescriptorSets[i]);
+
+        if(!success){
+            throw std::runtime_error("Failed to allocate Stage9 appearance descriptor set");
         }
     }
 }
@@ -686,6 +828,7 @@ void Stage9WaterApp::PrepareFrame(uint32_t frameIndex, uint32_t imageIndex)
     UpdateWaterParamsUniformBuffer(frameIndex);
     UpdateBoreFrontUniformBuffer(frameIndex);
     UpdateBoreProfileUniformBuffer(frameIndex);
+    UpdateFoamParamsUniformBuffer(frameIndex);
 }
 
 void Stage9WaterApp::UpdateCameraUniformBuffer(uint32_t frameIndex)
@@ -862,6 +1005,58 @@ void Stage9WaterApp::UpdateBoreProfileUniformBuffer(uint32_t frameIndex)
     );
 }
 
+void Stage9WaterApp::UpdateFoamParamsUniformBuffer(uint32_t frameIndex)
+{
+    water::FoamParamsUBO ubo{};
+
+    // ==== animation：泡沫动画控制参数 =====
+    ubo.animation = glm::vec4(
+        m_Time,
+        4.0f,   // 三相位循环周期，越小泡沫滚动越快
+        0.08f,  // 世界空间纹理缩放，越大泡沫细节越密
+        1.0f    // 当前没用
+    );
+
+    // ==== sourceStrength：泡沫强度控制 =====
+    // 想让潮头更白：调大 x/w。
+    // 想让海浪自身白沫更多：调大 y/z
+    ubo.sourceStrength = glm::vec4(
+        1.0f,   // Profile foam 强度，潮头/潮后泡沫
+        0.35f,  // Slope foam 强度，陡坡产生泡沫
+        0.45f,  // Jacobian foam 强度，FFT 破碎泡沫
+        0.75f   // Bore breaking 强度，潮头破碎泡沫
+    );
+
+    // ==== thresholds：泡沫生成阈值控制 =====
+    // x 越低，越容易出泡沫；y 越低，泡沫更快变满
+    ubo.thresholds = glm::vec4(
+        0.35f,
+        0.35f,
+        0.15f,
+        0.65f
+    );
+
+    // ==== appearance：泡沫外观控制 =====
+    ubo.appearance = glm::vec4(
+        0.32f,  // x = coverageThreshold：越低，泡沫覆盖越多
+        0.15f,  // y = coverageSoftness：越大，边缘越软
+        0.35f,  // z = foamNormalStrength：目前未接入光照
+        0.0f    // w = stateFoamBlend：状态泡沫未做，暂时无效
+    );
+
+    ubo.state = glm::vec4(
+        1.8f,
+        0.45f,
+        0.02f,
+        0.0f
+    );
+
+    m_FoamParamsUniformBuffers[frameIndex]->CopyToMapped(
+        &ubo,
+        sizeof(ubo)
+    );
+}
+
 void Stage9WaterApp::Render(VkCommandBuffer commandBuffer, uint32_t imageIndex)
 {
     VkCommandBufferBeginInfo beginInfo{};
@@ -943,6 +1138,17 @@ void Stage9WaterApp::Render(VkCommandBuffer commandBuffer, uint32_t imageIndex)
         nullptr
     );
 
+    vkCmdBindDescriptorSets(
+        commandBuffer,
+        VK_PIPELINE_BIND_POINT_GRAPHICS,
+        m_SolidPipeline->GetLayout(),
+        1,
+        1,
+        &m_AppearanceDescriptorSets[currentFrame],
+        0,
+        nullptr
+    );
+
     m_WaterGrid->Bind(commandBuffer);
     m_WaterGrid->Draw(commandBuffer);
 
@@ -952,6 +1158,7 @@ void Stage9WaterApp::Render(VkCommandBuffer commandBuffer, uint32_t imageIndex)
         throw std::runtime_error("Failed to record Stage6 command buffer");
     }
 }
+
 void Stage9WaterApp::UpdateWindowTitle()
 {
     m_TitleUpdateTimer += 1.0f / 60.0f;
@@ -1069,7 +1276,7 @@ void Stage9WaterApp::OnKey(int key, int scancode, int action, int mods)
         }
 
         if(key == GLFW_KEY_M){
-            m_DebugMode = (m_DebugMode + 1) % 27;
+            m_DebugMode = (m_DebugMode + 1) % 38;
         }
 
         // Tab：切换线框渲染模式

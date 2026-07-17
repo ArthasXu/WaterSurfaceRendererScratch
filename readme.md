@@ -17,9 +17,10 @@ FFT 水体参数：      src\scene\water\common\Stage6OceanConfig.h
 CPU FFT 水体网格：   .\build\Debug\stage6_fft_cpu_upload.exe 
 GPU FFT 水体网格：   .\build\Debug\stage6_fft_gpu.exe 
 
-一线潮参数UBO： App::UpdateBoreFrontUniformBuffer/UpdateBoreProfileUniformBuffer
+一线潮参数UBO： App::UpdateBoreFrontUniformBuffer/UpdateBoreProfileUniformBuffer/UpdateFoamParamsUniformBuffer
 Bore Front Field + LUT一线潮：  .\build\Debug\stage7_bore_front.exe 
 Wave Profile一线潮： .\build\Debug\stage8_bore_profile.exe
+加入浪潮泡沫和水体光学渲染：.\build\Debug\stage9_water.exe
 
 git push origin stage8-bore-wave-profile
 git push -u gitlab stage8-bore-wave-profile
