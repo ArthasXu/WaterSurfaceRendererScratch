@@ -1,5 +1,12 @@
 #version 450
 
+#extension GL_GOOGLE_include_directive : require
+
+#include "common/foam_common.glsl"
+
+// set 和 binding 是用于绑定 Uniform Buffer、纹理、存储缓冲 这类全局资源的“外部接口”。
+// location 是用于连接顶点数据缓冲区和着色器间数据传递的“内部管道”。
+
 // 从顶点着色器传入的世界空间位置
 layout(location = 0) in vec3 fragWorldPosition;
 // 世界空间法线
@@ -18,7 +25,9 @@ layout(location = 7) in vec4 fragBoreProfile0;
 layout(location = 8) in vec4 fragBoreProfile1;
 layout(location = 9) in vec4 fragComposition;
 layout(location = 10) in vec4 fragSlopeDebug;
-layout(location = 11) in vec4 fragFinalDisplacement;
+layout(location = 11) in vec4 fragFoamSourceData;
+layout(location = 12) in vec4 fragFoamFlowData;
+layout(location = 13) in vec4 fragFinalDisplacement;
 
 // 摄像机 UBO（绑定 set=0, binding=0）
 layout(set = 0, binding = 0) uniform CameraUBO {
@@ -35,6 +44,18 @@ layout(set = 0, binding = 1) uniform WaterParamsUBO {
     ivec4 metadata;         // 元数据（如Cascade层数）
     vec4 simulation;        // 模拟参数（x=时间，y=choppy强度，z=法线扰动强度，w=调试模式）
 } water;
+
+// Foam参数 UBO（绑定 set=1, binding=0）
+layout(set = 1, binding = 0) uniform FoamParamsUBO
+{
+    vec4 animation;
+    vec4 sourceStrength;
+    vec4 thresholds;
+    vec4 appearance;
+    vec4 state;
+} foam;
+
+layout(set = 1, binding = 1) uniform sampler2D foamDetailTexture;
 
 // 片段着色器输出颜色
 layout(location = 0) out vec4 outColor;
@@ -53,6 +74,148 @@ void main()
 {
     int mode = camera.debug.x;
 
+    float profileFoam =
+        fragFoamSourceData.r;
+
+    float fftJacobianFoam =
+        fragFoamSourceData.g;
+
+    float slopeFoam =
+        fragFoamSourceData.b;
+
+    float boreBreakingFoam =
+        fragFoamSourceData.a;
+
+    float localBoreFoam =
+        max(
+            profileFoam *
+                foam.sourceStrength.x,
+            boreBreakingFoam *
+                foam.sourceStrength.w
+        );
+
+    float globalOceanFoam =
+        max(
+            slopeFoam *
+                foam.sourceStrength.y,
+            fftJacobianFoam *
+                foam.sourceStrength.z
+        );
+
+    float foamSource =
+        max(
+            localBoreFoam,
+            globalOceanFoam
+        );
+
+    vec2 foamVelocity =
+        fragFoamFlowData.xy;
+
+    float cycleDuration =
+        max(foam.animation.y, 0.001);
+
+    float basePhase =
+        foam.animation.x /
+        cycleDuration;
+
+    float phase0 =
+        fract(basePhase + 0.0);
+
+    float phase1 =
+        fract(basePhase + 1.0 / 3.0);
+
+    float phase2 =
+        fract(basePhase + 2.0 / 3.0);
+
+    float w0 =
+        FoamPhaseWeight(phase0);
+
+    float w1 =
+        FoamPhaseWeight(phase1);
+
+    float w2 =
+        FoamPhaseWeight(phase2);
+
+    float weightSum =
+        max(
+            w0 + w1 + w2,
+            1.0e-5
+        );
+
+    w0 /= weightSum;
+    w1 /= weightSum;
+    w2 /= weightSum;
+
+    FoamDetail detail0 =
+        SampleFoamPhase(
+            foamDetailTexture,
+            fragWorldPosition.xz,
+            foamVelocity,
+            phase0,
+            cycleDuration,
+            foam.animation.z
+        );
+
+    FoamDetail detail1 =
+        SampleFoamPhase(
+            foamDetailTexture,
+            fragWorldPosition.xz,
+            foamVelocity,
+            phase1,
+            cycleDuration,
+            foam.animation.z
+        );
+
+    FoamDetail detail2 =
+        SampleFoamPhase(
+            foamDetailTexture,
+            fragWorldPosition.xz,
+            foamVelocity,
+            phase2,
+            cycleDuration,
+            foam.animation.z
+        );
+
+    float detailCoverage =
+        detail0.coverage * w0 +
+        detail1.coverage * w1 +
+        detail2.coverage * w2;
+
+    vec2 detailNormal =
+        normalize(
+            detail0.normalXZ * w0 +
+            detail1.normalXZ * w1 +
+            detail2.normalXZ * w2
+        );
+
+    float breakup =
+        detail0.breakup * w0 +
+        detail1.breakup * w1 +
+        detail2.breakup * w2;
+
+    float patternedSource =
+        foamSource *
+        mix(
+            0.55,
+            1.45,
+            detailCoverage
+        );
+
+    patternedSource *=
+        mix(
+            0.7,
+            1.0,
+            breakup
+        );
+
+    float foamCoverage =
+        smoothstep(
+            foam.appearance.x,
+            foam.appearance.x +
+                foam.appearance.y,
+            patternedSource
+        );
+
     // 模式 0：基础漫反射光照
     if(mode == 0){
         // 主光源方向（斜上方）
@@ -63,6 +226,16 @@ void main()
         vec3 baseColor = vec3(0.02, 0.20, 0.32);
         // 环境光 + 漫反射混合
         vec3 litColor = baseColor * (0.35 + 0.65 * ndotl);
+        vec3 foamColor =
+            vec3(0.92, 0.96, 0.92);
+
+        litColor =
+            mix(
+                litColor,
+                foamColor,
+                foamCoverage
+            );
+
         outColor = vec4(litColor, 1.0);
         return;
     }
@@ -338,6 +511,65 @@ void main()
             0.5 + fragFinalDisplacement.x * 0.05,
             0.5 + fragFinalDisplacement.y * 0.05,
             0.5 + fragFinalDisplacement.z * 0.05,
+            1.0
+        );
+        return;
+    }
+
+    if(mode == 27){
+        outColor = vec4(vec3(profileFoam), 1.0);
+        return;
+    }
+
+    if(mode == 28){
+        outColor = vec4(vec3(fftJacobianFoam), 1.0);
+        return;
+    }
+
+    if(mode == 29){
+        outColor = vec4(vec3(slopeFoam), 1.0);
+        return;
+    }
+
+    if(mode == 30){
+        outColor = vec4(vec3(boreBreakingFoam), 1.0);
+        return;
+    }
+
+    if(mode == 31){
+        outColor = vec4(vec3(foamSource), 1.0);
+        return;
+    }
+
+    if(mode == 32){
+        outColor = vec4(vec3(detail0.coverage), 1.0);
+        return;
+    }
+
+    if(mode == 33){
+        outColor = vec4(vec3(detail1.coverage), 1.0);
+        return;
+    }
+
+    if(mode == 34){
+        outColor = vec4(vec3(detail2.coverage), 1.0);
+        return;
+    }
+
+    if(mode == 35){
+        outColor = vec4(w0, w1, w2, 1.0);
+        return;
+    }
+
+    if(mode == 36){
+        outColor = vec4(vec3(foamCoverage), 1.0);
+        return;
+    }
+
+    if(mode == 37){
+        outColor = vec4(
+            foamVelocity * 0.05 + 0.5,
+            0.0,
             1.0
         );
         return;

@@ -51,6 +51,15 @@ layout(set = 0, binding = 11) uniform BoreProfileUBO
 layout(set = 0, binding = 12) uniform sampler2D boreProfileDisplacement;
 layout(set = 0, binding = 13) uniform sampler2D boreProfileDerivative;
 
+layout(set = 1, binding = 0) uniform FoamParamsUBO
+{
+    vec4 animation;
+    vec4 sourceStrength;
+    vec4 thresholds;
+    vec4 appearance;
+    vec4 state;
+} foam;
+
 layout(location = 0) out vec3 fragWorldPosition;
 layout(location = 1) out vec3 fragWorldNormal;
 layout(location = 2) out vec2 fragUV;
@@ -62,7 +71,9 @@ layout(location = 7) out vec4 fragBoreProfile0;
 layout(location = 8) out vec4 fragBoreProfile1;
 layout(location = 9) out vec4 fragComposition;
 layout(location = 10) out vec4 fragSlopeDebug;
-layout(location = 11) out vec4 fragFinalDisplacement;
+layout(location = 11) out vec4 fragFoamSourceData;
+layout(location = 12) out vec4 fragFoamFlowData;
+layout(location = 13) out vec4 fragFinalDisplacement;
 
 struct CascadeSample
 {
@@ -535,6 +546,36 @@ void main(){
         water.simulation.z +        // 法线扰动强度
         boreSlope;                  // 涌潮坡度
 
+    float profileFoam =
+        boreProfile.b *
+        foamMultiplier *
+        lengthMask *
+        boreEnabled *
+        profileEnabled *
+        activeRegionMask;
+
+    float fftJacobianFoam =
+        breakingHint;
+
+    float slopeMagnitude =
+        length(totalSlope);
+
+    float slopeFoam =
+        smoothstep(
+            foam.thresholds.x,
+            foam.thresholds.y,
+            slopeMagnitude
+        );
+
+    float boreBreakingFoam =
+        boreDerivative.a *
+        lengthMask *
+        foamMultiplier;
+
+    vec2 boreFlowVelocity =
+        localFrontNormal *
+        boreDerivative.b;
+    
     // 从坡度重建世界空间法线：原法线为 (0, 1, 0)，经坡度扰动后归一化
     vec3 worldNormal =
         normalize(
@@ -599,6 +640,24 @@ void main(){
         vec4(
             boreSlope,
             totalSlope
+        );
+
+    fragFoamSourceData =
+        vec4(
+            profileFoam,
+            fftJacobianFoam,
+            slopeFoam,
+            boreBreakingFoam
+        );
+
+    fragFoamFlowData =
+        vec4(
+            boreFlowVelocity,
+            lengthMask *
+                boreEnabled *
+                profileEnabled *
+                activeRegionMask,
+            crestMask
         );
 
     // MVP 变换到裁剪空间，输出最终顶点位置
