@@ -19,6 +19,7 @@
 #include "scene/water/foam/FoamTypes.h"
 #include "scene/water/render/ComputeImage2D.h"
 #include "scene/water/gpu/ComputePipeline.h"
+#include "scene/water/material/WaterMaterialResourceContract.h"
 
 #include "vulkan/Buffer.h"
 #include "vulkan/Descriptors.h"
@@ -106,13 +107,15 @@ private:
     void CreateFoamComputeDescriptorSets();
     void InitializeFoamStateImages();
     void RecordFoamSimulation(VkCommandBuffer commandBuffer, uint32_t frameIndex);
-    void UpdateFoamSimulationUniformBuffer(uint32_t frameIndex);
     
     void UpdateCamera(float deltaTime);        // 处理键盘输入（WASD/Space/LCtrl）移动相机
     void UpdateCameraUniformBuffer(uint32_t frameIndex); // 写入当前帧的 CameraUBO（MVP 矩阵 + 调试模式）
     void UpdateWaterParamsUniformBuffer(uint32_t frameIndex); // 写入当前帧的 WaterParamsUBO（patch 长度、振幅、时间）
     void UpdateBoreFrontUniformBuffer(uint32_t frameIndex); // 写入当前帧的 BoreFrontUBO（波前位置、方向、时间）
     void UpdateBoreProfileUniformBuffer(uint32_t frameIndex); // 写入当前帧的 BoreProfileUBO（剖面尺寸、动画时间）
+    void UpdateFoamSimulationUniformBuffer(uint32_t frameIndex); // 写入当前帧的 FoamSimulationUBO（时间、权重、阈值等）
+    void UpdateWaterMaterialUniformBuffer(uint32_t frameIndex); // 写入当前帧的 WaterMaterialUBO（颜色、粗糙度等）
+
     void UpdateWindowTitle();                  // 每 0.5s 更新窗口标题，显示相机位置、调试模式、线框/暂停状态
 
 private:
@@ -190,6 +193,7 @@ private:
     std::vector<std::unique_ptr<vkp::Buffer>> m_BoreFrontUniformBuffers;
     std::vector<std::unique_ptr<vkp::Buffer>> m_BoreProfileUniformBuffers;
     std::vector<std::unique_ptr<vkp::Buffer>> m_FoamParamsUniformBuffers;
+    std::vector<std::unique_ptr<vkp::Buffer>> m_WaterMaterialUniformBuffers;
 
     std::vector<VkDescriptorSet> m_DescriptorSets;
     std::vector<VkDescriptorSet> m_AppearanceDescriptorSets;
