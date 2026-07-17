@@ -17,6 +17,8 @@
 #include "scene/water/render/StaticDataTexture2D.h"
 #include "scene/water/foam/FoamResourceContract.h"
 #include "scene/water/foam/FoamTypes.h"
+#include "scene/water/render/ComputeImage2D.h"
+#include "scene/water/gpu/ComputePipeline.h"
 
 #include "vulkan/Buffer.h"
 #include "vulkan/Descriptors.h"
@@ -97,6 +99,15 @@ private:
     void CreateDescriptorPool();               // 创建几何描述符池（set=0），为每帧几何描述符集分配空间
     void CreateDescriptorSets();               // 创建每帧几何描述符集，绑定 CameraUBO、FFT 纹理、Bore 纹理
 
+    void CreateFoamStateResources();
+    void CreateFoamComputeDescriptorSetLayouts();
+    void CreateFoamComputePipelines();
+    void CreateFoamComputeDescriptorPool();
+    void CreateFoamComputeDescriptorSets();
+    void InitializeFoamStateImages();
+    void RecordFoamSimulation(VkCommandBuffer commandBuffer, uint32_t frameIndex);
+    void UpdateFoamSimulationUniformBuffer(uint32_t frameIndex);
+    
     void UpdateCamera(float deltaTime);        // 处理键盘输入（WASD/Space/LCtrl）移动相机
     void UpdateCameraUniformBuffer(uint32_t frameIndex); // 写入当前帧的 CameraUBO（MVP 矩阵 + 调试模式）
     void UpdateWaterParamsUniformBuffer(uint32_t frameIndex); // 写入当前帧的 WaterParamsUBO（patch 长度、振幅、时间）
@@ -188,4 +199,24 @@ private:
     std::unique_ptr<water::StaticDataTexture2D> m_BoreProfileDerivativeTexture;
     water::FoamDetailTextureData m_FoamDetailData{};
     std::unique_ptr<water::StaticDataTexture2D> m_FoamDetailTexture;
+
+    // Foam
+    uint32_t m_FoamResolution = 512;
+    uint32_t m_CurrentFoamStateIndex = 0;
+    float m_LastFoamDeltaTime = 0.0f;
+
+    std::array<std::unique_ptr<water::ComputeImage2D>, 2> m_FoamStateImages;
+    std::unique_ptr<water::ComputeImage2D> m_FoamSourceVelocityImage;
+
+    std::vector<std::unique_ptr<vkp::Buffer>> m_FoamSimulationUniformBuffers;
+
+    std::unique_ptr<vkp::DescriptorSetLayout> m_FoamSourceSetLayout;
+    std::unique_ptr<vkp::DescriptorSetLayout> m_FoamAdvectSetLayout;
+    std::unique_ptr<vkp::DescriptorPool> m_FoamComputeDescriptorPool;
+
+    std::unique_ptr<water::ComputePipeline> m_FoamSourcePipeline;
+    std::unique_ptr<water::ComputePipeline> m_FoamAdvectPipeline;
+
+    std::vector<VkDescriptorSet> m_FoamSourceSets;
+    std::array<VkDescriptorSet, 2> m_FoamAdvectSets{};
 };

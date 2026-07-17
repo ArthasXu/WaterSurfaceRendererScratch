@@ -791,6 +791,7 @@ add_executable(stage9_water
     src/scene/water/render/WaterVertex.cpp
     src/scene/water/render/StaticFloatTexture2D.cpp
     src/scene/water/render/StaticDataTexture2D.cpp
+    src/scene/water/render/ComputeImage2D.cpp
 
     src/scene/water/bore/FrontParameterLUT.cpp
     src/scene/water/bore/BoreFrontField.cpp

@@ -1,0 +1,54 @@
+#version 450
+// 工作组大小：8x8 个线程
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+// 模拟域 UBO
+layout(set = 0, binding = 0) uniform FoamSimulationUBO {
+    vec4 domain;      // xy=世界原点, zw=世界尺寸
+    vec4 simulation;  // x=dt, y=时间, z=源增益, w=衰减
+    vec4 solver;      // x=扩散, y=分辨率, z=逆分辨率, w=开关
+} foamSim;
+
+// 上一帧的泡沫状态（只读采样）
+layout(set = 0, binding = 1) uniform sampler2D previousFoam;
+// 当前帧的泡沫源与速度图（由 source.comp 生成）
+layout(set = 0, binding = 2) uniform sampler2D sourceVelocity;
+// 下一帧的泡沫状态（只写）
+layout(r16f, set = 0, binding = 3) uniform writeonly image2D nextFoam;
+
+void main() {
+    ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
+    int resolution = int(foamSim.solver.y);
+    if (pixel.x >= resolution || pixel.y >= resolution) return;
+
+    vec2 texelSize = vec2(foamSim.solver.z);  // 单个纹素的大小
+    vec2 uv = (vec2(pixel) + vec2(0.5)) / vec2(resolution);
+
+    // 读取当前点的泡沫源与流速
+    vec4 sourceVelocityData = textureLod(sourceVelocity, uv, 0.0);
+    float source = sourceVelocityData.r;
+    vec2 velocity = sourceVelocityData.gb;
+
+    // 反向追踪：根据流速和时间步长计算上一帧的位置
+    vec2 previousUV = uv - velocity * foamSim.simulation.x / foamSim.domain.zw;
+    float previous = textureLod(previousFoam, previousUV, 0.0).r;
+
+    // 中心差分计算拉普拉斯（扩散项）
+    float left = textureLod(previousFoam, uv + vec2(-texelSize.x, 0.0), 0.0).r;
+    float right = textureLod(previousFoam, uv + vec2( texelSize.x, 0.0), 0.0).r;
+    float bottom = textureLod(previousFoam, uv + vec2(0.0, -texelSize.y), 0.0).r;
+    float top = textureLod(previousFoam, uv + vec2(0.0,  texelSize.y), 0.0).r;
+    float laplacian = left + right + bottom + top - 4.0 * previous;
+
+    // 泡沫更新：平流 + 源项注入 + 衰减 + 扩散
+    float next = previous
+                 + source * foamSim.simulation.z * foamSim.simulation.x   // 源项
+                 - foamSim.simulation.w * previous * foamSim.simulation.x // 衰减
+                 + foamSim.solver.x * laplacian * foamSim.simulation.x;   // 扩散
+
+    // 钳位到 [0, 1]
+    next = clamp(next, 0.0, 1.0);
+
+    // 写入下一帧的泡沫状态
+    imageStore(nextFoam, pixel, vec4(next, 0.0, 0.0, 0.0));
+}
