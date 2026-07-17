@@ -335,6 +335,11 @@ void Stage9WaterApp::CreateAppearanceDescriptorSetLayout()
                 VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
                 VK_SHADER_STAGE_FRAGMENT_BIT
             )
+            .AddBinding(
+                4,
+                VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+                VK_SHADER_STAGE_FRAGMENT_BIT
+            )
             .Build();
 }
 
@@ -668,6 +673,7 @@ void Stage9WaterApp::CreateUniformBuffers()
     m_CameraUniformBuffers.clear();
     m_WaterParamsUniformBuffers.clear();
     m_FoamSimulationUniformBuffers.clear();
+    m_WaterMaterialUniformBuffers.clear();
 
     m_CameraUniformBuffers.reserve(GetMaxFramesInFlight());
     m_WaterParamsUniformBuffers.reserve(GetMaxFramesInFlight());
@@ -675,6 +681,7 @@ void Stage9WaterApp::CreateUniformBuffers()
     m_BoreProfileUniformBuffers.reserve(GetMaxFramesInFlight());
     m_FoamParamsUniformBuffers.reserve(GetMaxFramesInFlight());
     m_FoamSimulationUniformBuffers.reserve(GetMaxFramesInFlight());
+    m_WaterMaterialUniformBuffers.reserve(GetMaxFramesInFlight());
 
     for(uint32_t i = 0; i < GetMaxFramesInFlight(); i++){
         // 创建相机 UBO
@@ -746,6 +753,18 @@ void Stage9WaterApp::CreateUniformBuffers()
         );
         foamSimulationBuffer->Map();
         m_FoamSimulationUniformBuffers.push_back(std::move(foamSimulationBuffer));
+
+        // 创建水体材质 UBO
+        auto waterMaterialBuffer = std::make_unique<vkp::Buffer>(
+            GetPhysicalDevice(),
+            GetDevice(),
+            sizeof(water::WaterMaterialUBO),
+            VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
+        );
+        waterMaterialBuffer->Map();
+        m_WaterMaterialUniformBuffers.push_back(std::move(waterMaterialBuffer));
     }
 }
 
@@ -771,7 +790,7 @@ void Stage9WaterApp::CreateAppearanceDescriptorPool()
             .SetMaxSets(GetMaxFramesInFlight())
             .AddPoolSize(
                 VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-                GetMaxFramesInFlight()
+                GetMaxFramesInFlight() * 2
             )
             .AddPoolSize(
                 VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
@@ -904,6 +923,11 @@ void Stage9WaterApp::CreateAppearanceDescriptorSets()
                 *m_FoamDetailSampler
             );
 
+        VkDescriptorBufferInfo waterMaterialInfo{};
+        waterMaterialInfo.buffer = *m_WaterMaterialUniformBuffers[i];
+        waterMaterialInfo.offset = 0;
+        waterMaterialInfo.range = sizeof(water::WaterMaterialUBO);
+
         bool success =
             vkp::DescriptorWriter(
                 *m_AppearanceDescriptorSetLayout,
@@ -913,6 +937,7 @@ void Stage9WaterApp::CreateAppearanceDescriptorSets()
                 .WriteImage(1, &foamDetailInfo)
                 .WriteImage(2, &foamState0Info)
                 .WriteImage(3, &foamState1Info)
+                .WriteBuffer(4, &waterMaterialInfo)
                 .Build(m_AppearanceDescriptorSets[i]);
 
         if(!success){
@@ -1230,6 +1255,7 @@ void Stage9WaterApp::PrepareFrame(uint32_t frameIndex, uint32_t imageIndex)
     UpdateBoreProfileUniformBuffer(frameIndex);
     UpdateFoamParamsUniformBuffer(frameIndex);
     UpdateFoamSimulationUniformBuffer(frameIndex);
+    UpdateWaterMaterialUniformBuffer(frameIndex);
 }
 
 void Stage9WaterApp::UpdateCameraUniformBuffer(uint32_t frameIndex)
@@ -1519,6 +1545,50 @@ void Stage9WaterApp::UpdateFoamSimulationUniformBuffer(uint32_t frameIndex)
         sizeof(ubo)
     );
 }
+
+// 更新水体材质 UBO（每帧、每飞行帧调用）
+// 将预设的水体颜色、光学参数、光照方向和雾效参数写入当前帧的 Uniform Buffer
+void Stage9WaterApp::UpdateWaterMaterialUniformBuffer(uint32_t frameIndex)
+{
+    water::WaterMaterialUBO ubo{};
+
+    // ===== 水体分层颜色 =====
+    // 浅水颜色：偏亮的青绿色，模拟近岸/浅滩的水色
+    ubo.shallowColor = glm::vec4(0.10f, 0.32f, 0.34f, 1.0f);
+    // 深水颜色：暗蓝黑色，模拟远海/深水的深邃感
+    ubo.deepColor = glm::vec4(0.01f, 0.08f, 0.13f, 1.0f);
+    // 泥沙颜色：棕黄色，用于模拟浑浊水体（如河口、风暴后）
+    ubo.sedimentColor = glm::vec4(0.42f, 0.30f, 0.16f, 1.0f);
+
+    // ===== 光学参数 =====
+    // x: fresnelPower = 5.0          – 菲涅尔指数，值越大掠射角反射越锐利
+    // y: reflectionStrength = 0.35   – 天空反射强度
+    // z: absorptionStrength = 0.018  – 光线吸收系数，控制深水变暗的速度
+    // w: sedimentAmount = 0.35       – 泥沙混合量，值越大浅水越浑浊
+    ubo.opticalParams = glm::vec4(5.0f, 0.35f, 0.018f, 0.35f);
+
+    // ===== 光照参数 =====
+    // xyz: sunDirection = (-0.35, 0.85, 0.25) 归一化 – 太阳方向（斜上方偏左）
+    // w: specularStrength = 1.2                 – 太阳高光强度
+    ubo.lightParams = glm::vec4(
+        glm::normalize(glm::vec3(-0.35f, 0.85f, 0.25f)),
+        1.2f
+    );
+
+    // ===== 雾与远景参数 =====
+    // x: fogStart = 120.0    – 雾开始距离（米），120米内无雾
+    // y: fogEnd = 700.0      – 雾完全覆盖距离（米），700米外完全被雾遮挡
+    // z: horizonFade = 0.4   – 地平线融合强度，柔和过渡远处水面与天空
+    // w: 0.0                 – 预留
+    ubo.fogParams = glm::vec4(120.0f, 700.0f, 0.4f, 0.0f);
+
+    // 将数据写入当前帧对应的 Uniform Buffer（持久映射，直接拷贝）
+    m_WaterMaterialUniformBuffers[frameIndex]->CopyToMapped(
+        &ubo,
+        sizeof(ubo)
+    );
+}
+
 void Stage9WaterApp::Render(VkCommandBuffer commandBuffer, uint32_t imageIndex)
 {
     VkCommandBufferBeginInfo beginInfo{};

@@ -3,6 +3,7 @@
 #extension GL_GOOGLE_include_directive : require
 
 #include "common/foam_common.glsl"
+#include "common/water_optics_common.glsl"
 
 // set 和 binding 是用于绑定 Uniform Buffer、纹理、存储缓冲 这类全局资源的“外部接口”。
 // location 是用于连接顶点数据缓冲区和着色器间数据传递的“内部管道”。
@@ -60,6 +61,16 @@ layout(set = 1, binding = 1) uniform sampler2D foamDetailTexture;
 
 layout(set = 1, binding = 2) uniform sampler2D foamState0;
 layout(set = 1, binding = 3) uniform sampler2D foamState1;
+
+layout(set = 1, binding = 4) uniform WaterMaterialUBO
+{
+    vec4 shallowColor;
+    vec4 deepColor;
+    vec4 sedimentColor;
+    vec4 opticalParams;
+    vec4 lightParams;
+    vec4 fogParams;
+} material;
 
 // 片段着色器输出颜色
 layout(location = 0) out vec4 outColor;
@@ -237,30 +248,71 @@ void main()
             foam.appearance.w
         );
 
-    // 模式 0：基础漫反射光照
+    // 模式 0：完整水体着色（光照 + 反射 + 高光 + 泡沫 + 雾）
     if(mode == 0){
-        // 主光源方向（斜上方）
-        vec3 lightDir = normalize(vec3(0.4, 1.0, 0.25));
-        // 兰伯特漫反射因子
-        float ndotl = clamp(dot(normalize(fragWorldNormal), lightDir), 0.0, 1.0);
-        // 基础海水颜色
-        vec3 baseColor = vec3(0.02, 0.20, 0.32);
-        // 环境光 + 漫反射混合
-        vec3 litColor = baseColor * (0.35 + 0.65 * ndotl);
-        vec3 foamColor =
-            vec3(0.92, 0.96, 0.92);
+        // 归一化世界空间法线，确保光照计算正确
+        vec3 normal = normalize(fragWorldNormal);
 
-        litColor =
-            mix(
-                litColor,
-                foamColor,
-                finalFoam
-            );
+        // 视线方向：从片段指向摄像机（世界空间）
+        vec3 viewDir = normalize(-fragWorldPosition);
+
+        // 太阳方向（由 UBO 传入，归一化）
+        vec3 sunDir = normalize(material.lightParams.xyz);
+
+        // 兰伯特漫反射因子：法线与太阳方向夹角越小越亮
+        float ndotl = clamp(dot(normal, sunDir), 0.0, 1.0);
+
+        // 高度混合因子：根据片段世界 Y 坐标决定浅水/深水颜色混合
+        // Y 越高（越接近水面波峰），浅水色越明显；Y 越低（波谷），深水色越重
+        float heightFactor = clamp(fragWorldPosition.y * 0.04 + 0.5, 0.0, 1.0);
+
+        // 根据高度因子混合深浅水颜色，得到基础水色
+        vec3 waterColor = mix(material.deepColor.rgb, material.shallowColor.rgb, heightFactor);
+
+        // 混入泥沙颜色，模拟浑浊水体（如河口、风暴后）
+        waterColor = mix(waterColor, material.sedimentColor.rgb, material.opticalParams.w);
+
+        // 菲涅尔反射率：使用 Schlick 近似，power 由 UBO 传入
+        float fresnel = SchlickFresnel(clamp(dot(normal, -viewDir), 0.0, 1.0), material.opticalParams.x);
+
+        // 反射天空颜色：根据反射视线方向采样程序化天空
+        vec3 reflectedSky = SimpleSkyColor(reflect(viewDir, normal));
+
+        // 漫反射项：水色 ×（环境光 30% + 太阳漫反射 70%）
+        vec3 diffuse = waterColor * (0.30 + 0.70 * ndotl);
+
+        // Blinn-Phong 半角向量，用于计算太阳高光
+        vec3 halfVector = normalize(sunDir - viewDir);
+
+        // 太阳高光强度（Blinn-Phong 模型），指数 96 控制高光锐度
+        float specular = pow(clamp(dot(normal, halfVector), 0.0, 1.0), 96.0) * material.lightParams.w;
+
+        // 菲涅尔混合：将漫反射与天空反射按菲涅尔比例混合
+        vec3 litColor = mix(diffuse, reflectedSky, fresnel * material.opticalParams.y);
+
+        // 叠加暖色太阳高光
+        litColor += vec3(1.0, 0.88, 0.62) * specular;
+
+        // 泡沫颜色（偏冷白）
+        vec3 foamColor = vec3(0.92, 0.96, 0.92);
+
+        // 混合泡沫：将已着色的水面与泡沫颜色按 finalFoam 强度混合
+        litColor = mix(litColor, foamColor, finalFoam);
+
+        // 计算到摄像机的距离，用于雾效
+        float distanceToCamera = length(fragWorldPosition);
+
+        // 距离雾效：远处水面逐渐融入雾色，增强大气透视
+        litColor = ApplyDistanceFog(
+            litColor, distanceToCamera,
+            vec3(0.50, 0.58, 0.62), // 雾色（灰蓝）
+            material.fogParams.x,    // 雾起始距离
+            material.fogParams.y     // 雾完全覆盖距离
+        );
 
         outColor = vec4(litColor, 1.0);
         return;
     }
-
     // 模式 1：高度场可视化（灰度图）
     if(mode == 1){
         // 将高度值映射到灰度：0.5为均值，高度越大越亮
@@ -595,7 +647,7 @@ void main()
         );
         return;
     }
-    
+
     if(mode == 38){
         outColor = vec4(vec3(stateFoam), 1.0);
         return;
