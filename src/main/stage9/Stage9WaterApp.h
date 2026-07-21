@@ -80,6 +80,7 @@ private:
         glm::mat4 model{1.0f};
         glm::mat4 view{1.0f};
         glm::mat4 projection{1.0f};
+        glm::vec4 cameraWorldPosition{0.0f};   // fragment 需要真实相机世界坐标
         glm::ivec4 debug{0, 0, 0, 0};
     };
 
@@ -149,7 +150,7 @@ private:
     bool m_BorePaused = false;
     bool m_BoreEnabled = true;
     bool m_BoreUseLUT = true;
-    bool m_BoreDebugRidgeEnabled = true;
+    bool m_BoreDebugRidgeEnabled = false;
 
     water::BoreFrontParams m_BoreFrontParams{};
     water::FrontLUTData m_FrontLUT{};
@@ -178,6 +179,7 @@ private:
     std::unique_ptr<water::WaterSampler> m_FrontLUTSampler;
     std::unique_ptr<water::WaterSampler> m_BoreProfileSampler;
     std::unique_ptr<water::WaterSampler> m_FoamDetailSampler;
+    std::unique_ptr<water::WaterSampler> m_FoamStateSampler;
 
     std::unique_ptr<vkp::Pipeline> m_SolidPipeline;
     std::unique_ptr<vkp::Pipeline> m_WireframePipeline;
@@ -222,5 +224,5 @@ private:
     std::unique_ptr<water::ComputePipeline> m_FoamAdvectPipeline;
 
     std::vector<VkDescriptorSet> m_FoamSourceSets;
-    std::array<VkDescriptorSet, 2> m_FoamAdvectSets{};
+    std::vector<std::array<VkDescriptorSet, 2>> m_FoamAdvectSets;
 };

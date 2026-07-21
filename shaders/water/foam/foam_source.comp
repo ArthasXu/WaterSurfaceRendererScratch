@@ -17,6 +17,7 @@ layout(set = 0, binding = 1) uniform FoamParamsUBO {
     vec4 appearance;
     vec4 state;
     vec4 runtime;     // x=时间, y=全局源缩放等
+    vec4 domain;
 } foam;
 
 // 涌潮波前 UBO
@@ -44,13 +45,81 @@ layout(set = 0, binding = 7) uniform sampler2D boreProfileDerivative;
 
 // 输出：泡沫源与速度图像（RGBA16F）
 // R=泡沫源强度, G=速度X, B=速度Z, A=破碎权重
-layout(rgba16f, set = 0, binding = 8) uniform writeonly image2D sourceVelocityImage;
+layout(set = 0, binding = 8) uniform sampler2D fftDisplacement0;
+layout(set = 0, binding = 9) uniform sampler2D fftNormalAux0;
+layout(set = 0, binding = 10) uniform sampler2D fftDisplacement1;
+layout(set = 0, binding = 11) uniform sampler2D fftNormalAux1;
+layout(set = 0, binding = 12) uniform sampler2D fftDisplacement2;
+layout(set = 0, binding = 13) uniform sampler2D fftNormalAux2;
+
+layout(set = 0, binding = 14) uniform WaterParamsUBO
+{
+    vec4 patchLengths;
+    vec4 amplitudeScales;
+    ivec4 metadata;
+    vec4 simulation;
+} water;
+
+layout(rgba16f, set = 0, binding = 15) uniform writeonly image2D sourceVelocityImage;
 
 // smoothstep 的解析导数，用于后续计算水位抬升的坡度
 float SmoothStepDerivative(float edge0, float edge1, float x) {
     if (x <= edge0 || x >= edge1) return 0.0;
     float t = (x - edge0) / (edge1 - edge0);
     return 6.0 * t * (1.0 - t) / (edge1 - edge0);
+}
+
+struct CascadeSample
+{
+    vec2 slope;
+    float breaking;
+};
+
+CascadeSample SampleFFT(
+    sampler2D displacementTexture,
+    sampler2D normalAuxTexture,
+    vec2 worldXZ,
+    float patchLength,
+    float amplitudeScale
+){
+    vec2 uv =
+        fract(worldXZ / patchLength);
+
+    vec4 displacement =
+        textureLod(
+            displacementTexture,
+            uv,
+            0.0
+        );
+
+    vec4 normalAux =
+        textureLod(
+            normalAuxTexture,
+            uv,
+            0.0
+        );
+
+    CascadeSample result;
+    result.slope =
+        normalAux.xy *
+        amplitudeScale;
+
+    result.breaking =
+        clamp(
+            1.0 - displacement.a,
+            0.0,
+            1.0
+        );
+
+    return result;
+}
+
+float SoftUnion(float a, float b)
+{
+    return
+        1.0 -
+        (1.0 - a) *
+        (1.0 - b);
 }
 
 void main() {
@@ -110,8 +179,91 @@ void main() {
                              boreEnabled * profileEnabled * activeRegionMask;
 
     // 根据 UBO 中的源强度参数，取两者中的最大值作为当前涌潮泡沫源
-    float source = max(profileFoam * foam.sourceStrength.x,
-                       boreBreakingFoam * foam.sourceStrength.w);
+    CascadeSample shortWave =
+        SampleFFT(
+            fftDisplacement0,
+            fftNormalAux0,
+            worldXZ,
+            water.patchLengths.x,
+            water.amplitudeScales.x
+        );
+
+    CascadeSample midWave =
+        SampleFFT(
+            fftDisplacement1,
+            fftNormalAux1,
+            worldXZ,
+            water.patchLengths.y,
+            water.amplitudeScales.y
+        );
+
+    CascadeSample longWave =
+        SampleFFT(
+            fftDisplacement2,
+            fftNormalAux2,
+            worldXZ,
+            water.patchLengths.z,
+            water.amplitudeScales.z
+        );
+
+    float breakingHint =
+        max(
+            shortWave.breaking,
+            max(
+                midWave.breaking,
+                longWave.breaking
+            )
+        );
+
+    vec2 fftSlope =
+        shortWave.slope +
+        midWave.slope +
+        longWave.slope;
+
+    float slopeFoam =
+        smoothstep(
+            foam.thresholds.x,
+            foam.thresholds.y,
+            length(fftSlope)
+        );
+
+    float jacobianFoam =
+        smoothstep(
+            foam.thresholds.z,
+            foam.thresholds.w,
+            breakingHint
+        );
+
+    float source = 0.0;
+
+    source =
+        SoftUnion(
+            source,
+            profileFoam *
+                foam.sourceStrength.x
+        );
+
+    source =
+        SoftUnion(
+            source,
+            boreBreakingFoam *
+                foam.sourceStrength.w
+        );
+
+    source =
+        SoftUnion(
+            source,
+            slopeFoam *
+                foam.sourceStrength.y
+        );
+
+    source =
+        SoftUnion(
+            source,
+            jacobianFoam *
+                foam.sourceStrength.z
+        );
+
     // 应用全局源缩放
     source *= foam.runtime.y;
 

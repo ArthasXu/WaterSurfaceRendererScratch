@@ -35,6 +35,7 @@ layout(set = 0, binding = 0) uniform CameraUBO {
     mat4 model;         // 物体自身变换（平移、旋转、缩放）
     mat4 view;          // 相机视图变换
     mat4 projection;    // 透视投影
+    vec4 cameraWorldPosition; // 摄像机位置
     ivec4 debug;        // 调试模式标志（x=模式编号）
 } camera;
 
@@ -55,6 +56,7 @@ layout(set = 1, binding = 0) uniform FoamParamsUBO
     vec4 appearance;
     vec4 state;
     vec4 runtime;
+    vec4 domain;
 } foam;
 
 layout(set = 1, binding = 1) uniform sampler2D foamDetailTexture;
@@ -83,6 +85,11 @@ vec3 SignedColor(vec2 value, float scale)
         0.5,
         0.5 + value.y * scale
     );
+}
+
+float SoftUnion(float a, float b)
+{
+    return 1.0 - (1.0 - a) * (1.0 - b);
 }
 
 void main()
@@ -232,9 +239,11 @@ void main()
         );
 
     vec2 stateUV =
-        fragWorldPosition.xz /
-        vec2(256.0) +
-        vec2(0.5);
+        (
+            fragWorldPosition.xz -
+            foam.domain.xy
+        ) /
+        foam.domain.zw;
 
     float stateFoam =
         foam.runtime.x < 0.5
@@ -242,77 +251,113 @@ void main()
         : texture(foamState1, stateUV).r;
 
     float finalFoam =
-        mix(
+        SoftUnion(
             foamCoverage,
-            stateFoam,
-            foam.appearance.w
+            stateFoam * foam.appearance.w
         );
 
     // 模式 0：完整水体着色（光照 + 反射 + 高光 + 泡沫 + 雾）
     if(mode == 0){
-        // 归一化世界空间法线，确保光照计算正确
-        vec3 normal = normalize(fragWorldNormal);
+        // ===== 1. 法线准备与泡沫微观扰动 =====
+        // 基础几何法线（由波浪形状决定）
+        vec3 baseNormal = normalize(fragWorldNormal);
 
-        // 视线方向：从片段指向摄像机（世界空间）
-        vec3 viewDir = normalize(-fragWorldPosition);
+        // 构建切线空间：根据 baseNormal 计算两个正交的切线方向
+        // 如果法线接近垂直向上（abs(y) < 0.99），用 world up 做叉积得到切线；否则用 world right
+        vec3 tangent = normalize(
+            abs(baseNormal.y) < 0.99
+            ? cross(vec3(0.0, 1.0, 0.0), baseNormal)
+            : vec3(1.0, 0.0, 0.0)
+        );
+        vec3 bitangent = normalize(cross(baseNormal, tangent));
 
-        // 太阳方向（由 UBO 传入，归一化）
-        vec3 sunDir = normalize(material.lightParams.xyz);
+        // 利用泡沫细节纹理的法线信息，对基础法线进行微观扰动
+        // detailNormal.xy 是泡沫细节纹理中的法线扰动向量（范围为 [-1, 1]）
+        // foam.appearance.z 是法线扰动强度，控制凹凸的明显程度
+        vec3 foamPerturbedNormal = normalize(
+            baseNormal +
+            tangent * detailNormal.x * foam.appearance.z +
+            bitangent * detailNormal.y * foam.appearance.z
+        );
 
-        // 兰伯特漫反射因子：法线与太阳方向夹角越小越亮
-        float ndotl = clamp(dot(normal, sunDir), 0.0, 1.0);
+        // 根据泡沫覆盖率 finalFoam 在平滑水面法线和粗糙泡沫法线之间插值
+        // 泡沫越浓，法线越粗糙（越偏离平滑方向）
+        vec3 normal = normalize(mix(baseNormal, foamPerturbedNormal, finalFoam));
 
-        // 高度混合因子：根据片段世界 Y 坐标决定浅水/深水颜色混合
-        // Y 越高（越接近水面波峰），浅水色越明显；Y 越低（波谷），深水色越重
+        // ===== 2. 光照向量初始化 =====
+        // 视线方向 V：从片段指向摄像机（世界空间）
+        vec3 V = normalize(camera.cameraWorldPosition.xyz - fragWorldPosition);
+
+        // 光源方向 L：太阳光方向（从表面指向光源，如果 lightParams 是从太阳射出的方向需取反）
+        vec3 L = normalize(material.lightParams.xyz);
+
+        // 半角向量 H：视线和光源的中间方向，用于 Blinn-Phong 高光
+        vec3 H = normalize(L + V);
+
+        // 反射向量 R：视线经法线反射后的方向，用于天空反射采样
+        // reflect 的第一个参数是入射方向，即从表面指向摄像机的向量 -V
+        vec3 R = reflect(-V, normal);
+
+        // NdotV：视线与法线的夹角余弦，用于菲涅尔反射
+        float NdotV = clamp(dot(normal, V), 0.0, 1.0);
+
+        // NdotL：光源与法线的夹角余弦，用于漫反射
+        float NdotL = clamp(dot(normal, L), 0.0, 1.0);
+
+        // ===== 3. 水体颜色计算 =====
+        // 高度混合因子：根据世界 Y 坐标混合深浅水色
         float heightFactor = clamp(fragWorldPosition.y * 0.04 + 0.5, 0.0, 1.0);
-
-        // 根据高度因子混合深浅水颜色，得到基础水色
         vec3 waterColor = mix(material.deepColor.rgb, material.shallowColor.rgb, heightFactor);
-
-        // 混入泥沙颜色，模拟浑浊水体（如河口、风暴后）
+        // 混入泥沙颜色
         waterColor = mix(waterColor, material.sedimentColor.rgb, material.opticalParams.w);
 
-        // 菲涅尔反射率：使用 Schlick 近似，power 由 UBO 传入
-        float fresnel = SchlickFresnel(clamp(dot(normal, -viewDir), 0.0, 1.0), material.opticalParams.x);
+        // ===== 4. 菲涅尔反射 =====
+        // 使用自定义的 WaterFresnel 函数，power 控制反射随角度变化的锐度
+        float fresnel = WaterFresnel(NdotV, material.opticalParams.x);
+        // 采样天空颜色作为反射来源
+        vec3 reflectedSky = SimpleSkyColor(R);
 
-        // 反射天空颜色：根据反射视线方向采样程序化天空
-        vec3 reflectedSky = SimpleSkyColor(reflect(viewDir, normal));
+        // ===== 5. 漫反射 =====
+        // 环境光 30% + 太阳漫反射 70%
+        vec3 diffuse = waterColor * (0.30 + 0.70 * NdotL);
 
-        // 漫反射项：水色 ×（环境光 30% + 太阳漫反射 70%）
-        vec3 diffuse = waterColor * (0.30 + 0.70 * ndotl);
+        // ===== 6. 粗糙度与高光 =====
+        // 粗糙度混合：水面基础粗糙度 vs 泡沫粗糙度（0.85）
+        // 泡沫区域更粗糙，高光更发散
+        float roughness = mix(material.opticalParams.z, 0.85, finalFoam);
 
-        // Blinn-Phong 半角向量，用于计算太阳高光
-        vec3 halfVector = normalize(sunDir - viewDir);
+        // 高光指数随粗糙度变化：光滑水面用高指数（128），粗糙泡沫用低指数（18）
+        float specularPower = mix(128.0, 18.0, roughness);
 
-        // 太阳高光强度（Blinn-Phong 模型），指数 96 控制高光锐度
-        float specular = pow(clamp(dot(normal, halfVector), 0.0, 1.0), 96.0) * material.lightParams.w;
+        // 高光强度：Blinn-Phong 模型，并乘以 (1 - finalFoam * 0.65) 抑制泡沫区域的高光
+        float specular = pow(clamp(dot(normal, H), 0.0, 1.0), specularPower)
+                        * material.lightParams.w
+                        * (1.0 - finalFoam * 0.65);
 
-        // 菲涅尔混合：将漫反射与天空反射按菲涅尔比例混合
+        // ===== 7. 颜色合成 =====
+        // 菲涅尔混合：漫反射与天空反射
         vec3 litColor = mix(diffuse, reflectedSky, fresnel * material.opticalParams.y);
-
         // 叠加暖色太阳高光
         litColor += vec3(1.0, 0.88, 0.62) * specular;
 
         // 泡沫颜色（偏冷白）
         vec3 foamColor = vec3(0.92, 0.96, 0.92);
-
-        // 混合泡沫：将已着色的水面与泡沫颜色按 finalFoam 强度混合
+        // 将水色与泡沫混合
         litColor = mix(litColor, foamColor, finalFoam);
 
-        // 计算到摄像机的距离，用于雾效
-        float distanceToCamera = length(fragWorldPosition);
-
-        // 距离雾效：远处水面逐渐融入雾色，增强大气透视
+        // ===== 8. 距离雾效 =====
+        float distanceToCamera = length(camera.cameraWorldPosition.xyz - fragWorldPosition);
         litColor = ApplyDistanceFog(
             litColor, distanceToCamera,
-            vec3(0.50, 0.58, 0.62), // 雾色（灰蓝）
-            material.fogParams.x,    // 雾起始距离
-            material.fogParams.y     // 雾完全覆盖距离
+            vec3(0.50, 0.58, 0.62),   // 雾色
+            material.fogParams.x,      // 雾开始距离
+            material.fogParams.y       // 雾完全覆盖距离
         );
 
         outColor = vec4(litColor, 1.0);
         return;
     }
+
     // 模式 1：高度场可视化（灰度图）
     if(mode == 1){
         // 将高度值映射到灰度：0.5为均值，高度越大越亮

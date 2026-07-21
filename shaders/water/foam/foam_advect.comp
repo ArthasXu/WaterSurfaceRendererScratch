@@ -31,13 +31,22 @@ void main() {
 
     // 反向追踪：根据流速和时间步长计算上一帧的位置
     vec2 previousUV = uv - velocity * foamSim.simulation.x / foamSim.domain.zw;
+    previousUV = clamp(
+            previousUV,
+            vec2(0.0),
+            vec2(1.0)
+        );
     float previous = textureLod(previousFoam, previousUV, 0.0).r;
 
     // 中心差分计算拉普拉斯（扩散项）
-    float left = textureLod(previousFoam, uv + vec2(-texelSize.x, 0.0), 0.0).r;
-    float right = textureLod(previousFoam, uv + vec2( texelSize.x, 0.0), 0.0).r;
-    float bottom = textureLod(previousFoam, uv + vec2(0.0, -texelSize.y), 0.0).r;
-    float top = textureLod(previousFoam, uv + vec2(0.0,  texelSize.y), 0.0).r;
+    vec2 leftUV = clamp(uv + vec2(-texelSize.x, 0.0), vec2(0.0), vec2(1.0));
+    vec2 rightUV = clamp(uv + vec2(texelSize.x, 0.0), vec2(0.0), vec2(1.0));
+    vec2 bottomUV = clamp(uv + vec2(0.0, -texelSize.y), vec2(0.0), vec2(1.0));
+    vec2 topUV = clamp(uv + vec2(0.0, texelSize.y), vec2(0.0), vec2(1.0));
+    float left = textureLod(previousFoam, leftUV, 0.0).r;
+    float right = textureLod(previousFoam, rightUV, 0.0).r;
+    float bottom = textureLod(previousFoam, bottomUV, 0.0).r;
+    float top = textureLod(previousFoam, topUV, 0.0).r;
     float laplacian = left + right + bottom + top - 4.0 * previous;
 
     // 泡沫更新：平流 + 源项注入 + 衰减 + 扩散
