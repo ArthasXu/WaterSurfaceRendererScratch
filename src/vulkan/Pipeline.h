@@ -11,7 +11,8 @@ struct PipelineConfig
 {
     std::vector<VkVertexInputBindingDescription> bindingDescriptions; // 顶点输入绑定描述
     std::vector<VkVertexInputAttributeDescription> attributeDescriptions; // 顶点输入属性描述
-    std::vector<VkDescriptorSetLayout> descriptorSetLayouts; // 描述符集布局
+    std::vector<VkDescriptorSetLayout> descriptorSetLayouts;  // 描述符集布局
+    std::vector<VkPushConstantRange> pushConstantRanges;      // 推送常量范围 避免创建每 Tile UBO
 
     bool depthTestEnable = false;                             // 深度测试是否启用
     bool depthWriteEnable = false;                            // 深度写入是否启用

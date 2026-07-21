@@ -186,7 +186,10 @@ void Pipeline::createGraphicsPipeline(
         static_cast<uint32_t>(config.descriptorSetLayouts.size()); // 布局数量
     pipelineLayoutInfo.pSetLayouts = 
         config.descriptorSetLayouts.data(); // 布局数组
-    pipelineLayoutInfo.pushConstantRangeCount = 0; // 推送常量范围数量, 无
+    pipelineLayoutInfo.pushConstantRangeCount =
+        static_cast<uint32_t>(config.pushConstantRanges.size());
+    pipelineLayoutInfo.pPushConstantRanges =
+        config.pushConstantRanges.data(); // 推送常量范围
 
     if(vkCreatePipelineLayout(m_Device, &pipelineLayoutInfo, nullptr, &m_PipelineLayout) != VK_SUCCESS){ // 创建管线布局
         throw std::runtime_error("Failed to create pipeline layout!"); // 失败
