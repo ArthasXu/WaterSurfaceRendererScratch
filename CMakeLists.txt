@@ -859,3 +859,77 @@ target_link_libraries(stage9_foam_detail_cpu_test
     PRIVATE
     glm::glm
 )
+
+
+# stage10_river_water
+add_executable(stage10_river_water
+    src/main/stage10/stage10_main.cpp
+    src/main/stage10/Stage10RiverWaterApp.cpp
+
+    src/core/Application.cpp
+    src/core/Window.cpp
+    src/core/Timer.cpp
+    src/core/Log.cpp
+
+    src/scene/Camera.cpp
+
+    src/scene/water/gpu/ComputePipeline.cpp
+    src/scene/water/gpu/GPUFFT2D.cpp
+    src/scene/water/gpu/WSTessendorfGPU.cpp
+
+    src/scene/water/render/DepthBuffer.cpp
+    src/scene/water/render/DynamicImage2D.cpp
+    src/scene/water/render/WaterGrid.cpp
+    src/scene/water/render/WaterSampler.cpp
+    src/scene/water/render/WaterVertex.cpp
+    src/scene/water/render/StaticFloatTexture2D.cpp
+    src/scene/water/render/StaticDataTexture2D.cpp
+    src/scene/water/render/ComputeImage2D.cpp
+
+    src/scene/water/lod/WaterPatchMesh.cpp
+    src/scene/water/lod/WaterQuadtree.cpp
+
+    src/scene/water/bore/FrontParameterLUT.cpp
+    src/scene/water/bore/BoreFrontField.cpp
+    src/scene/water/bore/BoreWaveProfile.cpp
+
+    src/scene/water/foam/FoamDetailGenerator.cpp
+
+    src/scene/water/sources/WSTessendorfCPU.cpp
+    src/scene/water/sources/WSTessendorfCascadesCPU.cpp
+
+    src/vulkan/Instance.cpp
+    src/vulkan/Surface.cpp
+    src/vulkan/PhysicalDevice.cpp
+    src/vulkan/Image.cpp
+    src/vulkan/ImageView.cpp
+    src/vulkan/Device.cpp
+    src/vulkan/RenderPass.cpp
+    src/vulkan/ShaderModule.cpp
+    src/vulkan/Pipeline.cpp
+    src/vulkan/SwapChain.cpp
+    src/vulkan/CommandPool.cpp
+    src/vulkan/CommandBuffer.cpp
+    src/vulkan/SyncObjects.cpp
+    src/vulkan/Buffer.cpp
+    src/vulkan/Descriptors.cpp
+)
+
+target_include_directories(stage10_river_water
+    PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+)
+
+target_compile_features(stage10_river_water
+    PRIVATE
+    cxx_std_17
+)
+
+target_link_libraries(stage10_river_water
+    PRIVATE
+    Vulkan::Vulkan
+    glfw
+    glm::glm
+    spdlog::spdlog
+    FFTW3::fftw3
+)
