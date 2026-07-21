@@ -9,6 +9,7 @@ layout(set = 0, binding = 0) uniform CameraUBO
     mat4 model;
     mat4 view;
     mat4 projection;
+    vec4 cameraWorldPosition;
     ivec4 debug;
 } camera;
 
@@ -58,6 +59,8 @@ layout(set = 1, binding = 0) uniform FoamParamsUBO
     vec4 thresholds;
     vec4 appearance;
     vec4 state;
+    vec4 runtime;
+    vec4 domain;
 } foam;
 
 layout(location = 0) out vec3 fragWorldPosition;
@@ -555,7 +558,11 @@ void main(){
         activeRegionMask;
 
     float fftJacobianFoam =
-        breakingHint;
+        smoothstep(
+            foam.thresholds.z,
+            foam.thresholds.w,
+            breakingHint
+        );
 
     float slopeMagnitude =
         length(totalSlope);

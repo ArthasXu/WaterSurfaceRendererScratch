@@ -31,6 +31,7 @@ public:
     void RecordComputeWriteToComputeReadBarrier(VkCommandBuffer commandBuffer);
     void RecordComputeWriteToFragmentReadBarrier(VkCommandBuffer commandBuffer);
     void RecordFragmentReadToComputeWriteBarrier(VkCommandBuffer commandBuffer);
+    void RecordComputeReadToComputeWriteBarrier(VkCommandBuffer commandBuffer);
 
     VkFormat GetFormat() const;
     uint32_t GetWidth() const;

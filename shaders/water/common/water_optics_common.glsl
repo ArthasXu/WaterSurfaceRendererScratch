@@ -2,14 +2,20 @@
 // power：菲涅尔指数，控制反射强度随角度变化的锐利程度。
 // 当视线垂直水面（cosTheta ≈ 1）时，反射率接近 0，水面清澈；
 // 当视线贴近水面（cosTheta ≈ 0）时，反射率接近 1，水面如镜
-float SchlickFresnel(
-    float cosTheta,
-    float power
+float WaterFresnel(
+    float NdotV,
+    float F0
 ){
-    return pow(
-        clamp(1.0 - cosTheta, 0.0, 1.0),
-        power
-    );
+    float clampedNdotV =
+        clamp(NdotV, 0.0, 1.0);
+
+    return
+        F0 +
+        (1.0 - F0) *
+        pow(
+            1.0 - clampedNdotV,
+            5.0
+        );
 }
 
 // 简易天空色采样

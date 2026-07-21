@@ -151,7 +151,7 @@ void Stage9WaterApp::ShutdownApp()
     m_DescriptorSets.clear();
     m_AppearanceDescriptorSets.clear();
     m_FoamSourceSets.clear();
-    m_FoamAdvectSets = {};
+    m_FoamAdvectSets.clear();
 
     m_FoamSourceVelocityImage.reset();
     m_FoamStateImages[0].reset();
@@ -175,12 +175,14 @@ void Stage9WaterApp::ShutdownApp()
     m_TessendorfGPU.reset();
 
     m_FoamDetailSampler.reset();
+    m_FoamStateSampler.reset();
     m_FFTSampler.reset();
     m_FrontLUTSampler.reset();
     m_BoreProfileSampler.reset();
 
     m_FoamSimulationUniformBuffers.clear();
     m_FoamParamsUniformBuffers.clear();
+    m_WaterMaterialUniformBuffers.clear();
     m_WaterParamsUniformBuffers.clear();
     m_CameraUniformBuffers.clear();
     m_BoreFrontUniformBuffers.clear();
@@ -356,7 +358,14 @@ void Stage9WaterApp::CreateFoamComputeDescriptorSetLayouts()
             .AddBinding(5, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT)
             .AddBinding(6, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT)
             .AddBinding(7, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT)
-            .AddBinding(8, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT)
+            .AddBinding(8, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT)
+            .AddBinding(9, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT)
+            .AddBinding(10, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT)
+            .AddBinding(11, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT)
+            .AddBinding(12, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT)
+            .AddBinding(13, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT)
+            .AddBinding(14, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT)
+            .AddBinding(15, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT)
             .Build();
 
     m_FoamAdvectSetLayout =
@@ -425,6 +434,12 @@ void Stage9WaterApp::CreateSamplers()
         GetDevice(),
         VK_FILTER_LINEAR,
         VK_SAMPLER_ADDRESS_MODE_REPEAT
+    );
+
+    m_FoamStateSampler = std::make_unique<water::WaterSampler>(
+        GetDevice(),
+        VK_FILTER_LINEAR,
+        VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE
     );
 }
 
@@ -803,10 +818,19 @@ void Stage9WaterApp::CreateFoamComputeDescriptorPool()
 {
     m_FoamComputeDescriptorPool =
         vkp::DescriptorPool::Builder(GetDevice())
-            .SetMaxSets(GetMaxFramesInFlight() + 2)
-            .AddPoolSize(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, GetMaxFramesInFlight() * 4 + 2)
-            .AddPoolSize(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, GetMaxFramesInFlight() * 4 + 4)
-            .AddPoolSize(VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, GetMaxFramesInFlight() + 2)
+            .SetMaxSets(GetMaxFramesInFlight() * 3)
+            .AddPoolSize(
+                VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+                GetMaxFramesInFlight() * 7
+            )
+            .AddPoolSize(
+                VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                GetMaxFramesInFlight() * 14
+            )
+            .AddPoolSize(
+                VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+                GetMaxFramesInFlight() * 3
+            )
             .Build();
 }
 
@@ -915,12 +939,12 @@ void Stage9WaterApp::CreateAppearanceDescriptorSets()
 
         VkDescriptorImageInfo foamState0Info =
             m_FoamStateImages[0]->GetSampledDescriptorInfo(
-                *m_FoamDetailSampler
+                *m_FoamStateSampler
             );
 
         VkDescriptorImageInfo foamState1Info =
             m_FoamStateImages[1]->GetSampledDescriptorInfo(
-                *m_FoamDetailSampler
+                *m_FoamStateSampler
             );
 
         VkDescriptorBufferInfo waterMaterialInfo{};
@@ -954,6 +978,7 @@ void Stage9WaterApp::CreateAppearanceDescriptorSets()
 void Stage9WaterApp::CreateFoamComputeDescriptorSets()
 {
     m_FoamSourceSets.resize(GetMaxFramesInFlight());
+    m_FoamAdvectSets.resize(GetMaxFramesInFlight());
 
     VkDescriptorImageInfo frontParameterInfo =
         m_FrontParameterTexture->GetDescriptorInfo(*m_FrontLUTSampler);
@@ -991,6 +1016,14 @@ void Stage9WaterApp::CreateFoamComputeDescriptorSets()
         boreProfileInfo.offset = 0;
         boreProfileInfo.range = sizeof(water::BoreProfileUBO);
 
+        VkDescriptorBufferInfo waterParamsInfo{};
+        waterParamsInfo.buffer = *m_WaterParamsUniformBuffers[i];
+        waterParamsInfo.offset = 0;
+        waterParamsInfo.range = sizeof(water::WaterParamsUBO);
+
+        water::WaterSurfaceGPUResources gpuResources =
+            m_TessendorfGPU->GetGPUResources(i);
+
         bool success =
             vkp::DescriptorWriter(
                 *m_FoamSourceSetLayout,
@@ -1004,7 +1037,14 @@ void Stage9WaterApp::CreateFoamComputeDescriptorSets()
                 .WriteImage(5, &frontDerivativeInfo)
                 .WriteImage(6, &profileDisplacementInfo)
                 .WriteImage(7, &profileDerivativeInfo)
-                .WriteImage(8, &sourceVelocityStorageInfo)
+                .WriteImage(8, &gpuResources.cascades[0].displacement)
+                .WriteImage(9, &gpuResources.cascades[0].normalAux)
+                .WriteImage(10, &gpuResources.cascades[1].displacement)
+                .WriteImage(11, &gpuResources.cascades[1].normalAux)
+                .WriteImage(12, &gpuResources.cascades[2].displacement)
+                .WriteImage(13, &gpuResources.cascades[2].normalAux)
+                .WriteBuffer(14, &waterParamsInfo)
+                .WriteImage(15, &sourceVelocityStorageInfo)
                 .Build(m_FoamSourceSets[i]);
 
         if(!success){
@@ -1012,44 +1052,47 @@ void Stage9WaterApp::CreateFoamComputeDescriptorSets()
         }
     }
 
-    for(uint32_t i = 0; i < 2; i++){
-        uint32_t readIndex =
-            i;
+    for(uint32_t frameIndex = 0; frameIndex < GetMaxFramesInFlight(); frameIndex++){
+        for(uint32_t ping = 0; ping < 2; ping++){
+            uint32_t readIndex =
+                ping;
 
-        uint32_t writeIndex =
-            1 - i;
+            uint32_t writeIndex =
+                1 - ping;
 
-        VkDescriptorBufferInfo foamSimulationInfo{};
-        foamSimulationInfo.buffer = *m_FoamSimulationUniformBuffers[0];
-        foamSimulationInfo.offset = 0;
-        foamSimulationInfo.range = sizeof(water::FoamSimulationUBO);
+            VkDescriptorBufferInfo foamSimulationInfo{};
+            foamSimulationInfo.buffer =
+                *m_FoamSimulationUniformBuffers[frameIndex];
+            foamSimulationInfo.offset = 0;
+            foamSimulationInfo.range = sizeof(water::FoamSimulationUBO);
 
-        VkDescriptorImageInfo previousFoamInfo =
-            m_FoamStateImages[readIndex]->GetSampledDescriptorInfo(
-                *m_FoamDetailSampler
-            );
+            VkDescriptorImageInfo previousFoamInfo =
+                m_FoamStateImages[readIndex]->GetSampledDescriptorInfo(
+                    *m_FoamStateSampler
+                );
 
-        VkDescriptorImageInfo sourceVelocityInfo =
-            m_FoamSourceVelocityImage->GetSampledDescriptorInfo(
-                *m_FoamDetailSampler
-            );
+            VkDescriptorImageInfo sourceVelocityInfo =
+                m_FoamSourceVelocityImage->GetSampledDescriptorInfo(
+                    *m_FoamStateSampler
+                );
 
-        VkDescriptorImageInfo nextFoamInfo =
-            m_FoamStateImages[writeIndex]->GetStorageDescriptorInfo();
+            VkDescriptorImageInfo nextFoamInfo =
+                m_FoamStateImages[writeIndex]->GetStorageDescriptorInfo();
 
-        bool success =
-            vkp::DescriptorWriter(
-                *m_FoamAdvectSetLayout,
-                *m_FoamComputeDescriptorPool
-            )
-                .WriteBuffer(0, &foamSimulationInfo)
-                .WriteImage(1, &previousFoamInfo)
-                .WriteImage(2, &sourceVelocityInfo)
-                .WriteImage(3, &nextFoamInfo)
-                .Build(m_FoamAdvectSets[i]);
+            bool success =
+                vkp::DescriptorWriter(
+                    *m_FoamAdvectSetLayout,
+                    *m_FoamComputeDescriptorPool
+                )
+                    .WriteBuffer(0, &foamSimulationInfo)
+                    .WriteImage(1, &previousFoamInfo)
+                    .WriteImage(2, &sourceVelocityInfo)
+                    .WriteImage(3, &nextFoamInfo)
+                    .Build(m_FoamAdvectSets[frameIndex][ping]);
 
-        if(!success){
-            throw std::runtime_error("Failed to allocate foam advect descriptor set");
+            if(!success){
+                throw std::runtime_error("Failed to allocate foam advect descriptor set");
+            }
         }
     }
 }
@@ -1082,7 +1125,7 @@ void Stage9WaterApp::RecordFoamSimulation(
     uint32_t writeIndex =
         1 - readIndex;
 
-    m_FoamSourceVelocityImage->RecordFragmentReadToComputeWriteBarrier(commandBuffer);
+    m_FoamSourceVelocityImage->RecordComputeReadToComputeWriteBarrier(commandBuffer);
     m_FoamStateImages[writeIndex]->RecordFragmentReadToComputeWriteBarrier(commandBuffer);
 
     vkCmdBindPipeline(
@@ -1126,7 +1169,7 @@ void Stage9WaterApp::RecordFoamSimulation(
         m_FoamAdvectPipeline->GetLayout(),
         0,
         1,
-        &m_FoamAdvectSets[readIndex],
+        &m_FoamAdvectSets[frameIndex][readIndex],
         0,
         nullptr
     );
@@ -1270,6 +1313,11 @@ void Stage9WaterApp::UpdateCameraUniformBuffer(uint32_t frameIndex)
     ubo.model = glm::mat4(1.0f);
     ubo.view = m_Camera.GetViewMatrix();
     ubo.projection = m_Camera.GetProjectionMatrix(aspect);
+    ubo.cameraWorldPosition =
+        glm::vec4(
+            m_Camera.GetPosition(),
+            1.0f
+        );
     ubo.debug = glm::ivec4(m_DebugMode, 0, 0, 0);
 
     m_CameraUniformBuffers[frameIndex]->CopyToMapped(
@@ -1384,7 +1432,7 @@ void Stage9WaterApp::UpdateBoreProfileUniformBuffer(uint32_t frameIndex)
     // w = duration（秒）：单次 OneShot 动画的总时长
     ubo.domain = glm::vec4(
         m_BoreProfileConfig.profileHalfWidth,  // 剖面半宽度（如 30.0 米）
-        1.5f,                                  // 潮后水位抬升高度
+        5.0f,                                  // 潮后水位抬升高度
         8.0f,                                  // 抬升过渡宽度
         m_BoreProfileConfig.duration           // 动画时长（如 24 秒）
     );
@@ -1408,8 +1456,8 @@ void Stage9WaterApp::UpdateBoreProfileUniformBuffer(uint32_t frameIndex)
     // w = activeRegionMask：当前点是否在涌潮活跃区域内（由 Flow Map / SDF 控制）
     ubo.geometry = glm::vec4(
         1.0f,  // 全局振幅缩放（默认 1.0，调大波更高）
-        3.0f,  // 前向位移缩放
-        1.0f,  // 向上位移缩放
+        2.0f,  // 前向位移缩放
+        4.0f,  // 向上位移缩放
         1.0f   // 区域掩码（1.0 = 全部生效）
     );
 
@@ -1457,10 +1505,10 @@ void Stage9WaterApp::UpdateFoamParamsUniformBuffer(uint32_t frameIndex)
     // ==== thresholds：泡沫生成阈值控制 =====
     // x 越低，越容易出泡沫；y 越低，泡沫更快变满
     ubo.thresholds = glm::vec4(
-        0.35f,
-        0.35f,
-        0.15f,
-        0.65f
+        0.28f,
+        0.70f,
+        0.04f,
+        0.30f
     );
 
     // ==== appearance：泡沫外观控制 =====
@@ -1468,7 +1516,7 @@ void Stage9WaterApp::UpdateFoamParamsUniformBuffer(uint32_t frameIndex)
         0.32f,  // x = coverageThreshold：越低，泡沫覆盖越多
         0.15f,  // y = coverageSoftness：越大，边缘越软
         0.35f,  // z = foamNormalStrength：目前未接入光照
-        0.0f    // w = stateFoamBlend：状态泡沫未做，暂时无效
+        0.25f   // w = stateFoamBlend：状态泡沫
     );
 
     ubo.state = glm::vec4(
@@ -1478,11 +1526,21 @@ void Stage9WaterApp::UpdateFoamParamsUniformBuffer(uint32_t frameIndex)
         0.0f
     );
 
+    uint32_t outputFoamStateIndex =
+        1 - m_CurrentFoamStateIndex;
+
     ubo.runtime = glm::vec4(
-        static_cast<float>(m_CurrentFoamStateIndex),
+        static_cast<float>(outputFoamStateIndex),
         1.0f,
         0.0f,
         0.0f
+    );
+
+    ubo.domain = glm::vec4(
+        -128.0f,
+        -128.0f,
+        256.0f,
+        256.0f
     );
 
     m_FoamParamsUniformBuffers[frameIndex]->CopyToMapped(
@@ -1561,11 +1619,16 @@ void Stage9WaterApp::UpdateWaterMaterialUniformBuffer(uint32_t frameIndex)
     ubo.sedimentColor = glm::vec4(0.42f, 0.30f, 0.16f, 1.0f);
 
     // ===== 光学参数 =====
-    // x: fresnelPower = 5.0          – 菲涅尔指数，值越大掠射角反射越锐利
+    // x: F0 = 0.0204f – 基础反射率，控制水面的基底反射强度
     // y: reflectionStrength = 0.35   – 天空反射强度
-    // z: absorptionStrength = 0.018  – 光线吸收系数，控制深水变暗的速度
+    // z: roughness = 0.45            – 粗糙度，影响折射强度
     // w: sedimentAmount = 0.35       – 泥沙混合量，值越大浅水越浑浊
-    ubo.opticalParams = glm::vec4(5.0f, 0.35f, 0.018f, 0.35f);
+    ubo.opticalParams = glm::vec4(
+        0.0204f,
+        0.35f,
+        0.45f,
+        0.35f
+    );
 
     // ===== 光照参数 =====
     // xyz: sunDirection = (-0.35, 0.85, 0.25) 归一化 – 太阳方向（斜上方偏左）
