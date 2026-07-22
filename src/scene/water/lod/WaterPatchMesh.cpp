@@ -315,6 +315,21 @@ void WaterPatchMesh::Draw(VkCommandBuffer commandBuffer) const
     );
 }
 
+void WaterPatchMesh::DrawInstanced(
+    VkCommandBuffer commandBuffer,
+    uint32_t instanceCount
+) const
+{
+    vkCmdDrawIndexed(
+        commandBuffer,
+        m_IndexCount,
+        instanceCount,
+        0,
+        0,
+        0
+    );
+}
+
 uint32_t WaterPatchMesh::GetIndexCount() const
 {
     return m_IndexCount;

@@ -40,6 +40,12 @@ public:
 
     void Draw(VkCommandBuffer commandBuffer) const;
 
+    // 一条 draw 画多个 Tile
+    void DrawInstanced(
+        VkCommandBuffer commandBuffer,
+        uint32_t instanceCount
+    ) const;
+
     uint32_t GetIndexCount() const;
 
 private:

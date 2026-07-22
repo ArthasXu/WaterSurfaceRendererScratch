@@ -92,9 +92,12 @@ private:
     void CreateWaterGrid();                    // 创建静态水面网格（128×128顶点），上传到设备本地内存
     void CreateWaterPatch();
     void UpdateQuadtree();
+    void CreateTileInstanceBuffers();
+    void UpdateTileInstanceBuffer(
+        uint32_t frameIndex
+    );                                         // 不再每 Tile push constant。先上传实例 buffer，再一次绘制
     void DrawQuadtreeTiles(
-        VkCommandBuffer commandBuffer,
-        VkPipelineLayout pipelineLayout
+        VkCommandBuffer commandBuffer
     );
     void CreateSamplers();                     // 为 FFT、LUT、Profile 和泡沫纹理分别创建对应寻址模式的采样器
     void CreateBoreFrontResources();           // 创建涌潮波前 GPU 资源（Front LUT 纹理、BoreFrontUBO 缓冲）
@@ -207,6 +210,9 @@ private:
     std::vector<std::unique_ptr<vkp::Buffer>> m_BoreProfileUniformBuffers;
     std::vector<std::unique_ptr<vkp::Buffer>> m_FoamParamsUniformBuffers;
     std::vector<std::unique_ptr<vkp::Buffer>> m_WaterMaterialUniformBuffers;
+    std::vector<std::unique_ptr<vkp::Buffer>> m_TileInstanceBuffers;
+    uint32_t m_MaxVisibleWaterTiles = 8192;
+    uint32_t m_CurrentVisibleWaterTileCount = 0;
 
     std::vector<VkDescriptorSet> m_DescriptorSets;
     std::vector<VkDescriptorSet> m_AppearanceDescriptorSets;
