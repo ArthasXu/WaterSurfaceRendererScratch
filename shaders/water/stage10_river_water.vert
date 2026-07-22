@@ -13,18 +13,26 @@ layout(set = 0, binding = 0) uniform CameraUBO
     ivec4 debug;
 } camera;
 
-// 每个 Tile 的世界位置和大小由 push constant 提供
-layout(push_constant) uniform WaterTilePushConstants
+struct WaterTileGPU
 {
-    vec2 worldMin;
-    float worldSize;
-    float morphAlpha;
+    vec4 originSize;
+    uvec4 metadata;
+};
 
-    uint level;
-    uint edgeMask;
-    uint flags;
-    uint padding;
-} tile;
+// GLSL 中有两种主要的缓冲区内存布局规则：
+    // std140：主要用于 Uniform Buffer（UBO），规则很严格，会产生较多填充字节。
+    // 例如，vec3 会被对齐到 vec4 的边界，float 会被对齐到 16 字节。
+    // std430：专门为 Shader Storage Buffer（SSBO）设计，布局规则比 std140 更自然、更紧凑。
+    // 在 std430 下，基本类型的对齐规则更宽松（如 vec3 依然占 12 字节，float 占 4 字节，不再强制 16 字节对齐）。
+// 虽然 SSBO 默认布局就是 std430，但显式写出 std430 可以让你在 C++ 端定义对应的 WaterTileGPU 结构体时，
+// 更容易按 GLSL 的实际规则进行对齐，避免因为隐式规则不同导致的数据错位。
+// 对于你存有成百上千个 Tile 实例的 SSBO 来说，紧凑的内存就意味着更小的带宽消耗和更少的缓存压力，
+// 这对于逐顶点都要读取一次的实例数据非常关键。
+// readonly：性能提示与错误预防 对于实例化绘制中大量顶点同时读取同一个 Tile 数据的情况，只读缓存命中率会更高
+layout(std430, set = 0, binding = 14) readonly buffer WaterTileBuffer
+{
+    WaterTileGPU tiles[];
+} tileBuffer;
 
 layout(set = 0, binding = 1) uniform WaterParamsUBO
 {
@@ -156,10 +164,15 @@ float SmoothStepDerivative(
 void main(){
     // 将顶点从模型空间变换到世界空间，得到未变形的水面基础位置
     // Patch 局部坐标映射到 Tile 世界坐标
+    
+    // gl_InstanceIndex 扮演了一个“钥匙”的角色。它把顶点批次的编号和你在 SSBO 中存储的 Tile 数据数组联系了起来
+    WaterTileGPU tile =
+        tileBuffer.tiles[gl_InstanceIndex];
+
     vec2 baseWorldXZ =
-        tile.worldMin +
+        tile.originSize.xy +
         inLocalXZ *
-        tile.worldSize;
+        tile.originSize.z;
 
     vec3 baseWorldPosition =
         vec3(

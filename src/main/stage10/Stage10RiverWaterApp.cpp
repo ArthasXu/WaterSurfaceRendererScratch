@@ -131,6 +131,7 @@ void Stage10RiverWaterApp::Start()
     CreateFoamComputePipelines();
     CreateGPUFFTSource();
     CreateUniformBuffers();
+    CreateTileInstanceBuffers();
     CreateDescriptorPool();
     CreateAppearanceDescriptorPool();
     CreateFoamComputeDescriptorPool();
@@ -183,6 +184,7 @@ void Stage10RiverWaterApp::ShutdownApp()
     m_FoamSimulationUniformBuffers.clear();
     m_FoamParamsUniformBuffers.clear();
     m_WaterMaterialUniformBuffers.clear();
+    m_TileInstanceBuffers.clear();
     m_WaterParamsUniformBuffers.clear();
     m_CameraUniformBuffers.clear();
     m_BoreFrontUniformBuffers.clear();
@@ -219,14 +221,7 @@ void Stage10RiverWaterApp::CreatePipelines()
 
     config.cullMode = VK_CULL_MODE_NONE;
     config.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
-    VkPushConstantRange tilePushRange{};
-    tilePushRange.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
-    tilePushRange.offset = 0;
-    tilePushRange.size = sizeof(water::WaterTilePushConstants);
-
-    config.pushConstantRanges = {
-        tilePushRange
-    };
+    
     config.polygonMode = VK_POLYGON_MODE_FILL;
 
     m_SolidPipeline = std::make_unique<vkp::Pipeline>(
@@ -316,6 +311,8 @@ void Stage10RiverWaterApp::CreateDescriptorSetLayout()
         .AddBinding(12, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT)
         // Binding 13：boreProfileDerivative（Wave Profile 导数纹理，含 dForward/ds、dUpward/ds、流速、破碎权重），顶点/片段着色器可访问
         .AddBinding(13, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT)
+        // Binding 14：WaterTileGPU SSBO，每个 instance 读取一个 Tile 的世界变换和 LOD 元数据
+        .AddBinding(14, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_VERTEX_BIT)
         .Build();
 }
 
@@ -822,6 +819,38 @@ void Stage10RiverWaterApp::CreateUniformBuffers()
     }
 }
 
+// visible tiles 每帧变，使用 host-visible persistent mapped SSBO 最简单
+// 把所有可见 Tile 的变换数据打包成一个数组，存进 SSBO
+void Stage10RiverWaterApp::CreateTileInstanceBuffers()
+{
+    m_TileInstanceBuffers.clear();
+    m_TileInstanceBuffers.reserve(GetMaxFramesInFlight());
+
+    VkDeviceSize bufferSize =
+        sizeof(water::WaterTileGPU) *
+        m_MaxVisibleWaterTiles;
+
+    for(uint32_t i = 0; i < GetMaxFramesInFlight(); ++i){
+        // 可见 Tile 列表每帧都在变，CPU 需要把新的 WaterTileGPU 数组写进缓冲区
+        auto buffer =
+            std::make_unique<vkp::Buffer>(
+                GetPhysicalDevice(),
+                GetDevice(),
+                bufferSize,
+                VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, // ← 这里决定了它是 Storage Buffer
+                VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                    VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
+            );
+
+        // Map() 后不 Unmap()，CPU 持有映射指针，每帧直接 memcpy 新数据进去，省去反复映射的开销
+        buffer->Map();
+
+        m_TileInstanceBuffers.push_back(
+            std::move(buffer)
+        );
+    }
+}
+
 void Stage10RiverWaterApp::CreateDescriptorPool()
 {
     m_DescriptorPool = vkp::DescriptorPool::Builder(GetDevice())
@@ -833,6 +862,10 @@ void Stage10RiverWaterApp::CreateDescriptorPool()
         .AddPoolSize(
             VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
             GetMaxFramesInFlight() * 10
+        )
+        .AddPoolSize(
+            VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+            GetMaxFramesInFlight()
         )
         .Build();
 }
@@ -909,6 +942,13 @@ void Stage10RiverWaterApp::CreateDescriptorSets()
         boreProfileInfo.offset = 0;
         boreProfileInfo.range = sizeof(water::BoreProfileUBO);
 
+        VkDescriptorBufferInfo tileInstanceInfo{};
+        tileInstanceInfo.buffer = *m_TileInstanceBuffers[i];
+        tileInstanceInfo.offset = 0;
+        tileInstanceInfo.range =
+            sizeof(water::WaterTileGPU) *
+            m_MaxVisibleWaterTiles;
+
         // 3. 准备 位移图 的绑定信息。
         //    GetDescriptorInfo 内部会封装 VkImageView 和 VkSampler，
         //    并指定图像布局为 SHADER_READ_ONLY_OPTIMAL，供着色器采样
@@ -952,6 +992,7 @@ void Stage10RiverWaterApp::CreateDescriptorSets()
             .WriteBuffer(11, &boreProfileInfo)
             .WriteImage(12, &boreProfileDisplacementInfo)
             .WriteImage(13, &boreProfileDerivativeInfo)
+            .WriteBuffer(14, &tileInstanceInfo)
             .Build(m_DescriptorSets[i]); // 完成分配与写入
 
         // 如果分配或写入失败（比如池子空间不足），立即抛出异常
@@ -1340,6 +1381,7 @@ void Stage10RiverWaterApp::PrepareFrame(uint32_t frameIndex, uint32_t imageIndex
     UpdateWaterMaterialUniformBuffer(frameIndex);
 
     UpdateQuadtree(); // Tile 可见性依赖当前帧相机
+    UpdateTileInstanceBuffer(frameIndex);
 }
 
 void Stage10RiverWaterApp::UpdateCameraUniformBuffer(uint32_t frameIndex)
@@ -1726,38 +1768,77 @@ void Stage10RiverWaterApp::UpdateQuadtree()
         m_WaterQuadtree->GetVisibleTiles();
 }
 
+void Stage10RiverWaterApp::UpdateTileInstanceBuffer(
+    uint32_t frameIndex
+)
+{
+    m_CurrentVisibleWaterTileCount =
+        static_cast<uint32_t>(
+            std::min<size_t>(
+                m_VisibleWaterTiles.size(),
+                m_MaxVisibleWaterTiles
+            )
+        );
+
+    std::vector<water::WaterTileGPU> gpuTiles;
+    gpuTiles.resize(m_CurrentVisibleWaterTileCount);
+
+    for(uint32_t i = 0; i < m_CurrentVisibleWaterTileCount; ++i){
+        const water::WaterTile& tile =
+            m_VisibleWaterTiles[i];
+
+        water::WaterTileGPU gpuTile{};
+        gpuTile.originSize =
+            glm::vec4(
+                tile.worldMin.x,
+                tile.worldMin.y,
+                tile.worldSize,
+                tile.morphAlpha
+            );
+
+        gpuTile.metadata =
+            glm::uvec4(
+                tile.key.level,
+                tile.edgeMask,
+                0u,
+                0u
+            );
+
+        gpuTiles[i] = gpuTile;
+    }
+
+    if(m_CurrentVisibleWaterTileCount == 0){
+        return;
+    }
+
+    VkDeviceSize copySize =
+        sizeof(water::WaterTileGPU) *
+        m_CurrentVisibleWaterTileCount;
+
+    m_TileInstanceBuffers[frameIndex]->CopyToMapped(
+        gpuTiles.data(),
+        copySize
+    );
+}
+
 void Stage10RiverWaterApp::DrawQuadtreeTiles(
-    VkCommandBuffer commandBuffer,
-    VkPipelineLayout pipelineLayout
+    VkCommandBuffer commandBuffer
 )
 {
     if(!m_WaterPatchMesh){
         return;
     }
 
+    if(m_CurrentVisibleWaterTileCount == 0){
+        return;
+    }
+
     m_WaterPatchMesh->Bind(commandBuffer);
 
-    for(const water::WaterTile& tile : m_VisibleWaterTiles){
-        water::WaterTilePushConstants push{};
-        push.worldMin = tile.worldMin;
-        push.worldSize = tile.worldSize;
-        push.morphAlpha = tile.morphAlpha;
-        push.level = tile.key.level;
-        push.edgeMask = tile.edgeMask;
-        push.flags = 0;
-        push.padding = 0;
-
-        vkCmdPushConstants(
-            commandBuffer,
-            pipelineLayout,
-            VK_SHADER_STAGE_VERTEX_BIT,
-            0,
-            sizeof(water::WaterTilePushConstants),
-            &push
-        );
-
-        m_WaterPatchMesh->Draw(commandBuffer);
-    }
+    m_WaterPatchMesh->DrawInstanced(
+        commandBuffer,
+        m_CurrentVisibleWaterTileCount
+    );
 }
 
 void Stage10RiverWaterApp::Render(VkCommandBuffer commandBuffer, uint32_t imageIndex)
@@ -1861,10 +1942,7 @@ void Stage10RiverWaterApp::Render(VkCommandBuffer commandBuffer, uint32_t imageI
     );
 
     // 绘制多个 Quadtree Tile，而不是一个固定 Grid
-    DrawQuadtreeTiles(
-        commandBuffer,
-        pipeline->GetLayout()
-    );
+    DrawQuadtreeTiles(commandBuffer);
 
     vkCmdEndRenderPass(commandBuffer);
 
@@ -1896,7 +1974,7 @@ void Stage10RiverWaterApp::UpdateWindowTitle()
         << " paused="
         << (m_Paused ? "yes" : "no")
         << " tiles="
-        << m_VisibleWaterTiles.size();
+        << m_CurrentVisibleWaterTileCount;
 
     GetWindow().SetTitle(title.str());
 }

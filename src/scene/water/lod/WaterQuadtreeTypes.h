@@ -50,4 +50,20 @@ struct WaterTilePushConstants
     uint32_t flags = 0;          // 预留的标志位，可用于传递布尔状态（如 isBoreTile 等）
     uint32_t padding = 0;        // 对齐填充，确保 Push Constants 总大小为 16 字节的整数倍
 };
+
+// SSBO 用 16 字节对齐，避免 CPU/GLSL layout 不一致
+// originSize.x = worldMin.x
+// originSize.y = worldMin.z
+// originSize.z = worldSize
+// originSize.w = morphAlpha
+
+// metadata.x = level
+// metadata.y = edgeMask
+// metadata.z = flags
+// metadata.w = reserved
+struct alignas(16) WaterTileGPU
+{
+    glm::vec4 originSize{0.0f};
+    glm::uvec4 metadata{0};
+};
 }
