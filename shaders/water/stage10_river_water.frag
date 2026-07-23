@@ -29,6 +29,8 @@ layout(location = 10) in vec4 fragSlopeDebug;
 layout(location = 11) in vec4 fragFoamSourceData;
 layout(location = 12) in vec4 fragFoamFlowData;
 layout(location = 13) in vec4 fragFinalDisplacement;
+layout(location = 14) in vec4 fragRiverFlow;
+layout(location = 15) in vec4 fragRiverCoord;
 
 // 摄像机 UBO（绑定 set=0, binding=0）
 layout(set = 0, binding = 0) uniform CameraUBO {
@@ -95,6 +97,10 @@ float SoftUnion(float a, float b)
 void main()
 {
     int mode = camera.debug.x;
+    // 矩形 Quadtree 视觉裁成 U 形河道
+    if(fragRiverFlow.a < 0.25){
+        discard;
+    }
 
     float profileFoam =
         fragFoamSourceData.r;
@@ -700,6 +706,49 @@ void main()
 
     if(mode == 39){
         outColor = vec4(vec3(finalFoam), 1.0);
+        return;
+    }
+
+    if(mode == 40){
+        outColor =
+            vec4(
+                fragRiverFlow.rg * 0.5 + 0.5,
+                0.5,
+                1.0
+            );
+
+        return;
+    }
+
+    if(mode == 41){
+        outColor =
+            vec4(
+                vec3(fragRiverCoord.r),
+                1.0
+            );
+
+        return;
+    }
+
+    if(mode == 42){
+        outColor =
+            vec4(
+                fragRiverCoord.g * 0.5 + 0.5,
+                0.5,
+                0.5,
+                1.0
+            );
+
+        return;
+    }
+
+    if(mode == 43){
+        outColor =
+            vec4(
+                vec3(fragRiverFlow.a),
+                1.0
+            );
+
         return;
     }
 

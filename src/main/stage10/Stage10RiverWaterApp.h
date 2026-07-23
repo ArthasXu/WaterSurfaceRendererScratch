@@ -23,6 +23,11 @@
 #include "scene/water/lod/WaterPatchMesh.h"
 #include "scene/water/lod/WaterQuadtree.h"
 
+#include "scene/water/river/RiverSpline.h"
+#include "scene/water/river/RiverField.h"
+#include "scene/water/river/RiverFieldBaker.h"
+#include "scene/water/river/RiverResourceContract.h"
+
 #include "vulkan/Buffer.h"
 #include "vulkan/Descriptors.h"
 #include "vulkan/Pipeline.h"
@@ -91,6 +96,21 @@ private:
     void CreatePipelines();                    // 创建图形管线（实体+线框），绑定两个描述符集布局（set0/set1）
     void CreateWaterGrid();                    // 创建静态水面网格（128×128顶点），上传到设备本地内存
     void CreateWaterPatch();
+
+    void CreateRiverResources();
+
+    void UpdateRiverFieldUniformBuffer(
+        uint32_t frameIndex
+    );
+
+    bool ClassifyRiverTile(
+        water::WaterTile& tile
+    ) const;
+
+    uint32_t GetRiverRequiredLevel(
+        const water::WaterTile& tile
+    ) const;
+
     void UpdateQuadtree();
     void CreateTileInstanceBuffers();
     void UpdateTileInstanceBuffer(
@@ -160,7 +180,7 @@ private:
 
     bool m_BorePaused = false;
     bool m_BoreEnabled = true;
-    bool m_BoreUseLUT = true;
+    bool m_BoreUseLUT = false;
     bool m_BoreDebugRidgeEnabled = false;
 
     water::BoreFrontParams m_BoreFrontParams{};
@@ -176,7 +196,7 @@ private:
     water::BoreProfileAnimationMode m_ProfileMode =
         water::BoreProfileAnimationMode::OneShot;
 
-    bool m_ProfilePaused = false;
+    bool m_ProfilePaused = true; // 固定 Profile 在成熟阶段
     bool m_ProfileEnabled = true;
     bool m_FFTEnabled = true;
     bool m_AutoRepeatEvent = false;
@@ -192,6 +212,7 @@ private:
     std::unique_ptr<water::WaterSampler> m_FFTSampler;
     std::unique_ptr<water::WaterSampler> m_FrontLUTSampler;
     std::unique_ptr<water::WaterSampler> m_BoreProfileSampler;
+    std::unique_ptr<water::WaterSampler> m_RiverSampler;
     std::unique_ptr<water::WaterSampler> m_FoamDetailSampler;
     std::unique_ptr<water::WaterSampler> m_FoamStateSampler;
 
@@ -210,6 +231,7 @@ private:
     std::vector<std::unique_ptr<vkp::Buffer>> m_BoreProfileUniformBuffers;
     std::vector<std::unique_ptr<vkp::Buffer>> m_FoamParamsUniformBuffers;
     std::vector<std::unique_ptr<vkp::Buffer>> m_WaterMaterialUniformBuffers;
+    std::vector<std::unique_ptr<vkp::Buffer>> m_RiverFieldUniformBuffers;
     std::vector<std::unique_ptr<vkp::Buffer>> m_TileInstanceBuffers;
     uint32_t m_MaxVisibleWaterTiles = 8192;
     uint32_t m_CurrentVisibleWaterTileCount = 0;
@@ -220,6 +242,8 @@ private:
     std::unique_ptr<water::StaticFloatTexture2D> m_FrontDerivativeTexture;
     std::unique_ptr<water::StaticDataTexture2D> m_BoreProfileDisplacementTexture;
     std::unique_ptr<water::StaticDataTexture2D> m_BoreProfileDerivativeTexture;
+    std::unique_ptr<water::StaticDataTexture2D> m_RiverFlowTexture;
+    std::unique_ptr<water::StaticDataTexture2D> m_RiverCoordinateTexture;
     water::FoamDetailTextureData m_FoamDetailData{};
     std::unique_ptr<water::StaticDataTexture2D> m_FoamDetailTexture;
 
@@ -242,4 +266,10 @@ private:
 
     std::vector<VkDescriptorSet> m_FoamSourceSets;
     std::vector<std::array<VkDescriptorSet, 2>> m_FoamAdvectSets;
+
+    // River Tile
+    water::RiverSpline m_RiverSpline;
+    std::unique_ptr<water::RiverField> m_RiverField;
+    float m_RiverLength = 0.0f;
+    float m_RiverBoreCurvatureMeters = 0.0f;
 };

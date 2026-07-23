@@ -3,6 +3,7 @@
 #include <glm/glm.hpp>
 
 #include <cstdint>
+#include <limits>
 
 namespace water
 {
@@ -31,9 +32,16 @@ struct WaterTile
 
     // ---- 可见性与分类 ----
     bool visible = false;        // 当前帧是否通过视锥体裁剪，为 true 时才会被绘制
-    bool intersectsWater = true; // 是否与水面区域相交（本阶段始终为 true，后续可结合河道 Mask 使用）
-    bool intersectsBank = false; // 是否与河岸区域相交（暂保留，后续用于近岸特效）
+    bool intersectsWater = true; // 是否与水面区域相交
+    bool intersectsBank = false; // 是否与河岸区域相交
     bool intersectsBore = false; // 是否与涌潮波前区域相交（暂保留，后续用于 Bore 相关 LOD 提升）
+
+    // Quadtree 要知道 Tile 是否和潮头范围相交
+    float minRiverProgress =
+        std::numeric_limits<float>::max();
+
+    float maxRiverProgress =
+        -std::numeric_limits<float>::max();
 };
 
 // ===== 单个 Tile 绘制时的 Push Constants =====

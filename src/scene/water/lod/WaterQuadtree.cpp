@@ -58,21 +58,28 @@ void WaterQuadtree::BuildRecursive(
     uint32_t viewportHeight
 )
 {
-    // 视锥体裁剪：如果 Tile 完全在视锥体外，直接跳过（不加入可见列表，也不继续分裂）
-    if(!IsTileVisible(tile)){
-        return;
+    WaterTile classifiedTile = tile;
+
+    if(m_Config.classifyTile){
+        if(!m_Config.classifyTile(classifiedTile)){
+            return; // 纯陆地 Tile，直接丢弃
+        }
+    }
+
+    if(!IsTileVisible(classifiedTile)){
+        return;  // 视锥体外，丢弃
     }
 
     // 判断是否需要分裂成 4 个子 Tile
-    if(ShouldSplit(tile, cameraPosition, viewportHeight)){
-        float childSize = tile.worldSize * 0.5f;       // 子 Tile 边长 = 父 Tile 一半
-        uint32_t childLevel = tile.key.level + 1;      // 子层级 +1
+    if(ShouldSplit(classifiedTile, cameraPosition, viewportHeight)){
+        float childSize = classifiedTile.worldSize * 0.5f;       // 子 Tile 边长 = 父 Tile 一半
+        uint32_t childLevel = classifiedTile.key.level + 1;      // 子层级 +1
 
         // 四叉分裂：2×2 四个子节点
         for(uint32_t z = 0; z < 2; ++z){
             for(uint32_t x = 0; x < 2; ++x){
                 glm::vec2 childMin =
-                    tile.worldMin +
+                    classifiedTile.worldMin +
                     glm::vec2(
                         static_cast<float>(x) * childSize,
                         static_cast<float>(z) * childSize
@@ -81,8 +88,8 @@ void WaterQuadtree::BuildRecursive(
                 WaterTile child =
                     MakeTile(
                         childLevel,
-                        tile.key.x * 2 + x,    // 子节点 X 索引 = 父索引×2 + x
-                        tile.key.z * 2 + z,    // 子节点 Z 索引 = 父索引×2 + z
+                        classifiedTile.key.x * 2 + x,    // 子节点 X 索引 = 父索引×2 + x
+                        classifiedTile.key.z * 2 + z,    // 子节点 Z 索引 = 父索引×2 + z
                         childMin,
                         childSize
                     );
@@ -95,7 +102,7 @@ void WaterQuadtree::BuildRecursive(
     }
 
     // 不再分裂：将当前 Tile 标记为可见，加入绘制列表
-    WaterTile visibleTile = tile;
+    WaterTile visibleTile = classifiedTile;
     visibleTile.visible = true;
     m_VisibleTiles.push_back(visibleTile);
 }
@@ -110,6 +117,16 @@ bool WaterQuadtree::ShouldSplit(
     // 已达到最大层级，不再分裂
     if(tile.key.level >= m_Config.maxLevel){
         return false;
+    }
+
+    // 强制河岸区域使用高 LOD
+    if(m_Config.requiredLevel){
+        uint32_t requiredLevel =
+            m_Config.requiredLevel(tile);
+
+        if(tile.key.level < requiredLevel){
+            return true;
+        }
     }
 
     // 计算相机到 Tile 的最近距离（至少取 1 米避免除零）

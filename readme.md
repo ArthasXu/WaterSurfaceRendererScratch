@@ -23,6 +23,7 @@ Wave Profile一线潮： .\build\Debug\stage8_bore_profile.exe
 加入浪潮泡沫和水体光学渲染：.\build\Debug\stage9_water.exe
 
 Quadtree Water LOD配置参数：src\scene\water\lod\WaterQuadtree.h - struct WaterQuadtreeConfig
+Flow Map 初始化： src\main\stage10\Stage10RiverWaterApp.cpp - CreateRiverResources
 实现Quadtree Water LOD(2048*2048m)：.\build\Debug\stage10_river_water.exe
 
 git push origin stage8-bore-wave-profile

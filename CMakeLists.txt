@@ -889,6 +889,10 @@ add_executable(stage10_river_water
     src/scene/water/lod/WaterPatchMesh.cpp
     src/scene/water/lod/WaterQuadtree.cpp
 
+    src/scene/water/river/RiverSpline.cpp
+    src/scene/water/river/RiverFieldBaker.cpp
+    src/scene/water/river/RiverField.cpp
+
     src/scene/water/bore/FrontParameterLUT.cpp
     src/scene/water/bore/BoreFrontField.cpp
     src/scene/water/bore/BoreWaveProfile.cpp
