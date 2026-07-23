@@ -640,56 +640,76 @@ void main()
         return;
     }
 
+    // 模式 27：Profile 泡沫源可视化（fragFoamSourceData.r）
+    // 灰阶 = profileFoam，仅来自涌潮剖面位移纹理的泡沫源
     if(mode == 27){
         outColor = vec4(vec3(profileFoam), 1.0);
         return;
     }
 
+    // 模式 28：FFT Jacobian 泡沫源可视化（fragFoamSourceData.g）
+    // 灰阶 = fftJacobianFoam，由 FFT 波浪的 Jacobian 破碎判定产生
     if(mode == 28){
         outColor = vec4(vec3(fftJacobianFoam), 1.0);
         return;
     }
 
+    // 模式 29：坡度泡沫源可视化（fragFoamSourceData.b）
+    // 灰阶 = slopeFoam，由水面总坡度过大产生的泡沫
     if(mode == 29){
         outColor = vec4(vec3(slopeFoam), 1.0);
         return;
     }
 
+    // 模式 30：Bore 破碎泡沫源可视化（fragFoamSourceData.a）
+    // 灰阶 = boreBreakingFoam，来自涌潮破碎权重
     if(mode == 30){
         outColor = vec4(vec3(boreBreakingFoam), 1.0);
         return;
     }
 
+    // 模式 31：合并泡沫源可视化（foamSource）
+    // 灰阶 = 最终合成的泡沫源强度（取上述四种源的最大值）
     if(mode == 31){
         outColor = vec4(vec3(foamSource), 1.0);
         return;
     }
 
+    // 模式 32：三相位泡沫细节 Phase 0 的覆盖率
+    // 灰阶 = detail0.coverage，用于观察单个相位的泡沫纹理
     if(mode == 32){
         outColor = vec4(vec3(detail0.coverage), 1.0);
         return;
     }
 
+    // 模式 33：三相位泡沫细节 Phase 1 的覆盖率
     if(mode == 33){
         outColor = vec4(vec3(detail1.coverage), 1.0);
         return;
     }
 
+    // 模式 34：三相位泡沫细节 Phase 2 的覆盖率
     if(mode == 34){
         outColor = vec4(vec3(detail2.coverage), 1.0);
         return;
     }
 
+    // 模式 35：三相位混合权重可视化
+    // R = phase0 权重，G = phase1 权重，B = phase2 权重
     if(mode == 35){
         outColor = vec4(w0, w1, w2, 1.0);
         return;
     }
 
+    // 模式 36：泡沫覆盖率可视化（foamCoverage）
+    // 灰阶 = 经过细节纹理调制和阈值处理后的视觉泡沫强度
     if(mode == 36){
         outColor = vec4(vec3(foamCoverage), 1.0);
         return;
     }
 
+    // 模式 37：泡沫流速可视化
+    // RGB 编码泡沫平流速度向量（范围 0~1），用于检查流向是否正确
     if(mode == 37){
         outColor = vec4(
             foamVelocity * 0.05 + 0.5,
@@ -699,56 +719,68 @@ void main()
         return;
     }
 
+    // 模式 38：状态型泡沫可视化（stateFoam）
+    // 灰阶 = 从 Ping‑Pong 泡沫状态图中读取的历史泡沫浓度
     if(mode == 38){
         outColor = vec4(vec3(stateFoam), 1.0);
         return;
     }
 
+    // 模式 39：最终泡沫混合结果可视化（finalFoam）
+    // 灰阶 = 三相位泡沫覆盖率与状态型泡沫的混合输出
     if(mode == 39){
         outColor = vec4(vec3(finalFoam), 1.0);
         return;
     }
-
+    
+    // 模式 40：河流流向可视化（riverFlowTexture.rg）
+    // RGB 编码流向向量（Flow Map 的 R/G 通道），红 = 流向 X 分量，绿 = 流向 Z 分量
+    // 用于检查河流场纹理的流向是否正确、是否随河道弯曲而平滑变化
     if(mode == 40){
         outColor =
             vec4(
-                fragRiverFlow.rg * 0.5 + 0.5,
+                fragRiverFlow.rg * 0.5 + 0.5,   // 将 [-1,1] 映射到 [0,1] 颜色空间
                 0.5,
                 1.0
             );
-
         return;
     }
 
+    // 模式 41：沿河归一化进度可视化（riverCoordinateTexture.r）
+    // 灰度图，0 = 黑色（入海口），1 = 白色（河道末端）
+    // 用于检查 Coordinate Map 的进度通道是否从 0 到 1 连续渐变
     if(mode == 41){
         outColor =
             vec4(
-                vec3(fragRiverCoord.r),
+                vec3(fragRiverCoord.r),     // 归一化进度 [0, 1]
                 1.0
             );
-
         return;
     }
 
+    // 模式 42：横向归一化坐标可视化（riverCoordinateTexture.g）
+    // 红蓝过渡，蓝 = 左岸（-1），灰 = 中轴线（0），红 = 右岸（+1）
+    // 用于检查 Coordinate Map 的横向坐标是否在河道宽度内正确映射
     if(mode == 42){
         outColor =
             vec4(
-                fragRiverCoord.g * 0.5 + 0.5,
+                fragRiverCoord.g * 0.5 + 0.5,   // 将 [-1,1] 映射到 [0,1]
                 0.5,
                 0.5,
                 1.0
             );
-
         return;
     }
 
+    // 模式 43：水域掩码可视化（riverFlowTexture.a）
+    // 灰度图，亮 = 河道内（mask = 1），暗 = 岸上（mask = 0），过渡区为灰色
+    // 用于检查 Flow Map 的水域掩码是否正确标记了河道范围
     if(mode == 43){
         outColor =
             vec4(
-                vec3(fragRiverFlow.a),
+                vec3(fragRiverFlow.a),      // 水域掩码 [0, 1]
                 1.0
             );
-
         return;
     }
 

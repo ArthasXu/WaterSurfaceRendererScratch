@@ -306,6 +306,11 @@ Window& Application::GetWindow()
     return *m_Window;
 }
 
+vkp::Instance& Application::GetInstance()
+{
+    return *m_Instance;
+}
+
 vkp::Device& Application::GetDevice()
 {
     return *m_Device;

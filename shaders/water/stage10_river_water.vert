@@ -238,6 +238,7 @@ void main(){
         );
 
     // 只采样 mipmap 的第 0 级，避免因 mipmap 生成而导致数据偏差
+    // // 采样 Flow Map 和 Coordinate Map（强制 LOD 0，避免模糊）
     vec4 riverFlow =
         textureLod(
             riverFlowTexture,
@@ -252,6 +253,7 @@ void main(){
             0.0
         );
 
+    // 为计算 progress 的梯度，获取相邻像素的 progress 值
     ivec2 coordinateSize =
         textureSize(
             riverCoordinateTexture,
@@ -293,6 +295,7 @@ void main(){
             0.0
         ).r * river.domain.w;
 
+    // progress 的梯度（世界空间），指向 progress 增加最快的方向，即河流的切线方向
     vec2 progressGradient =
         vec2(
             progressRight - progressLeft,
@@ -305,6 +308,7 @@ void main(){
 
 
     // riverFlow.rg 是从 Flow Map（绑定在 binding=16）中采样得到的局部流向，它随河道弯曲而变化
+    // 优先使用梯度方向作为局部流向（更平滑），若梯度过小则回退到 Flow Map 的流向
     vec2 localFlowDirection =
         length(progressGradient) > 1.0e-4
         ? normalize(progressGradient)
@@ -315,10 +319,12 @@ void main(){
     //         -localFlowDirection;
     // }
 
+    // 顶点的沿河进度（米）：由归一化进度和河流总长度计算
     float progressMeters =
         riverCoord.r *
         river.domain.w; // 该顶点沿河流中轴线的距离（米）
 
+    // 横向归一化坐标，[-1, 1]，用于 Front LUT 采样
     float lateral =
         clamp(
             riverCoord.g,
@@ -326,6 +332,7 @@ void main(){
             1.0
         ); // 横向归一化坐标 [-1, 1]
 
+    // Front LUT 的横向坐标（映射到 [0,1]）
     float frontUClamped =
         clamp(
             lateral * 0.5 + 0.5,
@@ -346,6 +353,7 @@ void main(){
     // // 从而在弯道处产生拉伸/压缩效果，避免波前断裂
     float curvatureOffset = 0.0;
 
+    // 波前位置：该顶点沿河进度 - 涌潮波前已推进的距离
     float signedDistance =
         progressMeters -
         river.bore.x -
@@ -354,6 +362,7 @@ void main(){
     vec2 localFrontNormal =
         localFlowDirection;
 
+    // 水域掩码：岸外平滑衰减
     float waterMask =
         smoothstep(
             0.05,
@@ -361,16 +370,20 @@ void main(){
             riverFlow.a
         );
 
-    float boreAmplitude =
-        clamp(
-            riverFlow.b,
-            0.0,
-            2.0
-        );
+    // 涌潮振幅倍率（钳位安全值）
+    // float boreAmplitude =
+    //     clamp(
+    //         riverFlow.b,
+    //         0.0,
+    //         2.0
+    //     );
+    float boreAmplitude = riverFlow.b;
 
+    // 波前长度掩码：在弯曲河道中直接用水域掩码替代直线波前的 lengthMask
     float lengthMask =
         waterMask;
 
+    // 振幅与泡沫系数均受河流场控制
     float amplitudeMultiplier =
         boreAmplitude;
 

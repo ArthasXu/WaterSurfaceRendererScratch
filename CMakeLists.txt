@@ -865,6 +865,15 @@ target_link_libraries(stage9_foam_detail_cpu_test
 add_executable(stage10_river_water
     src/main/stage10/stage10_main.cpp
     src/main/stage10/Stage10RiverWaterApp.cpp
+    src/gui/Gui.cpp
+
+    D:/WaterSurfaceRendering_h72/libs/imgui/imgui.cpp
+    D:/WaterSurfaceRendering_h72/libs/imgui/imgui_draw.cpp
+    D:/WaterSurfaceRendering_h72/libs/imgui/imgui_tables.cpp
+    D:/WaterSurfaceRendering_h72/libs/imgui/imgui_widgets.cpp
+    D:/WaterSurfaceRendering_h72/libs/imgui/imgui_demo.cpp
+    D:/WaterSurfaceRendering_h72/libs/imgui/backends/imgui_impl_glfw.cpp
+    D:/WaterSurfaceRendering_h72/libs/imgui/backends/imgui_impl_vulkan.cpp
 
     src/core/Application.cpp
     src/core/Window.cpp
@@ -919,9 +928,17 @@ add_executable(stage10_river_water
     src/vulkan/Descriptors.cpp
 )
 
+add_custom_command(TARGET stage10_river_water POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+        "${CMAKE_SOURCE_DIR}/shaders"
+        "$<TARGET_FILE_DIR:stage10_river_water>/shaders"
+)
+
 target_include_directories(stage10_river_water
     PRIVATE
     ${CMAKE_SOURCE_DIR}/src
+    D:/WaterSurfaceRendering_h72/libs/imgui
+    D:/WaterSurfaceRendering_h72/libs/imgui/backends
 )
 
 target_compile_features(stage10_river_water

@@ -111,10 +111,11 @@ void RiverSpline::Build(
             );
 
             // 插值涌潮振幅，钳位在 [0, 2] 防止异常放大或负值
-            sample.boreAmplitude = glm::clamp(
-                CatmullRomFloat(p0.boreAmplitude, p1.boreAmplitude, p2.boreAmplitude, p3.boreAmplitude, t),
-                0.0f, 2.0f
-            );
+            // sample.boreAmplitude = glm::clamp(
+            //     CatmullRomFloat(p0.boreAmplitude, p1.boreAmplitude, p2.boreAmplitude, p3.boreAmplitude, t),
+            //     0.0f, 2.0f
+            // );
+            sample.boreAmplitude = CatmullRomFloat(p0.boreAmplitude, p1.boreAmplitude, p2.boreAmplitude, p3.boreAmplitude, t),
 
             // 插值曲率权重，钳位在 [0, 1]
             sample.curvatureWeight = glm::clamp(

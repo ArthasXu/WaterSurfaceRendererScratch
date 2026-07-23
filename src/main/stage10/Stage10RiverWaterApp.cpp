@@ -1,6 +1,7 @@
 #include "main/stage10/Stage10RiverWaterApp.h"
 
 #include "core/Log.h"
+#include "gui/Gui.h"
 
 #include "scene/water/render/WaterVertex.h"
 #include "scene/water/bore/BoreWaveProfile.h"
@@ -9,6 +10,7 @@
 #include <GLFW/glfw3.h>
 #include <glm/gtc/constants.hpp>
 #include <glm/gtc/packing.hpp>
+#include <glm/gtc/type_ptr.hpp>
 
 #include <array>
 #include <cmath>
@@ -17,6 +19,7 @@
 #include <iostream>
 #include <algorithm>
 #include <limits>
+#include <imgui.h>
 
 // Start()
 // ├── VKP_INFO("Stage10RiverWaterApp started")
@@ -80,6 +83,57 @@ struct PackedHalf4
 
 static_assert(sizeof(PackedHalf4) == 8);
 
+const char* DebugModeName(int mode)
+{
+    switch(mode){
+    case 0: return "0 Final 最终效果";
+    case 1: return "1 Height 高度场灰度图";
+    case 2: return "2 Horizontal Displacement 水平位移可视化";
+    case 3: return "3 Slope 斜率可视化";
+    case 4: return "4 Breaking 波浪破碎判据";
+    case 5: return "5 World Normal 世界空间法线";
+    case 6: return "6 Bore Signed Distance 波前距离场";
+    case 7: return "7 Front Fade 波前长度淡入淡出掩码";
+    case 8: return "8 Front U 波前线坐标";
+    case 9: return "9 Front Normal 局部波前法线方向";
+    case 10: return "10 Amplitude 振幅乘数";
+    case 11: return "11 Foam Multiplier 泡沫乘数";
+    case 12: return "12 Phase Offset 轮廓相位偏移";
+    case 13: return "13 Profile U Wave Profile 距离轴坐标";
+    case 14: return "14 Phase Offset (alt) 动画相位偏移（备用）";
+    case 15: return "15 Forward Displacement 前向水平位移";
+    case 16: return "16 Upward Displacement 向上垂直位移";
+    case 17: return "17 Profile Foam Source Wave Profile 泡沫源";
+    case 18: return "18 Crest Mask 浪尖掩码";
+    case 19: return "19 dUpward/ds 向上位移的导数";
+    case 20: return "20 Flow Speed 流速";
+    case 21: return "21 Breaking Weight 破碎权重";
+    case 22: return "22 FFT Suppression FFT 抑制权重";
+    case 23: return "23 Total Slope 最终合成坡度";
+    case 24: return "24 Final Normal 最终世界空间法线";
+    case 25: return "25 Back Mask 潮后掩码";
+    case 26: return "26 Final Displacement 最终位移";
+    case 27: return "27 Profile Foam (source) Profile 泡沫源（单独）";
+    case 28: return "28 FFT Jacobian Foam FFT Jacobian 泡沫";
+    case 29: return "29 Slope Foam 坡度泡沫";
+    case 30: return "30 Bore Breaking Foam Bore 破碎泡沫";
+    case 31: return "31 Combined Foam Source 合并泡沫源";
+    case 32: return "32 Foam Detail Phase0 三相位泡沫细节 Phase 0";
+    case 33: return "33 Foam Detail Phase1 三相位泡沫细节 Phase 1";
+    case 34: return "34 Foam Detail Phase2 三相位泡沫细节 Phase 2";
+    case 35: return "35 Phase Weights 三相位混合权重";
+    case 36: return "36 Foam Coverage 泡沫覆盖率";
+    case 37: return "37 Foam Velocity 泡沫流速";
+    case 38: return "38 State Foam 状态型泡沫";
+    case 39: return "39 Final Foam 最终泡沫混合结果";
+    case 40: return "40 River Flow 河流流向";
+    case 41: return "41 River Progress 沿河归一化进度";
+    case 42: return "42 River Lateral 横向归一化坐标";
+    case 43: return "43 River Mask 水域掩码";
+    default: return "Custom";
+    }
+}
+
 PackedHalf4 PackHalf4(glm::vec4 value)
 {
     PackedHalf4 packed{};
@@ -117,7 +171,8 @@ void Stage10RiverWaterApp::Start()
 
     static_assert(sizeof(glm::vec4) == 16);
 
-    m_Camera.AddYawPitch(0.0f, -300.0f);
+    m_Camera.SetPosition(glm::vec3(30.0f, 190.0f, 670.0f));
+    m_Camera.LookAt(glm::vec3(-730.0f, -230.0f, 880.0f));
 
     CreateDescriptorSetLayout();
     CreateAppearanceDescriptorSetLayout();
@@ -147,10 +202,18 @@ void Stage10RiverWaterApp::Start()
     CreateFoamComputeDescriptorSets();
 
     InitializeFoamStateImages();
+
+    SetupGui();
 }
 
 void Stage10RiverWaterApp::ShutdownApp()
 {
+    if(m_GuiDescriptorPool != VK_NULL_HANDLE){
+        gui::Shutdown();
+        vkDestroyDescriptorPool(GetDevice(), m_GuiDescriptorPool, nullptr);
+        m_GuiDescriptorPool = VK_NULL_HANDLE;
+    }
+
     m_SolidPipeline.reset();
     m_WireframePipeline.reset();
 
@@ -431,19 +494,19 @@ void Stage10RiverWaterApp::CreateWaterPatch()
             GetDevice(),
             GetCommandPool(),
             GetDevice().GetGraphicsQueue(),
-            32
+            static_cast<uint32_t>(m_QuadtreeGui.patchCellCount)
         );
 
     water::WaterQuadtreeConfig config{};
-    config.rootCenter = glm::vec2(0.0f);
-    config.rootSize = 2048.0f;
-    config.maxLevel = 6;
-    config.patchCellCount = 32;
-    config.fovYRadians = glm::radians(45.0f);
-    config.splitPixels = 9.0f;
-    config.mergePixels = 6.0f;
-    config.minY = -15.0f;
-    config.maxY = 20.0f;
+    config.rootCenter = m_QuadtreeGui.rootCenter;
+    config.rootSize = m_QuadtreeGui.rootSize;
+    config.maxLevel = static_cast<uint32_t>(m_QuadtreeGui.maxLevel);
+    config.patchCellCount = static_cast<uint32_t>(m_QuadtreeGui.patchCellCount);
+    config.fovYRadians = glm::radians(m_QuadtreeGui.fovYDegrees);
+    config.splitPixels = m_QuadtreeGui.splitPixels;
+    config.mergePixels = m_QuadtreeGui.mergePixels;
+    config.minY = m_QuadtreeGui.minY;
+    config.maxY = m_QuadtreeGui.maxY;
     
     // 将分类/分级函数注入四叉树配置
     config.classifyTile =
@@ -621,7 +684,7 @@ void Stage10RiverWaterApp::CreateBoreFrontResources()
 {
     m_BoreFrontParams.origin = glm::vec2(0.0f);
     m_BoreFrontParams.direction = glm::normalize(glm::vec2(1.0f, 0.15f));
-    m_BoreFrontParams.speed = 96.0f;
+    m_BoreFrontParams.speed = 32.0f;
     m_BoreFrontParams.frontLength = 1000.0f;
     m_BoreFrontParams.initialOffset = 0.0f;
     m_BoreFrontParams.edgeFadeFraction = 0.03f;
@@ -1753,10 +1816,10 @@ void Stage10RiverWaterApp::UpdateBoreProfileUniformBuffer(uint32_t frameIndex)
     // z = riseWidth（米）：水位抬升的过渡宽度，控制从无到有的平滑过渡距离
     // w = duration（秒）：单次 OneShot 动画的总时长
     ubo.domain = glm::vec4(
-        m_BoreProfileConfig.profileHalfWidth,  // 剖面半宽度（如 30.0 米）
-        8.0f,                                  // 潮后水位抬升高度
-        8.0f,                                  // 抬升过渡宽度
-        m_BoreProfileConfig.duration           // 动画时长（如 24 秒）
+        m_BoreProfileConfig.profileHalfWidth,
+        m_BoreProfileGui.waterRiseHeight,
+        m_BoreProfileGui.riseWidth,
+        m_BoreProfileConfig.duration
     );
 
     // ===== animation：涌潮动画控制参数 =====
@@ -1765,10 +1828,10 @@ void Stage10RiverWaterApp::UpdateBoreProfileUniformBuffer(uint32_t frameIndex)
     // z = animationMode：动画模式（0 = OneShot 单次播放，1 = Looping 循环播放）
     // w = profileEnabled：剖面效果开关（1.0 = 启用涌潮，0.0 = 关闭）
     ubo.animation = glm::vec4(
-        m_BoreProfileConfig.duration * 0.60f,   // 当前动画时间 驱动 Wave Profile 翻卷动画
-        0.0f,                                   // 剖面宽度缩放（典型值 0.05~0.1）
-        0.0f,                                   // 动画模式（OneShot=0, Looping=1）
-        m_ProfileEnabled ? 1.0f : 0.0f          // 效果开关
+        m_BoreProfileConfig.duration * m_BoreProfileGui.fixedPhase,
+        m_BoreProfileGui.profileWidthScale,
+        static_cast<float>(static_cast<int>(m_ProfileMode)),
+        m_ProfileEnabled ? 1.0f : 0.0f
     );
 
     // ===== geometry：几何变换缩放因子 =====
@@ -1777,10 +1840,10 @@ void Stage10RiverWaterApp::UpdateBoreProfileUniformBuffer(uint32_t frameIndex)
     // z = upwardScale：向上垂直位移缩放，控制浪高
     // w = activeRegionMask：当前点是否在涌潮活跃区域内（由 Flow Map / SDF 控制）
     ubo.geometry = glm::vec4(
-        1.0f,  // 全局振幅缩放（默认 1.0，调大波更高）
-        1.0f,  // 前向位移缩放
-        10.0f,  // 向上位移缩放
-        1.0f   // 区域掩码（1.0 = 全部生效）
+        m_BoreProfileGui.globalAmplitude,
+        m_BoreProfileGui.forwardScale,
+        m_BoreProfileGui.upwardScale,
+        m_BoreProfileGui.activeRegionMask
     );
 
     // ===== suppression：FFT 背景波浪抑制系数（潮头浪尖处压低 FFT 波浪） =====
@@ -1789,12 +1852,7 @@ void Stage10RiverWaterApp::UpdateBoreProfileUniformBuffer(uint32_t frameIndex)
     // z = longWaveSuppression：长波（低频）抑制系数，推荐 0.7~1.0
     // w = 预留（未使用）
     // 原则：短波在潮头处被压得最狠，长涌浪保留最多，这样更自然
-    ubo.suppression = glm::vec4(
-        0.20f,  // 短波抑制（潮头处短波降至 20%）
-        0.35f,  // 中波抑制（潮头处中波降至 35%）
-        0.80f,  // 长波抑制（潮头处长波保留 80%）
-        0.0f    // 预留
-    );
+    ubo.suppression = m_BoreProfileGui.suppression;
 
     m_BoreProfileUniformBuffers[frameIndex]->CopyToMapped(
         &ubo,
@@ -1809,43 +1867,28 @@ void Stage10RiverWaterApp::UpdateFoamParamsUniformBuffer(uint32_t frameIndex)
     // ==== animation：泡沫动画控制参数 =====
     ubo.animation = glm::vec4(
         m_Time,
-        4.0f,   // 三相位循环周期，越小泡沫滚动越快
-        0.08f,  // 世界空间纹理缩放，越大泡沫细节越密
-        1.0f    // 当前没用
+        m_FoamGui.animationCycle,
+        m_FoamGui.detailWorldScale,
+        1.0f
     );
 
     // ==== sourceStrength：泡沫强度控制 =====
     // 想让潮头更白：调大 x/w。
     // 想让海浪自身白沫更多：调大 y/z
-    ubo.sourceStrength = glm::vec4(
-        1.0f,   // Profile foam 强度，潮头/潮后泡沫
-        0.35f,  // Slope foam 强度，陡坡产生泡沫
-        0.45f,  // Jacobian foam 强度，FFT 破碎泡沫
-        0.75f   // Bore breaking 强度，潮头破碎泡沫
-    );
+    ubo.sourceStrength = m_FoamGui.sourceStrength;
 
     // ==== thresholds：泡沫生成阈值控制 =====
     // x 越低，越容易出泡沫；y 越低，泡沫更快变满
-    ubo.thresholds = glm::vec4(
-        0.28f,
-        0.70f,
-        0.04f,
-        0.30f
-    );
+    ubo.thresholds = m_FoamGui.thresholds;
 
     // ==== appearance：泡沫外观控制 =====
-    ubo.appearance = glm::vec4(
-        0.32f,  // x = coverageThreshold：越低，泡沫覆盖越多
-        0.15f,  // y = coverageSoftness：越大，边缘越软
-        0.35f,  // z = foamNormalStrength：目前未接入光照
-        0.25f   // w = stateFoamBlend：状态泡沫
-    );
+    ubo.appearance = m_FoamGui.appearance;
 
     ubo.state = glm::vec4(
-        1.8f,
-        0.45f,
-        0.02f,
-        0.0f
+        m_FoamGui.stateGain,
+        m_FoamGui.stateDecay,
+        m_FoamGui.stateDiffusion,
+        m_FoamGui.stateEnabled
     );
 
     uint32_t outputFoamStateIndex =
@@ -1858,12 +1901,7 @@ void Stage10RiverWaterApp::UpdateFoamParamsUniformBuffer(uint32_t frameIndex)
         0.0f
     );
 
-    ubo.domain = glm::vec4(
-        -128.0f,
-        -128.0f,
-        256.0f,
-        256.0f
-    );
+    ubo.domain = m_FoamGui.domain;
 
     m_FoamParamsUniformBuffers[frameIndex]->CopyToMapped(
         &ubo,
@@ -1888,12 +1926,7 @@ void Stage10RiverWaterApp::UpdateFoamSimulationUniformBuffer(uint32_t frameIndex
     // xy: 世界空间左下角坐标（-128, -128）
     // zw: 世界空间宽度和高度（256, 256）
     // 泡沫状态图覆盖 256m × 256m 的区域，中心在原点
-    ubo.domain = glm::vec4(
-        -128.0f,   // worldMinX
-        -128.0f,   // worldMinZ
-        256.0f,    // worldSizeX
-        256.0f     // worldSizeZ
-    );
+    ubo.domain = m_FoamGui.domain;
 
     // ===== simulation：时变模拟参数 =====
     // x: foamDt    – 当前帧的时间步长（已限制）
@@ -1903,8 +1936,8 @@ void Stage10RiverWaterApp::UpdateFoamSimulationUniformBuffer(uint32_t frameIndex
     ubo.simulation = glm::vec4(
         foamDt,
         m_Time,
-        1.8f,
-        0.45f
+        m_FoamGui.stateGain,
+        m_FoamGui.stateDecay
     );
 
     // ===== solver：数值求解参数 =====
@@ -1913,10 +1946,10 @@ void Stage10RiverWaterApp::UpdateFoamSimulationUniformBuffer(uint32_t frameIndex
     // z: 1.0 / m_FoamResolution – 单个纹素的大小（逆分辨率），用于计算相邻像素 UV 偏移
     // w: 1.0f  – 求解器开关（1 启用，0 跳过）
     ubo.solver = glm::vec4(
-        0.02f,                                          // diffusion
-        static_cast<float>(m_FoamResolution),           // resolution
-        1.0f / static_cast<float>(m_FoamResolution),    // invResolution
-        1.0f                                             // enabled
+        m_FoamGui.stateDiffusion,
+        static_cast<float>(m_FoamResolution),
+        1.0f / static_cast<float>(m_FoamResolution),
+        m_FoamGui.solverEnabled ? 1.0f : 0.0f
     );
 
     // 将数据写入当前帧对应的 Uniform Buffer（持久映射，直接拷贝）
@@ -1934,30 +1967,25 @@ void Stage10RiverWaterApp::UpdateWaterMaterialUniformBuffer(uint32_t frameIndex)
 
     // ===== 水体分层颜色 =====
     // 浅水颜色：偏亮的青绿色，模拟近岸/浅滩的水色
-    ubo.shallowColor = glm::vec4(0.10f, 0.32f, 0.34f, 1.0f);
+    ubo.shallowColor = m_WaterMaterialGui.shallowColor;
     // 深水颜色：暗蓝黑色，模拟远海/深水的深邃感
-    ubo.deepColor = glm::vec4(0.01f, 0.08f, 0.13f, 1.0f);
+    ubo.deepColor = m_WaterMaterialGui.deepColor;
     // 泥沙颜色：棕黄色，用于模拟浑浊水体（如河口、风暴后）
-    ubo.sedimentColor = glm::vec4(0.42f, 0.30f, 0.16f, 1.0f);
+    ubo.sedimentColor = m_WaterMaterialGui.sedimentColor;
 
     // ===== 光学参数 =====
     // x: F0 = 0.0204f – 基础反射率，控制水面的基底反射强度
     // y: reflectionStrength = 0.35   – 天空反射强度
     // z: roughness = 0.45            – 粗糙度，影响折射强度
     // w: sedimentAmount = 0.35       – 泥沙混合量，值越大浅水越浑浊
-    ubo.opticalParams = glm::vec4(
-        0.0204f,
-        0.35f,
-        0.45f,
-        0.35f
-    );
+    ubo.opticalParams = m_WaterMaterialGui.opticalParams;
 
     // ===== 光照参数 =====
     // xyz: sunDirection = (-0.35, 0.85, 0.25) 归一化 – 太阳方向（斜上方偏左）
     // w: specularStrength = 1.2                 – 太阳高光强度
     ubo.lightParams = glm::vec4(
-        glm::normalize(glm::vec3(-0.35f, 0.85f, 0.25f)),
-        1.2f
+        glm::normalize(m_WaterMaterialGui.sunDirection),
+        m_WaterMaterialGui.specularStrength
     );
 
     // ===== 雾与远景参数 =====
@@ -1965,7 +1993,7 @@ void Stage10RiverWaterApp::UpdateWaterMaterialUniformBuffer(uint32_t frameIndex)
     // y: fogEnd = 700.0      – 雾完全覆盖距离（米），700米外完全被雾遮挡
     // z: horizonFade = 0.4   – 地平线融合强度，柔和过渡远处水面与天空
     // w: 0.0                 – 预留
-    ubo.fogParams = glm::vec4(120.0f, 700.0f, 0.4f, 0.0f);
+    ubo.fogParams = m_WaterMaterialGui.fogParams;
 
     // 将数据写入当前帧对应的 Uniform Buffer（持久映射，直接拷贝）
     m_WaterMaterialUniformBuffers[frameIndex]->CopyToMapped(
@@ -2334,11 +2362,200 @@ void Stage10RiverWaterApp::Render(VkCommandBuffer commandBuffer, uint32_t imageI
     // 绘制多个 Quadtree Tile，而不是一个固定 Grid
     DrawQuadtreeTiles(commandBuffer);
 
+    if(m_GuiEnabled){
+        DrawGui();
+        gui::Render(commandBuffer);
+    }
+
     vkCmdEndRenderPass(commandBuffer);
 
     if(vkEndCommandBuffer(commandBuffer) != VK_SUCCESS){
         throw std::runtime_error("Failed to record Stage6 command buffer");
     }
+}
+
+void Stage10RiverWaterApp::SetupGui()
+{
+    auto poolSizes = gui::GetDescriptorPoolSizes();
+
+    VkDescriptorPoolCreateInfo poolInfo{};
+    poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+    poolInfo.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
+    poolInfo.maxSets = 1000 * static_cast<uint32_t>(poolSizes.size());
+    poolInfo.poolSizeCount = static_cast<uint32_t>(poolSizes.size());
+    poolInfo.pPoolSizes = poolSizes.data();
+
+    if(vkCreateDescriptorPool(GetDevice(), &poolInfo, nullptr, &m_GuiDescriptorPool) != VK_SUCCESS){
+        throw std::runtime_error("Failed to create ImGui descriptor pool");
+    }
+
+    gui::Init(
+        GetInstance(),
+        GetPhysicalDevice().GetHandle(),
+        GetDevice(),
+        GetDevice().GetGraphicsQueueFamily(),
+        GetDevice().GetGraphicsQueue(),
+        m_GuiDescriptorPool,
+        2,
+        static_cast<uint32_t>(GetSwapChain().GetImageCount()),
+        GetWindow().GetNativeWindow(),
+        GetRenderPass()
+    );
+
+    gui::UploadFonts(
+        GetDevice(),
+        GetDevice().GetGraphicsQueue(),
+        GetCommandPool()
+    );
+}
+
+void Stage10RiverWaterApp::RebuildQuadtreeFromGui()
+{
+    vkDeviceWaitIdle(GetDevice());
+    m_WaterQuadtree.reset();
+    m_WaterPatchMesh.reset();
+    CreateWaterPatch();
+}
+
+void Stage10RiverWaterApp::ResetBoreEvent()
+{
+    m_BoreTime = 0.0f;
+    m_ProfileTime = m_BoreProfileConfig.duration * m_BoreProfileGui.fixedPhase;
+    m_CurrentFoamStateIndex = 0;
+}
+
+void Stage10RiverWaterApp::DrawGui()
+{
+    gui::NewFrame();
+
+    ImGui::SetNextWindowSize(ImVec2(430.0f, 680.0f), ImGuiCond_FirstUseEver);
+
+    if(!ImGui::Begin("Stage 10 Water Controls", &m_GuiEnabled)){
+        ImGui::End();
+        return;
+    }
+
+    ImGuiIO& io = ImGui::GetIO();
+    ImGui::Text("Frame %.3f ms (%.1f FPS)", 1000.0f / io.Framerate, io.Framerate);
+    ImGui::Text("Tiles: %u", m_CurrentVisibleWaterTileCount);
+
+    if(ImGui::CollapsingHeader("Debug - 调试开关：控制暂停、线框、功能开关和 shader 可视化模式", ImGuiTreeNodeFlags_DefaultOpen)){
+        ImGui::Checkbox("Wireframe - 线框显示水面网格密度", &m_UseWireframe);
+        ImGui::Checkbox("Pause All - 暂停整体时间推进", &m_Paused);
+        ImGui::SameLine();
+        if(ImGui::Button("Step - 单帧推进")){
+            m_StepOnce = true;
+        }
+
+        ImGui::Checkbox("FFT Enabled - 开关背景 FFT 海浪", &m_FFTEnabled);
+        ImGui::Checkbox("Bore Enabled - 开关一线潮整体位移", &m_BoreEnabled);
+        ImGui::Checkbox("Profile Enabled - 开关 Wave Profile 剖面效果", &m_ProfileEnabled);
+
+        ImGui::SliderInt("Debug Mode - 片元 shader 输出模式", &m_DebugMode, 0, 43);
+        ImGui::Text("%s", DebugModeName(m_DebugMode));
+
+        if(ImGui::Button("Final")){
+            m_DebugMode = 0;
+        }
+        if(ImGui::Button("Height 高度场灰度图")){
+            m_DebugMode = 1;
+        }
+        if(ImGui::Button("Amplitude 振幅乘数")){
+            m_DebugMode = 10;
+        }
+        if(ImGui::Button("Bore Signed Distance 波前距离场")){
+            m_DebugMode = 6;
+        }
+    }
+
+    if(ImGui::CollapsingHeader("FFT Ocean - 背景海浪：控制三层 FFT 波长范围和振幅权重")){
+        ImGui::DragFloat("Short Patch - 短波纹理周期/高频细节尺度", &m_OceanConfig.spectrum.shortPatchLength, 1.0f, 1.0f, 512.0f);
+        ImGui::DragFloat("Mid Patch - 中波纹理周期/主体波浪尺度", &m_OceanConfig.spectrum.midPatchLength, 1.0f, 1.0f, 2048.0f);
+        ImGui::DragFloat("Long Patch - 长波纹理周期/大尺度涌浪范围", &m_OceanConfig.spectrum.longPatchLength, 1.0f, 1.0f, 4096.0f);
+        ImGui::SliderFloat("Short Amp - 短波振幅权重", &m_OceanConfig.amplitudeScales[0], 0.0f, 3.0f);
+        ImGui::SliderFloat("Mid Amp - 中波振幅权重", &m_OceanConfig.amplitudeScales[1], 0.0f, 3.0f);
+        ImGui::SliderFloat("Long Amp - 长波振幅权重", &m_OceanConfig.amplitudeScales[2], 0.0f, 3.0f);
+        ImGui::Text("Resolution/random seed require FFT resource rebuild.");
+    }
+
+    if(ImGui::CollapsingHeader("Bore Front - 一线潮波前：控制潮头沿河推进的速度、位置和开关", ImGuiTreeNodeFlags_DefaultOpen)){
+        ImGui::Checkbox("Bore Paused - 暂停潮头推进时间", &m_BorePaused);
+        ImGui::Checkbox("（已弃用）Use Front LUT - 使用旧 LUT 横向波前扰动", &m_BoreUseLUT);
+        ImGui::Checkbox("Debug Ridge - 启用调试浪脊增强", &m_BoreDebugRidgeEnabled);
+        ImGui::DragFloat2("（已弃用）Origin - 旧直线潮头世界起点 XZ", glm::value_ptr(m_BoreFrontParams.origin), 1.0f);
+        ImGui::DragFloat2("（已弃用）Direction - 旧直线潮头推进方向 XZ", glm::value_ptr(m_BoreFrontParams.direction), 0.01f, -1.0f, 1.0f);
+        ImGui::DragFloat("Speed - 潮头沿河推进速度 m/s", &m_BoreFrontParams.speed, 1.0f, 0.0f, 300.0f);
+        ImGui::DragFloat("Initial Offset - 初始沿河进度偏移 m", &m_BoreFrontParams.initialOffset, 1.0f, -500.0f, 5000.0f);
+        ImGui::DragFloat("（已弃用）Front Length - 旧 LUT 波前横向长度 m", &m_BoreFrontParams.frontLength, 10.0f, 1.0f, 5000.0f);
+        ImGui::SliderFloat("（已弃用）Edge Fade - 旧 LUT 波前两端淡出比例", &m_BoreFrontParams.edgeFadeFraction, 0.0f, 0.5f);
+        ImGui::DragFloat("Bore Time - 当前潮头累计时间 s", &m_BoreTime, 0.1f, 0.0f, 200.0f);
+
+        if(ImGui::Button("Reset Bore - 重置潮头和泡沫状态")){
+            ResetBoreEvent();
+        }
+    }
+
+    if(ImGui::CollapsingHeader("Bore Profile - 潮头剖面：控制 Wave Profile 的宽度、高度、前向推挤和水位抬升", ImGuiTreeNodeFlags_DefaultOpen)){
+        ImGui::Checkbox("Profile Paused - 固定剖面动画相位", &m_ProfilePaused);
+        ImGui::Checkbox("Auto Repeat - 自动重复触发潮头事件", &m_AutoRepeatEvent);
+        ImGui::DragFloat("Profile Half Width - 剖面半宽/潮头影响距离 m", &m_BoreProfileConfig.profileHalfWidth, 0.5f, 1.0f, 200.0f);
+        ImGui::DragFloat("Duration - 剖面完整动画时长 s", &m_BoreProfileConfig.duration, 0.1f, 0.1f, 120.0f);
+        ImGui::SliderFloat("Fixed Phase - 固定采样相位 0~1", &m_BoreProfileGui.fixedPhase, 0.0f, 1.0f);
+        ImGui::DragFloat("Water Rise - 潮后整体水位抬升高度 m", &m_BoreProfileGui.waterRiseHeight, 0.1f, 0.0f, 20.0f);
+        ImGui::DragFloat("Rise Width - 水位抬升过渡宽度 m", &m_BoreProfileGui.riseWidth, 0.1f, 0.1f, 80.0f);
+        ImGui::DragFloat("Global Amplitude - 潮头整体振幅倍数", &m_BoreProfileGui.globalAmplitude, 0.05f, 0.0f, 5.0f);
+        ImGui::DragFloat("Forward Scale - 水平前向推挤强度", &m_BoreProfileGui.forwardScale, 0.05f, 0.0f, 3.0f);
+        ImGui::DragFloat("Upward Scale - 垂直抬升/浪高强度", &m_BoreProfileGui.upwardScale, 0.1f, 0.0f, 20.0f);
+        ImGui::SliderFloat("Active Region - 潮头区域总开关掩码", &m_BoreProfileGui.activeRegionMask, 0.0f, 1.0f);
+        ImGui::DragFloat3("FFT Suppression - 潮头处短/中/长波抑制", glm::value_ptr(m_BoreProfileGui.suppression), 0.01f, 0.0f, 1.0f);
+    }
+
+    if(ImGui::CollapsingHeader("Foam - 泡沫：控制潮头泡沫、FFT 破碎泡沫和状态泡沫输运")){
+        ImGui::DragFloat("Animation Cycle - 三相泡沫细节循环周期 s", &m_FoamGui.animationCycle, 0.1f, 0.1f, 20.0f);
+        ImGui::DragFloat("Detail Scale - 泡沫细节纹理世界缩放", &m_FoamGui.detailWorldScale, 0.001f, 0.001f, 1.0f);
+        ImGui::DragFloat4("Source Strength - Profile/Slope/Jacobian/Breaking 泡沫源强度", glm::value_ptr(m_FoamGui.sourceStrength), 0.01f, 0.0f, 5.0f);
+        ImGui::DragFloat4("Thresholds - 泡沫生成阈值和软化范围", glm::value_ptr(m_FoamGui.thresholds), 0.01f, 0.0f, 1.0f);
+        ImGui::DragFloat4("Appearance - 覆盖阈值/软边/法线/状态混合", glm::value_ptr(m_FoamGui.appearance), 0.01f, 0.0f, 2.0f);
+        ImGui::DragFloat("State Gain - 状态泡沫源项增益", &m_FoamGui.stateGain, 0.05f, 0.0f, 10.0f);
+        ImGui::DragFloat("State Decay - 状态泡沫衰减速度", &m_FoamGui.stateDecay, 0.01f, 0.0f, 5.0f);
+        ImGui::DragFloat("State Diffusion - 状态泡沫扩散系数", &m_FoamGui.stateDiffusion, 0.001f, 0.0f, 1.0f);
+        ImGui::Checkbox("Foam Solver - 开关状态泡沫计算", &m_FoamGui.solverEnabled);
+        ImGui::DragFloat4("Foam Domain - 状态泡沫世界范围 minX/minZ/sizeX/sizeZ", glm::value_ptr(m_FoamGui.domain), 1.0f);
+    }
+
+    if(ImGui::CollapsingHeader("Water Material - 水体材质：控制颜色、反射、高光、泥沙和远景雾")){
+        ImGui::ColorEdit3("Shallow - 浅水颜色 RGB", glm::value_ptr(m_WaterMaterialGui.shallowColor));
+        ImGui::ColorEdit3("Deep - 深水颜色 RGB", glm::value_ptr(m_WaterMaterialGui.deepColor));
+        ImGui::ColorEdit3("Sediment - 泥沙颜色 RGB", glm::value_ptr(m_WaterMaterialGui.sedimentColor));
+        ImGui::DragFloat4("Optical - F0/反射/粗糙或吸收/泥沙量", glm::value_ptr(m_WaterMaterialGui.opticalParams), 0.01f, 0.0f, 4.0f);
+        ImGui::DragFloat3("Sun Direction - 太阳方向 xyz", glm::value_ptr(m_WaterMaterialGui.sunDirection), 0.01f, -1.0f, 1.0f);
+        ImGui::DragFloat("Specular - 太阳高光强度", &m_WaterMaterialGui.specularStrength, 0.05f, 0.0f, 10.0f);
+        ImGui::DragFloat4("Fog - 雾起点/终点/地平线融合/保留", glm::value_ptr(m_WaterMaterialGui.fogParams), 1.0f, 0.0f, 5000.0f);
+    }
+
+    if(ImGui::CollapsingHeader("Quadtree LOD - 四叉树细分：控制水面覆盖范围、最细层级和屏幕误差阈值")){
+        ImGui::DragFloat2("Root Center - 四叉树根节点中心 XZ", glm::value_ptr(m_QuadtreeGui.rootCenter), 1.0f);
+        ImGui::DragFloat("Root Size - 四叉树根节点边长 m", &m_QuadtreeGui.rootSize, 16.0f, 128.0f, 8192.0f);
+        ImGui::SliderInt("Max Level - 最大细分层级", &m_QuadtreeGui.maxLevel, 1, 9);
+        ImGui::SliderInt("Patch Cells - WaterPatchMesh的网格数", &m_QuadtreeGui.patchCellCount, 8, 128);
+        ImGui::DragFloat("FOV Y - 垂直视场角", &m_QuadtreeGui.fovYDegrees, 1.0f, 10.0f, 120.0f);
+        ImGui::DragFloat("Split Pixels - 分裂阈值", &m_QuadtreeGui.splitPixels, 0.25f, 1.0f, 64.0f);
+        ImGui::DragFloat("Merge Pixels - 合并阈值", &m_QuadtreeGui.mergePixels, 0.25f, 1.0f, 64.0f);
+        ImGui::DragFloat("Min Y - 水面 AABB 的最小 Y 坐标（米）", &m_QuadtreeGui.minY, 0.5f, -100.0f, 0.0f);
+        ImGui::DragFloat("Max Y - 水面 AABB 的最大 Y 坐标（米）", &m_QuadtreeGui.maxY, 0.5f, 0.0f, 100.0f);
+
+        if(ImGui::Button("Apply Quadtree Rebuild")){
+            RebuildQuadtreeFromGui();
+        }
+    }
+
+    if(ImGui::CollapsingHeader("River / Flow Map - 弯曲河道：调整弯曲河道涌潮的视觉表现")){
+        ImGui::DragFloat("River Bore Curvature - 河道涌潮曲率（暂未接入）", &m_RiverBoreCurvatureMeters, 0.25f, 0.0f, 50.0f);
+        ImGui::Text("Flow Map control points require river resource rebuild.");
+        ImGui::Text("Current river length - 当前河流中轴线的总长度: %.1f m", m_RiverLength);
+    }
+
+    ImGui::End();
 }
 
 void Stage10RiverWaterApp::UpdateWindowTitle()
@@ -2352,19 +2569,17 @@ void Stage10RiverWaterApp::UpdateWindowTitle()
     m_TitleUpdateTimer = 0.0f;
 
     const glm::vec3& pos = m_Camera.GetPosition();
+    const glm::vec3& target = m_Camera.GetTarget();
 
     std::ostringstream title;
-    title << "Stage 10 - River Quadtree | pos=("
-        << pos.x << ", "
-        << pos.y << ", "
-        << pos.z << ") mode="
-        << m_DebugMode
-        << " wire="
-        << (m_UseWireframe ? "on" : "off")
-        << " paused="
-        << (m_Paused ? "yes" : "no")
-        << " tiles="
-        << m_CurrentVisibleWaterTileCount;
+    title << "Stage 10 - River Quadtree | " 
+        << "pos=(" << pos.x << ", " << pos.y << ", " << pos.z
+        << ") lookAt=(" << target.x << ", " << target.y << ", " << target.z  
+        << ") mode=" << m_DebugMode
+        << " wire=" << (m_UseWireframe ? "on" : "off")
+        << " paused=" << (m_Paused ? "yes" : "no")
+        << " tiles=" << m_CurrentVisibleWaterTileCount
+        << "   --- Move Camera: WASD LeftCtrl Space ---";
 
     GetWindow().SetTitle(title.str());
 }
@@ -2378,6 +2593,13 @@ void Stage10RiverWaterApp::OnKey(int key, int scancode, int action, int mods)
 {
     // 保留基类的默认按键行为（如 ESC 退出等）
     core::Application::OnKey(key, scancode, action, mods);
+
+    if(m_GuiEnabled){
+        ImGuiIO& io = ImGui::GetIO();
+        if(io.WantCaptureKeyboard){
+            return;
+        }
+    }
 
     // 忽略非法键值，防止数组越界
     if(key < 0 || key >= 1024){
@@ -2560,6 +2782,14 @@ void Stage10RiverWaterApp::OnKey(int key, int scancode, int action, int mods)
 
 void Stage10RiverWaterApp::OnMouseMove(double x, double y)
 {
+    if(m_GuiEnabled){
+        ImGuiIO& io = ImGui::GetIO();
+        if(io.WantCaptureMouse){
+            m_FirstMouse = true;
+            return;
+        }
+    }
+
     if(!m_CameraControlEnabled){
         return;
     }
@@ -2585,6 +2815,13 @@ void Stage10RiverWaterApp::OnMouseMove(double x, double y)
 
 void Stage10RiverWaterApp::OnMouseButton(int button, int action, int mods)
 {
+    if(m_GuiEnabled){
+        ImGuiIO& io = ImGui::GetIO();
+        if(io.WantCaptureMouse){
+            return;
+        }
+    }
+
     if(button == GLFW_MOUSE_BUTTON_RIGHT && action == GLFW_PRESS){
         m_CameraControlEnabled = !m_CameraControlEnabled;
         m_FirstMouse = true;
