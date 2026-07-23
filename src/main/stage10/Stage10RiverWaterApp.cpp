@@ -16,6 +16,7 @@
 #include <stdexcept>
 #include <iostream>
 #include <algorithm>
+#include <limits>
 
 // Start()
 // ├── VKP_INFO("Stage10RiverWaterApp started")
@@ -123,21 +124,28 @@ void Stage10RiverWaterApp::Start()
     CreatePipelines();
     CreateWaterPatch();
     CreateSamplers();
+    
+    CreateRiverResources();
     CreateBoreFrontResources();
     CreateBoreProfileResources();
+    
     CreateFoamResources();
     CreateFoamStateResources();
     CreateFoamComputeDescriptorSetLayouts();
     CreateFoamComputePipelines();
     CreateGPUFFTSource();
+
     CreateUniformBuffers();
     CreateTileInstanceBuffers();
+
     CreateDescriptorPool();
     CreateAppearanceDescriptorPool();
     CreateFoamComputeDescriptorPool();
+
     CreateDescriptorSets();
     CreateAppearanceDescriptorSets();
     CreateFoamComputeDescriptorSets();
+
     InitializeFoamStateImages();
 }
 
@@ -163,6 +171,8 @@ void Stage10RiverWaterApp::ShutdownApp()
     m_FrontParameterTexture.reset();
     m_BoreProfileDerivativeTexture.reset();
     m_BoreProfileDisplacementTexture.reset();
+    m_RiverCoordinateTexture.reset();
+    m_RiverFlowTexture.reset();
 
     m_FoamComputeDescriptorPool.reset();
     m_AppearanceDescriptorPool.reset();
@@ -180,6 +190,7 @@ void Stage10RiverWaterApp::ShutdownApp()
     m_FFTSampler.reset();
     m_FrontLUTSampler.reset();
     m_BoreProfileSampler.reset();
+    m_RiverSampler.reset();
 
     m_FoamSimulationUniformBuffers.clear();
     m_FoamParamsUniformBuffers.clear();
@@ -189,9 +200,11 @@ void Stage10RiverWaterApp::ShutdownApp()
     m_CameraUniformBuffers.clear();
     m_BoreFrontUniformBuffers.clear();
     m_BoreProfileUniformBuffers.clear();
+    m_RiverFieldUniformBuffers.clear();
 
     m_WaterQuadtree.reset();
     m_WaterPatchMesh.reset();
+    m_RiverField.reset();
 }
 
 void Stage10RiverWaterApp::CreatePipelines()
@@ -313,6 +326,12 @@ void Stage10RiverWaterApp::CreateDescriptorSetLayout()
         .AddBinding(13, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT)
         // Binding 14：WaterTileGPU SSBO，每个 instance 读取一个 Tile 的世界变换和 LOD 元数据
         .AddBinding(14, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_VERTEX_BIT)
+        // Binding 15：RiverFieldUBO，河道 domain、riverLength、单潮头进度、河口曲率
+        .AddBinding(15, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT)
+        // Binding 16：River Flow Map，RG=flow direction, B=amplitude, A=water mask
+        .AddBinding(16, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT)
+        // Binding 17：River Coordinate Map，R=progress, G=lateral, B=bank distance, A=curvature
+        .AddBinding(17, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT)
         .Build();
 }
 
@@ -425,10 +444,123 @@ void Stage10RiverWaterApp::CreateWaterPatch()
     config.mergePixels = 6.0f;
     config.minY = -15.0f;
     config.maxY = 20.0f;
+    
+    // 将分类/分级函数注入四叉树配置
+    config.classifyTile =
+        [this](water::WaterTile& tile)
+        {
+            return ClassifyRiverTile(tile);
+        };
+
+    config.requiredLevel =
+        [this](const water::WaterTile& tile)
+        {
+            return GetRiverRequiredLevel(tile);
+        };
 
     m_WaterQuadtree =
         std::make_unique<water::WaterQuadtree>(
             config
+        );
+}
+
+// 生成 U 形 field 并上传 GPU
+void Stage10RiverWaterApp::CreateRiverResources()
+{
+    // struct RiverControlPoint
+    // {
+    //     glm::vec2 position{0.0f};       // 控制点的世界坐标位置
+    //     float halfWidth = 100.0f;       // 该点处的河道半宽（米）
+    //     float boreAmplitude = 1.0f;     // 该点处的涌潮振幅缩放系数
+    //     float curvatureWeight = 0.0f;   // 曲率权重，用于控制弯曲处波前形变
+    // };
+    // 开放河道；入口在 root 外，避免端帽闭合
+    std::vector<water::RiverControlPoint> controlPoints =
+    {
+        {{-600.0f, 1200.0f}, 640.0f, 0.70f, 1.00f},
+        {{-600.0f,  960.0f}, 580.0f, 0.78f, 1.00f},
+
+        {{-610.0f,  760.0f}, 520.0f, 0.88f, 0.90f},
+        {{-615.0f,  560.0f}, 360.0f, 1.00f, 0.70f},
+        {{-620.0f,  340.0f}, 250.0f, 1.15f, 0.45f},
+
+        {{-610.0f,   20.0f}, 190.0f, 1.25f, 0.25f},
+        {{-540.0f, -260.0f}, 180.0f, 1.20f, 0.10f},
+        {{-350.0f, -500.0f}, 174.0f, 1.12f, 0.05f},
+        {{ -50.0f, -610.0f}, 170.0f, 1.05f, 0.00f},
+
+        {{ 260.0f, -560.0f}, 168.0f, 1.00f, 0.00f},
+        {{ 500.0f, -390.0f}, 170.0f, 0.98f, 0.00f},
+        {{ 650.0f, -140.0f}, 166.0f, 0.96f, 0.00f},
+        {{ 770.0f,  100.0f}, 162.0f, 0.94f, 0.00f},
+        {{ 930.0f,  220.0f}, 158.0f, 0.92f, 0.00f}
+    };
+
+    // 定义并构建河流曲线
+    m_RiverSpline.Build(
+        controlPoints,
+        24
+    );
+
+    water::RiverFieldConfig fieldConfig{};
+    fieldConfig.worldMin = glm::vec2(-1024.0f, -1024.0f);
+    fieldConfig.worldSize = 2048.0f;
+    fieldConfig.resolution = 1024;
+    fieldConfig.bankFade = 4.0f;
+    fieldConfig.bankFadeDistance = 16.0f;   
+
+    // 预烘焙河流场纹理数据
+    water::RiverFieldData fieldData =
+        water::BakeRiverField(
+            fieldConfig,
+            m_RiverSpline
+        );
+
+    m_RiverLength =
+        fieldData.riverLength;
+
+    // 打包并上传为 GPU 纹理
+    std::vector<PackedHalf4> flowPacked =
+        PackHalf4Vector(fieldData.flow);
+
+    VkDeviceSize flowTextureSize =
+        static_cast<VkDeviceSize>(fieldConfig.resolution) *
+        static_cast<VkDeviceSize>(fieldConfig.resolution) *
+        sizeof(PackedHalf4);
+
+    VkDeviceSize coordinateTextureSize =
+        static_cast<VkDeviceSize>(fieldData.coordinate.size()) *
+        sizeof(glm::vec4);
+
+    m_RiverFlowTexture =
+        std::make_unique<water::StaticDataTexture2D>(
+            GetPhysicalDevice(),
+            GetDevice(),
+            GetCommandPool(),
+            GetDevice().GetGraphicsQueue(),
+            fieldConfig.resolution,
+            fieldConfig.resolution,
+            VK_FORMAT_R16G16B16A16_SFLOAT,
+            flowPacked.data(),
+            flowTextureSize
+        );
+
+    m_RiverCoordinateTexture =
+        std::make_unique<water::StaticDataTexture2D>(
+            GetPhysicalDevice(),
+            GetDevice(),
+            GetCommandPool(),
+            GetDevice().GetGraphicsQueue(),
+            fieldConfig.resolution,
+            fieldConfig.resolution,
+            VK_FORMAT_R32G32B32A32_SFLOAT,
+            fieldData.coordinate.data(),
+            coordinateTextureSize
+        );
+
+    m_RiverField =
+        std::make_unique<water::RiverField>(
+            std::move(fieldData)
         );
 }
 
@@ -466,6 +598,12 @@ void Stage10RiverWaterApp::CreateSamplers()
         VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE
     );
 
+    m_RiverSampler = std::make_unique<water::WaterSampler>(
+        GetDevice(),
+        VK_FILTER_LINEAR,
+        VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE
+    );
+
     m_FoamDetailSampler = std::make_unique<water::WaterSampler>(
         GetDevice(),
         VK_FILTER_LINEAR,
@@ -483,9 +621,9 @@ void Stage10RiverWaterApp::CreateBoreFrontResources()
 {
     m_BoreFrontParams.origin = glm::vec2(0.0f);
     m_BoreFrontParams.direction = glm::normalize(glm::vec2(1.0f, 0.15f));
-    m_BoreFrontParams.speed = 8.0f;
+    m_BoreFrontParams.speed = 96.0f;
     m_BoreFrontParams.frontLength = 1000.0f;
-    m_BoreFrontParams.initialOffset = -100.0f;
+    m_BoreFrontParams.initialOffset = 0.0f;
     m_BoreFrontParams.edgeFadeFraction = 0.03f;
 
     m_FrontLUT =
@@ -610,6 +748,12 @@ void Stage10RiverWaterApp::CreateBoreProfileResources()
                 )
             );
     }
+
+    m_ProfileTime =
+        m_BoreProfileConfig.duration *
+        0.60f; // 固定 Profile 在成熟阶段
+
+    m_ProfilePaused = true;
 }
 
 void Stage10RiverWaterApp::CreateFoamResources()
@@ -734,6 +878,9 @@ void Stage10RiverWaterApp::CreateUniformBuffers()
     m_FoamSimulationUniformBuffers.reserve(GetMaxFramesInFlight());
     m_WaterMaterialUniformBuffers.reserve(GetMaxFramesInFlight());
 
+    // reserve — 只分配内存，不创建对象 resize — 让 vector 包含 n 个默认构造的对象(每帧传 river domain + 潮头 progress)
+    m_RiverFieldUniformBuffers.resize(GetMaxFramesInFlight());
+
     for(uint32_t i = 0; i < GetMaxFramesInFlight(); i++){
         // 创建相机 UBO
         auto cameraBuffer = std::make_unique<vkp::Buffer>(
@@ -816,6 +963,17 @@ void Stage10RiverWaterApp::CreateUniformBuffers()
         );
         waterMaterialBuffer->Map();
         m_WaterMaterialUniformBuffers.push_back(std::move(waterMaterialBuffer));
+
+        // 创建河流 UBO
+        m_RiverFieldUniformBuffers[i] = std::make_unique<vkp::Buffer>(
+            GetPhysicalDevice(),
+            GetDevice(),
+            sizeof(water::RiverFieldUBO),
+            VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
+        );
+        m_RiverFieldUniformBuffers[i]->Map();
     }
 }
 
@@ -857,11 +1015,11 @@ void Stage10RiverWaterApp::CreateDescriptorPool()
         .SetMaxSets(GetMaxFramesInFlight())
         .AddPoolSize(
             VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-            GetMaxFramesInFlight() * 4
+            GetMaxFramesInFlight() * 5
         )
         .AddPoolSize(
             VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-            GetMaxFramesInFlight() * 10
+            GetMaxFramesInFlight() * 12
         )
         .AddPoolSize(
             VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
@@ -949,6 +1107,11 @@ void Stage10RiverWaterApp::CreateDescriptorSets()
             sizeof(water::WaterTileGPU) *
             m_MaxVisibleWaterTiles;
 
+        VkDescriptorBufferInfo riverFieldInfo{};
+        riverFieldInfo.buffer = *m_RiverFieldUniformBuffers[i];
+        riverFieldInfo.offset = 0;
+        riverFieldInfo.range = sizeof(water::RiverFieldUBO);
+
         // 3. 准备 位移图 的绑定信息。
         //    GetDescriptorInfo 内部会封装 VkImageView 和 VkSampler，
         //    并指定图像布局为 SHADER_READ_ONLY_OPTIMAL，供着色器采样
@@ -972,6 +1135,16 @@ void Stage10RiverWaterApp::CreateDescriptorSets()
                 *m_BoreProfileSampler
             );
 
+        VkDescriptorImageInfo riverFlowInfo =
+            m_RiverFlowTexture->GetDescriptorInfo(
+                *m_RiverSampler
+            );
+
+        VkDescriptorImageInfo riverCoordinateInfo =
+            m_RiverCoordinateTexture->GetDescriptorInfo(
+                *m_RiverSampler
+            );
+
         // 5. 用 DescriptorWriter 将上述资源按顺序写入描述符集
         //    binding 0：camera UBO 每一帧，在 UpdateCameraUniformBuffer 中生成视图矩阵 投影矩阵 着色器通过 binding = 0 读取这个 UBO，完成顶点到裁剪空间的变换
         //    binding 1：water params UBO 存储控制波浪变形的全局参数(FFT 分辨率 补丁长度 choppy 强度 调试模式标志)
@@ -993,6 +1166,9 @@ void Stage10RiverWaterApp::CreateDescriptorSets()
             .WriteImage(12, &boreProfileDisplacementInfo)
             .WriteImage(13, &boreProfileDerivativeInfo)
             .WriteBuffer(14, &tileInstanceInfo)
+            .WriteBuffer(15, &riverFieldInfo)
+            .WriteImage(16, &riverFlowInfo)
+            .WriteImage(17, &riverCoordinateInfo)
             .Build(m_DescriptorSets[i]); // 完成分配与写入
 
         // 如果分配或写入失败（比如池子空间不足），立即抛出异常
@@ -1289,7 +1465,21 @@ void Stage10RiverWaterApp::InitializeFoamStateImages()
 
 void Stage10RiverWaterApp::UpdateCamera(float deltaTime)
 {
-    float distance = 20.0f * deltaTime;
+    float moveSpeed = 320.0f;
+
+    if(m_Keys[GLFW_KEY_LEFT_SHIFT]){
+        moveSpeed = 640.0f;
+    }
+
+    if(m_Keys[GLFW_KEY_LEFT_ALT]){
+        moveSpeed = 40.0f;
+    }
+
+    float safeDeltaTime =
+        std::min(deltaTime, 0.05f);
+
+    float distance =
+        moveSpeed * safeDeltaTime;
 
     if(m_Keys[GLFW_KEY_W]){
         m_Camera.MoveForward(distance);
@@ -1375,6 +1565,7 @@ void Stage10RiverWaterApp::PrepareFrame(uint32_t frameIndex, uint32_t imageIndex
     UpdateCameraUniformBuffer(frameIndex);
     UpdateWaterParamsUniformBuffer(frameIndex);
     UpdateBoreFrontUniformBuffer(frameIndex);
+    UpdateRiverFieldUniformBuffer(frameIndex);
     UpdateBoreProfileUniformBuffer(frameIndex);
     UpdateFoamParamsUniformBuffer(frameIndex);
     UpdateFoamSimulationUniformBuffer(frameIndex);
@@ -1504,6 +1695,54 @@ void Stage10RiverWaterApp::UpdateBoreFrontUniformBuffer(uint32_t frameIndex)
     );
 }
 
+void Stage10RiverWaterApp::UpdateRiverFieldUniformBuffer(
+    uint32_t frameIndex
+)
+{
+    // 更新河流场 UBO（每帧调用）
+    // 将河流场的世界空间范围、河流总长度、涌潮波前的沿河进度和曲率参数写入当前帧的 Uniform Buffer
+    water::RiverFieldUBO ubo{};
+
+    // ===== domain：河流场纹理的世界空间范围与河流总长度 =====
+    // x = worldMinX    – 河流场纹理左下角 X 坐标（米）
+    // y = worldMinZ    – 河流场纹理左下角 Z 坐标（米）
+    // z = worldSize    – 河流场纹理的边长（米）
+    // w = riverLength  – 河流中轴线总长度（米）
+    ubo.domain =
+        glm::vec4(
+            -1024.0f,      // worldMinX
+            -1024.0f,      // worldMinZ
+            2048.0f,       // worldSize
+            m_RiverLength  // 河流总长度（由 BakeRiverField 计算得出）
+        );
+
+    // ===== bore：涌潮波前的沿河进度与曲率控制 =====
+    // x = boreProgressMeters   – 涌潮从入海口沿河流中轴线前进的总距离（米）
+    //                           由 initialOffset + speed * time 计算，驱动潮头在河道中推进
+    // y = riverBoreCurvatureMeters – 弯曲波前线的曲率影响范围（米），用于控制波前形变
+    // z = amplitudeScale        – 河流涌潮的全局振幅缩放（1.0 = 标准强度）
+    // w = decayRate             – 涌潮沿河道的振幅衰减速率（每米衰减比例）
+    float boreProgressMeters =
+        m_BoreFrontParams.initialOffset +
+        m_BoreFrontParams.speed *
+            m_BoreTime;
+
+    ubo.bore =
+        glm::vec4(
+            boreProgressMeters,       // 波前沿河推进距离
+            m_RiverBoreCurvatureMeters, // 弯曲波前的曲率影响范围
+            1.0f,                     // 振幅缩放
+            0.01f                     // 衰减速率
+        );
+
+    // 将 UBO 数据写入当前帧对应的 Host-Visible 缓冲区（持久映射，直接拷贝）
+    m_RiverFieldUniformBuffers[frameIndex]
+        ->CopyToMapped(
+            &ubo,
+            sizeof(ubo)
+        );
+}
+
 void Stage10RiverWaterApp::UpdateBoreProfileUniformBuffer(uint32_t frameIndex)
 {
     water::BoreProfileUBO ubo{};
@@ -1515,7 +1754,7 @@ void Stage10RiverWaterApp::UpdateBoreProfileUniformBuffer(uint32_t frameIndex)
     // w = duration（秒）：单次 OneShot 动画的总时长
     ubo.domain = glm::vec4(
         m_BoreProfileConfig.profileHalfWidth,  // 剖面半宽度（如 30.0 米）
-        5.0f,                                  // 潮后水位抬升高度
+        8.0f,                                  // 潮后水位抬升高度
         8.0f,                                  // 抬升过渡宽度
         m_BoreProfileConfig.duration           // 动画时长（如 24 秒）
     );
@@ -1526,9 +1765,9 @@ void Stage10RiverWaterApp::UpdateBoreProfileUniformBuffer(uint32_t frameIndex)
     // z = animationMode：动画模式（0 = OneShot 单次播放，1 = Looping 循环播放）
     // w = profileEnabled：剖面效果开关（1.0 = 启用涌潮，0.0 = 关闭）
     ubo.animation = glm::vec4(
-        m_ProfileTime,                          // 当前动画时间 驱动 Wave Profile 翻卷动画
-        0.08f,                                  // 剖面宽度缩放（典型值 0.05~0.1）
-        static_cast<float>(m_ProfileMode),      // 动画模式（OneShot=0, Looping=1）
+        m_BoreProfileConfig.duration * 0.60f,   // 当前动画时间 驱动 Wave Profile 翻卷动画
+        0.0f,                                   // 剖面宽度缩放（典型值 0.05~0.1）
+        0.0f,                                   // 动画模式（OneShot=0, Looping=1）
         m_ProfileEnabled ? 1.0f : 0.0f          // 效果开关
     );
 
@@ -1539,8 +1778,8 @@ void Stage10RiverWaterApp::UpdateBoreProfileUniformBuffer(uint32_t frameIndex)
     // w = activeRegionMask：当前点是否在涌潮活跃区域内（由 Flow Map / SDF 控制）
     ubo.geometry = glm::vec4(
         1.0f,  // 全局振幅缩放（默认 1.0，调大波更高）
-        2.0f,  // 前向位移缩放
-        4.0f,  // 向上位移缩放
+        1.0f,  // 前向位移缩放
+        10.0f,  // 向上位移缩放
         1.0f   // 区域掩码（1.0 = 全部生效）
     );
 
@@ -1733,6 +1972,157 @@ void Stage10RiverWaterApp::UpdateWaterMaterialUniformBuffer(uint32_t frameIndex)
         &ubo,
         sizeof(ubo)
     );
+}
+
+// 判断 Tile 是水域、陆地还是河岸
+bool Stage10RiverWaterApp::ClassifyRiverTile(
+    water::WaterTile& tile
+) const
+{
+    if(!m_RiverField){
+        tile.intersectsWater = true;
+        tile.intersectsBank = false;
+        return true;
+    }
+
+    if(tile.key.level < 4){
+        tile.intersectsWater = true;
+        tile.intersectsBank = false;
+        return true;
+    }
+
+    glm::vec2 minPoint =
+        tile.worldMin;
+
+    glm::vec2 maxPoint =
+        tile.worldMin +
+        glm::vec2(tile.worldSize);
+
+    glm::vec2 center =
+        (minPoint + maxPoint) * 0.5f;
+
+    glm::vec2 samplePoints[9] =
+    {
+        center,
+        glm::vec2(minPoint.x, minPoint.y),
+        glm::vec2(maxPoint.x, minPoint.y),
+        glm::vec2(minPoint.x, maxPoint.y),
+        glm::vec2(maxPoint.x, maxPoint.y),
+        glm::vec2(center.x, minPoint.y),
+        glm::vec2(center.x, maxPoint.y),
+        glm::vec2(minPoint.x, center.y),
+        glm::vec2(maxPoint.x, center.y)
+    };
+
+    bool anyWater = false;
+    bool anyDry = false;
+    bool nearBank = false;
+
+    tile.minRiverProgress =
+        std::numeric_limits<float>::max();
+
+    tile.maxRiverProgress =
+        -std::numeric_limits<float>::max();
+
+    for(const glm::vec2& point : samplePoints){
+        glm::vec4 flow =
+            m_RiverField->SampleFlowNearest(point);
+
+        glm::vec4 coord =
+            m_RiverField->SampleCoordinateNearest(point);
+
+        if(flow.a > 0.25f){
+            anyWater = true;
+        }
+        else{
+            anyDry = true;
+        }
+
+        if(flow.a > 0.05f){
+            float progressMeters =
+                coord.r *
+                m_RiverLength;
+
+            tile.minRiverProgress =
+                std::min(
+                    tile.minRiverProgress,
+                    progressMeters
+                );
+
+            tile.maxRiverProgress =
+                std::max(
+                    tile.maxRiverProgress,
+                    progressMeters
+                );
+        }
+
+        float bankDistance =
+            coord.b * 16.0f;
+
+        if(std::abs(bankDistance) < 24.0f){
+            nearBank = true;
+        }
+    }
+
+    tile.intersectsWater = anyWater;
+    tile.intersectsBank = anyWater && (anyDry || nearBank);
+
+    if(tile.minRiverProgress >
+        tile.maxRiverProgress)
+        {
+            tile.minRiverProgress = 0.0f;
+            tile.maxRiverProgress = 0.0f;
+        }
+
+    return tile.intersectsWater;
+}
+
+// 强制河岸区域使用高 LOD, 为河岸 Tile 指定最低 LOD 层级
+    // coarse tile 先至少分到 Level 4
+    // 岸边至少 Level 5
+    // 潮头附近强制 Level 6
+uint32_t Stage10RiverWaterApp::GetRiverRequiredLevel(
+    const water::WaterTile& tile
+) const
+{
+    uint32_t requiredLevel = 0;
+
+    if(tile.key.level < 4){
+        requiredLevel =
+            std::max(requiredLevel, 4u);
+    }
+
+    if(tile.intersectsBank){
+        requiredLevel =
+            std::max(requiredLevel, 5u);
+    }
+
+    float boreProgress =
+        m_BoreFrontParams.initialOffset +
+        m_BoreFrontParams.speed *
+            m_BoreTime;
+
+    float highDetailMargin =
+        m_BoreProfileConfig.profileHalfWidth +
+        24.0f;
+
+    bool hasProgressRange =
+        tile.maxRiverProgress >
+        tile.minRiverProgress;
+
+    bool intersectsBore =
+        hasProgressRange &&
+        boreProgress + highDetailMargin >=
+            tile.minRiverProgress &&
+        boreProgress - highDetailMargin <=
+            tile.maxRiverProgress;
+
+    if(intersectsBore){
+        requiredLevel =
+            std::max(requiredLevel, 6u);
+    }
+
+    return requiredLevel;
 }
 
 // 每帧根据相机生成可见 Tile
@@ -2070,7 +2460,7 @@ void Stage10RiverWaterApp::OnKey(int key, int scancode, int action, int mods)
         }
 
         if(key == GLFW_KEY_M){
-            m_DebugMode = (m_DebugMode + 1) % 40;
+            m_DebugMode = (m_DebugMode + 1) % 44;
         }
 
         // Tab：切换线框渲染模式
@@ -2095,7 +2485,10 @@ void Stage10RiverWaterApp::OnKey(int key, int scancode, int action, int mods)
         // 将 BoreTime 归零，使一线潮回到初始位置（origin + initialOffset）
         if(key == GLFW_KEY_R){
             m_BoreTime = 0.0f;
-            m_ProfileTime = 0.0f;
+            m_ProfileTime =
+                m_BoreProfileConfig.duration *
+                0.60f; // 固定 Profile 在成熟阶段
+            m_CurrentFoamStateIndex = 0;
         }
 
         // C：切换 Front LUT 的使用

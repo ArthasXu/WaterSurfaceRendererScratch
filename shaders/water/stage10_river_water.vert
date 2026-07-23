@@ -34,6 +34,51 @@ layout(std430, set = 0, binding = 14) readonly buffer WaterTileBuffer
     WaterTileGPU tiles[];
 } tileBuffer;
 
+// ===== domain：河流场纹理的世界空间范围与河流总长度 =====
+// x = worldMinX    – 河流场纹理左下角 X 坐标（米）
+// y = worldMinZ    – 河流场纹理左下角 Z 坐标（米）
+// z = worldSize    – 河流场纹理的边长（米）
+// w = riverLength  – 河流中轴线总长度（米）
+
+// ===== bore：涌潮波前的沿河进度与曲率控制 =====
+// x = boreProgressMeters   – 涌潮从入海口沿河流中轴线前进的总距离（米）
+//                           由 initialOffset + speed * time 计算，驱动潮头在河道中推进
+// y = riverBoreCurvatureMeters – 弯曲波前线的曲率影响范围（米），用于控制波前形变
+// z = amplitudeScale        – 河流涌潮的全局振幅缩放（1.0 = 标准强度）
+// w = decayRate             – 涌潮沿河道的振幅衰减速率（每米衰减比例）
+layout(set = 0, binding = 15) uniform RiverFieldUBO
+{
+    vec4 domain;
+    vec4 bore;
+} river;
+
+// 这是一个组合图像采样器的声明。在 Vulkan 中，它对应描述符类型 VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER。
+// GPU 硬件把 sampler2D 理解为一个“采样器 + 图像”的逻辑对象。
+// 当你调用 texture(riverFlowTexture, uv) 时，GPU 会利用已绑定的采样器和图像视图，
+// 根据 UV 坐标自动完成寻址、滤波和格式转换。
+
+// 从概念上，你可以把它理解为一个 二维的 vec4 数组。
+// 它是一张二维纹理，坐标用 (u, v) 索引，其中 u 和 v 的范围是 [0, 1]。
+// 每次采样返回一个 vec4，对应存储的 RGBA 四个通道。
+
+// 但硬件采样不同于 C++ 数组的精确下标访问——它会根据采样器设置自动进行双线性插值或最近邻查询，返回的是滤波后的值。
+// 此外，GPU 的纹理缓存和布局（如 Tiling、Swizzle）与 CPU 的线性数组在存储结构上也完全不同。
+// sampler2D 本身并不决定纹理是否有 mipmap。Mipmap 是在创建 VkImage 时通过 mipLevels 指定的
+
+// ===== Flow Map 各通道 =====
+// R = 流向 X 分量
+// G = 流向 Z 分量
+// B = 涌潮振幅缩放系数
+// A = 水域掩码
+
+// ===== Coordinate Map 各通道 =====
+// R = 归一化进度
+// G = 归一化横向坐标
+// B = 归一化河岸距离
+// A = 曲率权重
+layout(set = 0, binding = 16) uniform sampler2D riverFlowTexture;
+layout(set = 0, binding = 17) uniform sampler2D riverCoordinateTexture;
+
 layout(set = 0, binding = 1) uniform WaterParamsUBO
 {
     vec4 patchLengths;
@@ -98,6 +143,8 @@ layout(location = 10) out vec4 fragSlopeDebug;
 layout(location = 11) out vec4 fragFoamSourceData;
 layout(location = 12) out vec4 fragFoamFlowData;
 layout(location = 13) out vec4 fragFinalDisplacement;
+layout(location = 14) out vec4 fragRiverFlow;
+layout(location = 15) out vec4 fragRiverCoord;
 
 struct CascadeSample
 {
@@ -181,87 +228,157 @@ void main(){
             baseWorldXZ.y
         );
 
-    vec2 boreDirection =
-        normalize(bore.directionLengthFade.xy);
+    // 将顶点的世界坐标映射为河流场纹理的 UV
+    vec2 riverUV =
+        clamp(
+            (baseWorldPosition.xz - river.domain.xy) /
+                river.domain.z,
+            vec2(0.0),
+            vec2(1.0)
+        );
 
-    vec2 boreTangent =
-        vec2(-boreDirection.y, boreDirection.x);
+    // 只采样 mipmap 的第 0 级，避免因 mipmap 生成而导致数据偏差
+    vec4 riverFlow =
+        textureLod(
+            riverFlowTexture,
+            riverUV,
+            0.0
+        );
 
-    vec2 boreRelative =
-        baseWorldPosition.xz -
-        bore.originSpeedTime.xy;
+    vec4 riverCoord =
+        textureLod(
+            riverCoordinateTexture,
+            riverUV,
+            0.0
+        );
 
-    float alongFront =
-        dot(boreRelative, boreTangent);
+    ivec2 coordinateSize =
+        textureSize(
+            riverCoordinateTexture,
+            0
+        );
 
-    float crossFront =
-        dot(boreRelative, boreDirection);
+    vec2 texelUV =
+        1.0 / vec2(coordinateSize);
 
-    float frontLength =
-        bore.directionLengthFade.z;
+    float texelWorldSize =
+        river.domain.z /
+        float(coordinateSize.x);
 
-    float frontU =
-        alongFront / frontLength + 0.5;
+    float progressLeft =
+        textureLod(
+            riverCoordinateTexture,
+            riverUV - vec2(texelUV.x, 0.0),
+            0.0
+        ).r * river.domain.w;
+
+    float progressRight =
+        textureLod(
+            riverCoordinateTexture,
+            riverUV + vec2(texelUV.x, 0.0),
+            0.0
+        ).r * river.domain.w;
+
+    float progressDown =
+        textureLod(
+            riverCoordinateTexture,
+            riverUV - vec2(0.0, texelUV.y),
+            0.0
+        ).r * river.domain.w;
+
+    float progressUp =
+        textureLod(
+            riverCoordinateTexture,
+            riverUV + vec2(0.0, texelUV.y),
+            0.0
+        ).r * river.domain.w;
+
+    vec2 progressGradient =
+        vec2(
+            progressRight - progressLeft,
+            progressUp - progressDown
+        ) /
+        (2.0 * texelWorldSize);
+
+    fragRiverFlow = riverFlow;
+    fragRiverCoord = riverCoord;
+
+
+    // riverFlow.rg 是从 Flow Map（绑定在 binding=16）中采样得到的局部流向，它随河道弯曲而变化
+    vec2 localFlowDirection =
+        length(progressGradient) > 1.0e-4
+        ? normalize(progressGradient)
+        : normalize(riverFlow.rg);
+
+    // if(dot(localFlowDirection, riverFlow.rg) < 0.0){
+    //     localFlowDirection =
+    //         -localFlowDirection;
+    // }
+
+    float progressMeters =
+        riverCoord.r *
+        river.domain.w; // 该顶点沿河流中轴线的距离（米）
+
+    float lateral =
+        clamp(
+            riverCoord.g,
+            -1.0,
+            1.0
+        ); // 横向归一化坐标 [-1, 1]
 
     float frontUClamped =
-        clamp(frontU, 0.0, 1.0);
-
-    float edgeFade =
-        bore.directionLengthFade.w;
-
-    float lengthMask =
-        smoothstep(0.0, edgeFade, frontU) *
-        (1.0 - smoothstep(1.0 - edgeFade, 1.0, frontU));
-
-    vec4 frontParams =
-        textureLod(
-            frontParameterLUT,
-            vec2(frontUClamped, 0.5),
-            0.0
+        clamp(
+            lateral * 0.5 + 0.5,
+            0.0,
+            1.0
         );
 
-    vec4 derivativeData =
-        textureLod(
-            frontDerivativeLUT,
-            vec2(frontUClamped, 0.5),
-            0.0
-        );
+    float offsetMeters = 0.0;
 
-    float useLUT =
-        bore.lutInfo.z;
+    float lateralSquared =
+        lateral * lateral;
 
-    float offsetMeters =
-        mix(0.0, frontParams.r, useLUT);
-
-    float frontPosition =
-        bore.motionDebug.x +
-        bore.originSpeedTime.z *
-        bore.originSpeedTime.w +
-        offsetMeters;
+    // float curvatureOffset =
+    //     river.bore.y *
+    //     riverCoord.a *
+    //     lateralSquared; // 曲率修正项 river.bore.y 是曲率影响范围（米），riverCoord.a 是该点的曲率权重。
+    // // lateral * lateral 使得河道外侧（|lateral| 大）波前被延迟（curvatureOffset 为正），内侧被提前，
+    // // 从而在弯道处产生拉伸/压缩效果，避免波前断裂
+    float curvatureOffset = 0.0;
 
     float signedDistance =
-        crossFront - frontPosition;
-
-    float dOffsetDu =
-        mix(0.0, derivativeData.r, useLUT);
-
-    float dOffsetDa =
-        dOffsetDu / frontLength;
+        progressMeters -
+        river.bore.x -
+        curvatureOffset;
 
     vec2 localFrontNormal =
-        normalize(
-            boreDirection -
-            dOffsetDa * boreTangent
+        localFlowDirection;
+
+    float waterMask =
+        smoothstep(
+            0.05,
+            0.95,
+            riverFlow.a
         );
 
+    float boreAmplitude =
+        clamp(
+            riverFlow.b,
+            0.0,
+            2.0
+        );
+
+    float lengthMask =
+        waterMask;
+
     float amplitudeMultiplier =
-        mix(1.0, frontParams.g, useLUT);
+        boreAmplitude;
 
     float foamMultiplier =
-        mix(1.0, frontParams.b, useLUT);
+        boreAmplitude *
+        waterMask;
 
-    float profilePhaseOffset =
-        mix(0.0, frontParams.a, useLUT);
+    float profilePhaseOffset = 0.0;
 
     float profileHalfWidth =
         profileConfig.domain.x;
@@ -278,19 +395,7 @@ void main(){
     float profileDuration =
         max(profileConfig.domain.w, 0.001);
 
-    float profileVRaw =
-        profileConfig.animation.x /
-        profileDuration +
-        profilePhaseOffset *
-        profileConfig.animation.y;
-
-    bool looping =
-        profileConfig.animation.z > 0.5;
-
-    float profileV =
-        looping
-        ? fract(profileVRaw)
-        : clamp(profileVRaw, 0.0, 1.0);
+    float profileV = 0.60;
 
     vec2 profileUV =
         vec2(profileU, profileV);
@@ -370,25 +475,34 @@ void main(){
         profileConfig.geometry.z;
 
     // ===== 第三步：计算涌潮强度与浪尖掩码 =====
+    // float crestStrength =
+    //     boreEnabled *               // 用户是否开启涌潮效果（键盘 B 键）
+    //     profileEnabled *            // Wave Profile 是否启用
+    //     activeRegionMask *          // 当前点是否在涌潮区域内
+    //     lengthMask *                // 波前两端淡入淡出掩码
+    //     amplitudeMultiplier *       // Front LUT 的振幅乘数（G 通道）
+    //     globalAmplitude;            // 全局振幅缩放
 
-    // 涌潮最终强度：由多个开关和空间掩码连乘决定
-    // 任意一个为 0，涌潮就在该点不生效
+    float commonBoreMask =
+        boreEnabled *
+        profileEnabled *
+        activeRegionMask *
+        waterMask;
+
     float boreStrength =
-        boreEnabled *               // 用户是否开启涌潮效果（键盘 B 键）
-        profileEnabled *            // Wave Profile 是否启用
-        activeRegionMask *          // 当前点是否在涌潮区域内
-        lengthMask *                // 波前两端淡入淡出掩码
-        amplitudeMultiplier *       // Front LUT 的振幅乘数（G 通道）
-        globalAmplitude;            // 全局振幅缩放
+        commonBoreMask *
+        boreAmplitude *
+        globalAmplitude;
+
+    float riseStrength =
+        commonBoreMask *
+        boreAmplitude;
 
     // 浪尖掩码：标记当前点是否位于涌潮波峰附近
     // 用于后续抑制背景 FFT 波浪，避免背景波浪破坏潮头形状
     float crestMask =
-        boreProfile.a *             // Wave Profile 的浪尖掩码（A 通道）
-        lengthMask *                // 波前两端淡入淡出
-        boreEnabled *               // 涌潮开关
-        profileEnabled *            // 剖面开关
-        activeRegionMask;           // 区域掩码
+        boreProfile.a *
+        commonBoreMask;
 
     // ===== 第四步：对每个 Cascade 层施加 FFT 抑制 =====
 
@@ -495,7 +609,7 @@ void main(){
     float waterRise =
         profileConfig.domain.y *    // 从 UBO 读取的水位抬升高度
         backMask *                  // 只在波前后方生效
-        boreStrength;               // 涌潮总强度
+        riseStrength;
 
     // 最终垂直位移 = 直接波高 + 潮后水位抬升
     float boreVertical =
@@ -520,15 +634,19 @@ void main(){
 
     // 水位抬升的坡度
     float dWaterRiseDs =
-        profileConfig.domain.y *    // 水位抬升高度
-        dBackMaskDs *               // 掩码变化率
-        boreStrength;
+        profileConfig.domain.y *
+        dBackMaskDs *
+        riseStrength;
 
     // 前向水平位移对距离的导数（Wave Profile 导数纹理的 R 通道）
     float dForwardDs =
-        boreDerivative.r *          // d(forward)/ds
-        forwardScale *              // 缩放
-        boreStrength;
+        clamp(
+            boreDerivative.r *          // d(forward)/ds
+            forwardScale *              // 缩放
+            boreStrength,
+            -0.65,
+            0.65
+        );
 
     // ===== 第四步：参数化曲面修正（关键！） =====
 
@@ -544,11 +662,11 @@ void main(){
 
     // 有效涌潮坡度：将垂直位移的总导数（波高 + 水位抬升）除以修正分母
     float effectiveBoreSlope =
-        (
-            dUpwardDs +             // 波高本身的坡度
-            dWaterRiseDs            // 潮后水位抬升的坡度
-        ) /
-        denominator;
+        clamp(
+            (dUpwardDs + dWaterRiseDs) / denominator,
+            -2.5,
+            2.5
+        );
 
     // 坡度沿局部波前法线方向
     vec2 boreSlope =
@@ -577,8 +695,9 @@ void main(){
         baseWorldPosition +
         finalDisplacement;
     
-    // 裙边向下拉，遮住 LOD 接缝
-    if(inSkirt > 0.5){
+    // 开启 Skirt 裙边向下拉，遮住 LOD 接缝
+    // if(false && inSkirt > 0.5){
+    if(false && inSkirt > 0.5){
         worldPosition.y -= 15.0;
     }
 
@@ -592,11 +711,8 @@ void main(){
 
     float profileFoam =
         boreProfile.b *
-        foamMultiplier *
-        lengthMask *
-        boreEnabled *
-        profileEnabled *
-        activeRegionMask;
+        boreAmplitude *
+        commonBoreMask;
 
     float fftJacobianFoam =
         smoothstep(
@@ -617,8 +733,8 @@ void main(){
 
     float boreBreakingFoam =
         boreDerivative.a *
-        lengthMask *
-        foamMultiplier;
+        boreAmplitude *
+        commonBoreMask;
 
     vec2 boreFlowVelocity =
         localFrontNormal *

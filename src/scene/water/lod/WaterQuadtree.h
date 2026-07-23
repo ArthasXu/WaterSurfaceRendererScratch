@@ -6,6 +6,7 @@
 
 #include <array>
 #include <vector>
+#include <functional>
 
 namespace water
 {
@@ -24,6 +25,9 @@ struct WaterQuadtreeConfig
 
     float minY = -15.0f;              // 水面 AABB 的最小 Y 值（用于视锥体裁剪，包含波谷和裙边）
     float maxY = 20.0f;               // 水面 AABB 的最大 Y 值（包含波峰和涌潮）
+
+    std::function<bool(WaterTile&)> classifyTile;
+    std::function<uint32_t(const WaterTile&)> requiredLevel;
 };
 
 // ===== 单个视锥体平面方程 =====
