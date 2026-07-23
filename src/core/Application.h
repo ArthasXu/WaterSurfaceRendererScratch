@@ -42,6 +42,7 @@ protected:
 
 protected:
     Window& GetWindow();                    // 获取窗口
+    vkp::Instance& GetInstance();           // 获取 Vulkan 实例
     vkp::Device& GetDevice();               // 获取设备
     vkp::SwapChain& GetSwapChain();         // 获取交换链
     vkp::RenderPass& GetRenderPass();       // 获取渲染通道

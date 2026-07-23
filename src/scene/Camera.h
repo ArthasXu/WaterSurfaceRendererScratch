@@ -16,6 +16,10 @@ public:
     void MoveRight(float distance); // 向右移动
     void MoveUp(float distance); // 向上移动
 
+    void SetPosition(const glm::vec3& position);
+    void LookAt(const glm::vec3& target);
+    const glm::vec3& GetTarget() const { return m_Target; }
+
     void AddYawPitch(float yawOffset, float pitchOffset); // 鼠标移动
 
     glm::mat4 GetViewMatrix() const; // 获取视图矩阵
@@ -42,5 +46,7 @@ private:
     glm::vec3 m_Forward = {0.0f, 0.0f, -1.0f};
     glm::vec3 m_Right = {1.0f, 0.0f, 0.0f};
     glm::vec3 m_Up = {0.0f, 1.0f, 0.0f};
+    glm::vec3 m_Target{0.0f};
+    float m_LookDistance = 500.0f;
 };
 }

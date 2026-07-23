@@ -32,6 +32,8 @@
 #include "vulkan/Descriptors.h"
 #include "vulkan/Pipeline.h"
 
+#include <vulkan/vulkan.h>
+
 #include <glm/glm.hpp>
 
 #include <cstdint>
@@ -91,6 +93,58 @@ private:
         glm::ivec4 debug{0, 0, 0, 0};
     };
 
+    struct BoreProfileGuiParams
+    {
+        float waterRiseHeight = 8.0f;
+        float riseWidth = 8.0f;
+        float fixedPhase = 0.60f;
+        float profileWidthScale = 0.0f;
+        float globalAmplitude = 1.55f;
+        float forwardScale = 3.0f;
+        float upwardScale = 1.6f;
+        float activeRegionMask = 1.0f;
+        glm::vec4 suppression{0.20f, 0.35f, 0.80f, 0.0f};
+    };
+
+    struct FoamGuiParams
+    {
+        float animationCycle = 4.0f;
+        float detailWorldScale = 0.08f;
+        glm::vec4 sourceStrength{1.0f, 0.35f, 0.45f, 0.75f};
+        glm::vec4 thresholds{0.28f, 0.70f, 0.04f, 0.30f};
+        glm::vec4 appearance{0.32f, 0.15f, 0.35f, 0.25f};
+        float stateGain = 1.8f;
+        float stateDecay = 0.45f;
+        float stateDiffusion = 0.02f;
+        float stateEnabled = 0.0f;
+        glm::vec4 domain{-128.0f, -128.0f, 256.0f, 256.0f};
+        bool solverEnabled = true;
+    };
+
+    struct WaterMaterialGuiParams
+    {
+        glm::vec4 shallowColor{0.10f, 0.32f, 0.34f, 1.0f};
+        glm::vec4 deepColor{0.01f, 0.08f, 0.13f, 1.0f};
+        glm::vec4 sedimentColor{0.42f, 0.30f, 0.16f, 1.0f};
+        glm::vec4 opticalParams{0.0204f, 0.35f, 0.45f, 0.35f};
+        glm::vec3 sunDirection{-0.35f, 0.85f, 0.25f};
+        float specularStrength = 1.2f;
+        glm::vec4 fogParams{120.0f, 700.0f, 0.4f, 0.0f};
+    };
+
+    struct QuadtreeGuiParams
+    {
+        glm::vec2 rootCenter{0.0f};
+        float rootSize = 2048.0f;
+        int maxLevel = 6;
+        int patchCellCount = 32;
+        float fovYDegrees = 45.0f;
+        float splitPixels = 9.0f;
+        float mergePixels = 6.0f;
+        float minY = -15.0f;
+        float maxY = 20.0f;
+    };
+
 private:
     void CreateDescriptorSetLayout();          // 创建几何描述符集布局（set=0），定义 FFT/Bore/UBO 等资源绑定
     void CreatePipelines();                    // 创建图形管线（实体+线框），绑定两个描述符集布局（set0/set1）
@@ -148,6 +202,11 @@ private:
     void UpdateFoamSimulationUniformBuffer(uint32_t frameIndex); // 写入当前帧的 FoamSimulationUBO（时间、权重、阈值等）
     void UpdateWaterMaterialUniformBuffer(uint32_t frameIndex); // 写入当前帧的 WaterMaterialUBO（颜色、粗糙度等）
 
+    void SetupGui();
+    void DrawGui();
+    void RebuildQuadtreeFromGui();
+    void ResetBoreEvent();
+
     void UpdateWindowTitle();                  // 每 0.5s 更新窗口标题，显示相机位置、调试模式、线框/暂停状态
 
 private:
@@ -166,6 +225,13 @@ private:
     bool m_Paused = false;
     bool m_StepOnce = false;
     int m_DebugMode = 0;
+
+    bool m_GuiEnabled = true;
+    VkDescriptorPool m_GuiDescriptorPool = VK_NULL_HANDLE;
+    BoreProfileGuiParams m_BoreProfileGui{};
+    FoamGuiParams m_FoamGui{};
+    WaterMaterialGuiParams m_WaterMaterialGui{};
+    QuadtreeGuiParams m_QuadtreeGui{};
 
     // 配置参数：决定 FFT 网格大小和物理范围，供创建 WSTessendorfCPU 和分配纹理使用。
     water::Stage6OceanConfig m_OceanConfig =
