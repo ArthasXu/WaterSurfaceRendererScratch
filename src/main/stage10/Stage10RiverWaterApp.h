@@ -13,6 +13,7 @@
 #include "scene/water/common/BoreResourceContract.h"
 #include "scene/water/render/StaticFloatTexture2D.h"
 #include "scene/water/bore/BoreProfileTypes.h"
+#include "scene/water/bore/BoreEventManager.h"
 #include "scene/water/bore/BoreProfileResourceContract.h"
 #include "scene/water/render/StaticDataTexture2D.h"
 #include "scene/water/foam/FoamResourceContract.h"
@@ -145,6 +146,19 @@ private:
         float maxY = 20.0f;
     };
 
+    struct MultiBoreGuiParams
+    {
+        bool enabled = true;
+        int seed = 1337;
+        float minSpawnInterval = 5.0f;
+        float maxSpawnInterval = 10.0f;
+        float retryMinInterval = 0.5f;
+        float retryMaxInterval = 1.0f;
+        float baseSpeed = 8.0f;
+        float removeMargin = 120.0f;
+        float minimumSeparationPadding = 10.0f;
+    };
+
 private:
     void CreateDescriptorSetLayout();          // 创建几何描述符集布局（set=0），定义 FFT/Bore/UBO 等资源绑定
     void CreatePipelines();                    // 创建图形管线（实体+线框），绑定两个描述符集布局（set0/set1）
@@ -199,6 +213,10 @@ private:
     void UpdateWaterParamsUniformBuffer(uint32_t frameIndex); // 写入当前帧的 WaterParamsUBO（patch 长度、振幅、时间）
     void UpdateBoreFrontUniformBuffer(uint32_t frameIndex); // 写入当前帧的 BoreFrontUBO（波前位置、方向、时间）
     void UpdateBoreProfileUniformBuffer(uint32_t frameIndex); // 写入当前帧的 BoreProfileUBO（剖面尺寸、动画时间）
+    void UpdateMultiBoreBuffers(uint32_t frameIndex);
+    void ResetMultiBoreEvents();
+    water::BoreEventManagerConfig BuildBoreEventManagerConfig() const;
+    float ComputeProfilePhaseForProgress(float progressMeters, float phaseOffset) const;
     void UpdateFoamSimulationUniformBuffer(uint32_t frameIndex); // 写入当前帧的 FoamSimulationUBO（时间、权重、阈值等）
     void UpdateWaterMaterialUniformBuffer(uint32_t frameIndex); // 写入当前帧的 WaterMaterialUBO（颜色、粗糙度等）
 
@@ -232,6 +250,7 @@ private:
     FoamGuiParams m_FoamGui{};
     WaterMaterialGuiParams m_WaterMaterialGui{};
     QuadtreeGuiParams m_QuadtreeGui{};
+    MultiBoreGuiParams m_MultiBoreGui{};
 
     // 配置参数：决定 FFT 网格大小和物理范围，供创建 WSTessendorfCPU 和分配纹理使用。
     water::Stage6OceanConfig m_OceanConfig =
@@ -262,7 +281,7 @@ private:
     water::BoreProfileAnimationMode m_ProfileMode =
         water::BoreProfileAnimationMode::OneShot;
 
-    bool m_ProfilePaused = true; // 固定 Profile 在成熟阶段
+    bool m_ProfilePaused = false;
     bool m_ProfileEnabled = true;
     bool m_FFTEnabled = true;
     bool m_AutoRepeatEvent = false;
@@ -298,6 +317,10 @@ private:
     std::vector<std::unique_ptr<vkp::Buffer>> m_FoamParamsUniformBuffers;
     std::vector<std::unique_ptr<vkp::Buffer>> m_WaterMaterialUniformBuffers;
     std::vector<std::unique_ptr<vkp::Buffer>> m_RiverFieldUniformBuffers;
+    std::vector<std::unique_ptr<vkp::Buffer>> m_MultiBoreUniformBuffers;
+    std::vector<std::unique_ptr<vkp::Buffer>> m_BoreEventBuffers;
+    std::array<water::BoreEventGPU, water::kMaxBoreEvents> m_BoreEventGpuScratch{};
+    water::BoreEventManager m_BoreEventManager;
     std::vector<std::unique_ptr<vkp::Buffer>> m_TileInstanceBuffers;
     uint32_t m_MaxVisibleWaterTiles = 8192;
     uint32_t m_CurrentVisibleWaterTileCount = 0;

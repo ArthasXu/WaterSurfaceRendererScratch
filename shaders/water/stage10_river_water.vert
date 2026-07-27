@@ -79,6 +79,25 @@ layout(set = 0, binding = 15) uniform RiverFieldUBO
 layout(set = 0, binding = 16) uniform sampler2D riverFlowTexture;
 layout(set = 0, binding = 17) uniform sampler2D riverCoordinateTexture;
 
+struct BoreEventGPU
+{
+    vec4 motion;
+    vec4 shape;
+    vec4 appearance;
+    vec4 suppression;
+};
+
+layout(set = 0, binding = 18) uniform MultiBoreUBO
+{
+    ivec4 metadata;
+    vec4 riverInfo;
+} multiBore;
+
+layout(std430, set = 0, binding = 19) readonly buffer BoreEventBuffer
+{
+    BoreEventGPU events[];
+} boreEvents;
+
 layout(set = 0, binding = 1) uniform WaterParamsUBO
 {
     vec4 patchLengths;
@@ -408,7 +427,15 @@ void main(){
     float profileDuration =
         max(profileConfig.domain.w, 0.001);
 
-    float profileV = 0.60;
+    float profileTime =
+        profileConfig.animation.x;
+
+    float profileV =
+        clamp(
+            profileTime / profileDuration,
+            0.0,
+            1.0
+        );
 
     vec2 profileUV =
         vec2(profileU, profileV);
@@ -686,6 +713,122 @@ void main(){
         effectiveBoreSlope *
         localFrontNormal;
 
+    vec2 multiFoamVelocity = vec2(0.0);
+    float multiFoamSourceWeight = 0.0;
+    float multiProfileFoam = 0.0;
+    float multiBreakingFoam = 0.0;
+
+    if(multiBore.metadata.z != 0 && multiBore.metadata.x > 0){
+        boreHorizontal = vec2(0.0);
+        boreVertical = 0.0;
+        boreSlope = vec2(0.0);
+        crestMask = 0.0;
+        shortWeight = 1.0;
+        midWeight = 1.0;
+        longWeight = 1.0;
+
+        float totalCrestWeight = 0.0;
+        float waterRiseMask = 0.0;
+        float activeCount = float(min(multiBore.metadata.x, multiBore.metadata.y));
+
+        for(int eventIndex = 0; eventIndex < min(multiBore.metadata.x, multiBore.metadata.y); ++eventIndex){
+            BoreEventGPU event = boreEvents.events[eventIndex];
+
+            if(event.motion.w < 0.5){
+                continue;
+            }
+
+            float eventProgress = event.motion.x;
+            float eventWidthScale = max(event.shape.y, 0.05);
+            float eventHalfWidth = profileHalfWidth * eventWidthScale;
+            float eventCurvatureOffset = river.bore.y * event.shape.w * riverCoord.a * lateralSquared;
+            float eventSignedDistance = progressMeters - eventProgress - eventCurvatureOffset;
+            float eventProfileU = clamp(eventSignedDistance / (2.0 * eventHalfWidth) + 0.5, 0.0, 1.0);
+            float eventProfileV = clamp(event.appearance.y, 0.0, 1.0);
+
+            vec4 eventProfile = textureLod(boreProfileDisplacement, vec2(eventProfileU, eventProfileV), 0.0);
+            vec4 eventDerivative = textureLod(boreProfileDerivative, vec2(eventProfileU, eventProfileV), 0.0);
+
+            float eventAmplitude = boreAmplitude * event.shape.x;
+            float eventCommonMask = commonBoreMask;
+            float eventStrength = eventCommonMask * eventAmplitude * globalAmplitude;
+            float eventRiseStrength = eventCommonMask * eventAmplitude;
+            float eventCrestMask = eventProfile.a * eventCommonMask;
+
+            vec2 eventHorizontal =
+                localFrontNormal *
+                eventProfile.r *
+                forwardScale *
+                event.shape.z *
+                eventStrength;
+
+            float eventLocalVertical =
+                eventProfile.g *
+                upwardScale *
+                eventStrength;
+
+            float eventBackMask =
+                1.0 - smoothstep(-riseWidth, riseWidth, eventSignedDistance);
+
+            waterRiseMask = max(waterRiseMask, eventBackMask * eventRiseStrength);
+
+            float eventDUpwardDs =
+                eventDerivative.g *
+                upwardScale *
+                eventStrength;
+
+            float eventDBackMaskDs =
+                -SmoothStepDerivative(-riseWidth, riseWidth, eventSignedDistance);
+
+            float eventDWaterRiseDs =
+                profileConfig.domain.y *
+                eventDBackMaskDs *
+                eventRiseStrength;
+
+            float eventDForwardDs =
+                clamp(
+                    eventDerivative.r *
+                    forwardScale *
+                    event.shape.z *
+                    eventStrength,
+                    -0.65,
+                    0.65
+                );
+
+            float eventDenominator = max(1.0 + eventDForwardDs, 0.2);
+            float eventEffectiveSlope =
+                clamp((eventDUpwardDs + eventDWaterRiseDs) / eventDenominator, -2.5, 2.5);
+
+            boreHorizontal += eventHorizontal;
+            boreVertical += eventLocalVertical;
+            boreSlope += eventEffectiveSlope * localFrontNormal;
+            crestMask = max(crestMask, eventCrestMask);
+            totalCrestWeight += eventCrestMask;
+
+            shortWeight = min(shortWeight, mix(1.0, event.suppression.x, eventCrestMask));
+            midWeight = min(midWeight, mix(1.0, event.suppression.y, eventCrestMask));
+            longWeight = min(longWeight, mix(1.0, event.suppression.z, eventCrestMask));
+
+            float eventProfileFoam = eventProfile.b * eventAmplitude * eventCommonMask * event.appearance.x;
+            float eventBreakingFoam = eventDerivative.a * eventAmplitude * eventCommonMask * event.appearance.x;
+            multiProfileFoam = 1.0 - (1.0 - multiProfileFoam) * (1.0 - eventProfileFoam);
+            multiBreakingFoam = 1.0 - (1.0 - multiBreakingFoam) * (1.0 - eventBreakingFoam);
+
+            float eventFoamSource = max(eventProfileFoam, eventBreakingFoam);
+            multiFoamVelocity += localFrontNormal * eventDerivative.b * eventFoamSource;
+            multiFoamSourceWeight += eventFoamSource;
+        }
+
+        float overlap = max(totalCrestWeight, 1.0);
+        boreHorizontal /= overlap;
+        boreVertical = boreVertical / overlap + profileConfig.domain.y * waterRiseMask;
+        boreSlope /= overlap;
+
+        if(multiFoamSourceWeight > 1.0e-4){
+            multiFoamVelocity /= multiFoamSourceWeight;
+        }
+    }
+
     // ===== 第五步：合成最终世界坐标（FFT + Bore） =====
     // 水平位移：FFT 水平位移（缩放后）+ 涌潮水平位移
     // 垂直位移：FFT 高度 + 涌潮垂直位移
@@ -723,9 +866,11 @@ void main(){
         boreSlope;                  // 涌潮坡度
 
     float profileFoam =
-        boreProfile.b *
-        boreAmplitude *
-        commonBoreMask;
+        multiBore.metadata.z != 0 && multiBore.metadata.x > 0
+        ? multiProfileFoam
+        : boreProfile.b *
+            boreAmplitude *
+            commonBoreMask;
 
     float fftJacobianFoam =
         smoothstep(
@@ -745,13 +890,17 @@ void main(){
         );
 
     float boreBreakingFoam =
-        boreDerivative.a *
-        boreAmplitude *
-        commonBoreMask;
+        multiBore.metadata.z != 0 && multiBore.metadata.x > 0
+        ? multiBreakingFoam
+        : boreDerivative.a *
+            boreAmplitude *
+            commonBoreMask;
 
     vec2 boreFlowVelocity =
-        localFrontNormal *
-        boreDerivative.b;
+        multiBore.metadata.z != 0 && multiBore.metadata.x > 0
+        ? multiFoamVelocity
+        : localFrontNormal *
+            boreDerivative.b;
     
     // 从坡度重建世界空间法线：原法线为 (0, 1, 0)，经坡度扰动后归一化
     vec3 worldNormal =

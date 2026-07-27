@@ -62,6 +62,28 @@ layout(set = 0, binding = 14) uniform WaterParamsUBO
 
 layout(rgba16f, set = 0, binding = 15) uniform writeonly image2D sourceVelocityImage;
 
+struct BoreEventGPU
+{
+    vec4 motion;
+    vec4 shape;
+    vec4 appearance;
+    vec4 suppression;
+};
+
+layout(set = 0, binding = 16) uniform MultiBoreUBO
+{
+    ivec4 metadata;
+    vec4 riverInfo;
+} multiBore;
+
+layout(std430, set = 0, binding = 17) readonly buffer BoreEventBuffer
+{
+    BoreEventGPU events[];
+} boreEvents;
+
+layout(set = 0, binding = 18) uniform sampler2D riverFlowTexture;
+layout(set = 0, binding = 19) uniform sampler2D riverCoordinateTexture;
+
 // smoothstep 的解析导数，用于后续计算水位抬升的坡度
 float SmoothStepDerivative(float edge0, float edge1, float x) {
     if (x <= edge0 || x >= edge1) return 0.0;
@@ -132,6 +154,31 @@ void main() {
     vec2 uv = (vec2(pixel) + vec2(0.5)) / vec2(resolution);
     vec2 worldXZ = foamSim.domain.xy + uv * foamSim.domain.zw;
 
+    vec2 riverUV = clamp(
+        (worldXZ - multiBore.riverInfo.xy) / max(multiBore.riverInfo.z, 1.0),
+        vec2(0.0),
+        vec2(1.0)
+    );
+
+    vec4 riverFlow = textureLod(riverFlowTexture, riverUV, 0.0);
+    vec4 riverCoord = textureLod(riverCoordinateTexture, riverUV, 0.0);
+    float waterMask = smoothstep(0.05, 0.95, riverFlow.a);
+    float boreAmplitude = riverFlow.b;
+    float progressMeters = riverCoord.r * max(multiBore.riverInfo.w, 1.0);
+    float lateral = clamp(riverCoord.g, -1.0, 1.0);
+    float lateralSquared = lateral * lateral;
+
+    ivec2 coordinateSize = textureSize(riverCoordinateTexture, 0);
+    vec2 texelUV = 1.0 / vec2(coordinateSize);
+    float texelWorldSize = multiBore.riverInfo.z / float(coordinateSize.x);
+    float progressLeft = textureLod(riverCoordinateTexture, riverUV - vec2(texelUV.x, 0.0), 0.0).r * multiBore.riverInfo.w;
+    float progressRight = textureLod(riverCoordinateTexture, riverUV + vec2(texelUV.x, 0.0), 0.0).r * multiBore.riverInfo.w;
+    float progressDown = textureLod(riverCoordinateTexture, riverUV - vec2(0.0, texelUV.y), 0.0).r * multiBore.riverInfo.w;
+    float progressUp = textureLod(riverCoordinateTexture, riverUV + vec2(0.0, texelUV.y), 0.0).r * multiBore.riverInfo.w;
+    vec2 progressGradient = vec2(progressRight - progressLeft, progressUp - progressDown) / (2.0 * max(texelWorldSize, 1.0e-4));
+    vec2 fallbackFlowDirection = length(riverFlow.rg) > 1.0e-4 ? normalize(riverFlow.rg) : vec2(0.0, 1.0);
+    vec2 riverDirection = length(progressGradient) > 1.0e-4 ? normalize(progressGradient) : fallbackFlowDirection;
+
     // ---------- 与顶点着色器完全一致的 BoreFront 计算 ----------
     vec2 direction = normalize(bore.directionLengthFade.xy);
     vec2 tangent = vec2(-direction.y, direction.x);
@@ -167,6 +214,7 @@ void main() {
 
     vec4 boreProfile = textureLod(boreProfileDisplacement, vec2(profileU, profileV), 0.0);
     vec4 boreDerivative = textureLod(boreProfileDerivative, vec2(profileU, profileV), 0.0);
+    vec2 boreVelocity = localFrontNormal * boreDerivative.b;
 
     float boreEnabled = bore.motionDebug.w;
     float profileEnabled = profileConfig.animation.w;
@@ -177,6 +225,52 @@ void main() {
                         boreEnabled * profileEnabled * activeRegionMask;
     float boreBreakingFoam = boreDerivative.a * foamMultiplier * lengthMask *
                              boreEnabled * profileEnabled * activeRegionMask;
+
+    if(multiBore.metadata.z != 0 && multiBore.metadata.x > 0){
+        profileFoam = 0.0;
+        boreBreakingFoam = 0.0;
+        localFrontNormal = riverDirection;
+
+        vec2 velocitySum = vec2(0.0);
+        float sourceSum = 0.0;
+        float breakingMax = 0.0;
+        int eventCount = min(multiBore.metadata.x, multiBore.metadata.y);
+
+        for(int eventIndex = 0; eventIndex < eventCount; ++eventIndex){
+            BoreEventGPU event = boreEvents.events[eventIndex];
+
+            if(event.motion.w < 0.5){
+                continue;
+            }
+
+            float eventHalfWidth = profileHalfWidth * max(event.shape.y, 0.05);
+            float curvatureOffset = 0.0;
+            float eventSignedDistance = progressMeters - event.motion.x - curvatureOffset;
+            float eventProfileU = clamp(eventSignedDistance / (2.0 * eventHalfWidth) + 0.5, 0.0, 1.0);
+            float eventProfileV = clamp(event.appearance.y, 0.0, 1.0);
+
+            vec4 eventProfile = textureLod(boreProfileDisplacement, vec2(eventProfileU, eventProfileV), 0.0);
+            vec4 eventDerivative = textureLod(boreProfileDerivative, vec2(eventProfileU, eventProfileV), 0.0);
+
+            float eventMask = boreEnabled * profileEnabled * activeRegionMask * waterMask;
+            float eventAmplitude = boreAmplitude * event.shape.x;
+            float eventProfileFoam = eventProfile.b * eventAmplitude * eventMask * event.appearance.x;
+            float eventBreakingFoam = eventDerivative.a * eventAmplitude * eventMask * event.appearance.x;
+            float eventFoamSource = max(eventProfileFoam, eventBreakingFoam);
+
+            profileFoam = SoftUnion(profileFoam, eventProfileFoam);
+            boreBreakingFoam = SoftUnion(boreBreakingFoam, eventBreakingFoam);
+            velocitySum += riverDirection * eventDerivative.b * eventFoamSource;
+            sourceSum += eventFoamSource;
+            breakingMax = max(breakingMax, eventDerivative.a);
+        }
+
+        if(sourceSum > 1.0e-4){
+            boreVelocity = velocitySum / sourceSum;
+        }
+
+        boreDerivative.a = breakingMax;
+    }
 
     // 根据 UBO 中的源强度参数，取两者中的最大值作为当前涌潮泡沫源
     CascadeSample shortWave =
@@ -266,11 +360,9 @@ void main() {
 
     // 应用全局源缩放
     source *= foam.runtime.y;
-
-    // 流速沿局部波前法线方向，大小取自 Wave Profile 导数纹理的 B 通道
-    vec2 velocity = localFrontNormal * boreDerivative.b;
+    source *= waterMask;
 
     // 输出：R=泡沫源, G=速度X, B=速度Z, A=破碎权重
     imageStore(sourceVelocityImage, pixel,
-               vec4(source, velocity.x, velocity.y, boreDerivative.a));
+               vec4(source, boreVelocity.x, boreVelocity.y, boreDerivative.a * waterMask));
 }

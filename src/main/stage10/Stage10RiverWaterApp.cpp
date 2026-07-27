@@ -202,6 +202,7 @@ void Stage10RiverWaterApp::Start()
     CreateFoamComputeDescriptorSets();
 
     InitializeFoamStateImages();
+    ResetMultiBoreEvents();
 
     SetupGui();
 }
@@ -264,6 +265,8 @@ void Stage10RiverWaterApp::ShutdownApp()
     m_BoreFrontUniformBuffers.clear();
     m_BoreProfileUniformBuffers.clear();
     m_RiverFieldUniformBuffers.clear();
+    m_MultiBoreUniformBuffers.clear();
+    m_BoreEventBuffers.clear();
 
     m_WaterQuadtree.reset();
     m_WaterPatchMesh.reset();
@@ -395,6 +398,8 @@ void Stage10RiverWaterApp::CreateDescriptorSetLayout()
         .AddBinding(16, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT)
         // Binding 17：River Coordinate Map，R=progress, G=lateral, B=bank distance, A=curvature
         .AddBinding(17, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT)
+        .AddBinding(18, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT)
+        .AddBinding(19, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT)
         .Build();
 }
 
@@ -456,6 +461,10 @@ void Stage10RiverWaterApp::CreateFoamComputeDescriptorSetLayouts()
             .AddBinding(13, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT)
             .AddBinding(14, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT)
             .AddBinding(15, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT)
+            .AddBinding(16, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT)
+            .AddBinding(17, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT)
+            .AddBinding(18, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT)
+            .AddBinding(19, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT)
             .Build();
 
     m_FoamAdvectSetLayout =
@@ -464,6 +473,8 @@ void Stage10RiverWaterApp::CreateFoamComputeDescriptorSetLayouts()
             .AddBinding(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT)
             .AddBinding(2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT)
             .AddBinding(3, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT)
+            .AddBinding(4, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT)
+            .AddBinding(5, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT)
             .Build();
 }
 
@@ -686,7 +697,7 @@ void Stage10RiverWaterApp::CreateBoreFrontResources()
     m_BoreFrontParams.direction = glm::normalize(glm::vec2(1.0f, 0.15f));
     m_BoreFrontParams.speed = 32.0f;
     m_BoreFrontParams.frontLength = 1000.0f;
-    m_BoreFrontParams.initialOffset = 0.0f;
+    m_BoreFrontParams.initialOffset = 300.0f;
     m_BoreFrontParams.edgeFadeFraction = 0.03f;
 
     m_FrontLUT =
@@ -812,11 +823,13 @@ void Stage10RiverWaterApp::CreateBoreProfileResources()
             );
     }
 
-    m_ProfileTime =
-        m_BoreProfileConfig.duration *
-        0.60f; // 固定 Profile 在成熟阶段
+    // m_ProfileTime =
+    //     m_BoreProfileConfig.duration *
+    //     0.60f; // 固定 Profile 在成熟阶段
 
-    m_ProfilePaused = true;
+    // m_ProfilePaused = true;
+    m_ProfileTime = 0.0f;
+    m_ProfilePaused = false;
 }
 
 void Stage10RiverWaterApp::CreateFoamResources()
@@ -932,6 +945,8 @@ void Stage10RiverWaterApp::CreateUniformBuffers()
     m_WaterParamsUniformBuffers.clear();
     m_FoamSimulationUniformBuffers.clear();
     m_WaterMaterialUniformBuffers.clear();
+    m_MultiBoreUniformBuffers.clear();
+    m_BoreEventBuffers.clear();
 
     m_CameraUniformBuffers.reserve(GetMaxFramesInFlight());
     m_WaterParamsUniformBuffers.reserve(GetMaxFramesInFlight());
@@ -940,6 +955,8 @@ void Stage10RiverWaterApp::CreateUniformBuffers()
     m_FoamParamsUniformBuffers.reserve(GetMaxFramesInFlight());
     m_FoamSimulationUniformBuffers.reserve(GetMaxFramesInFlight());
     m_WaterMaterialUniformBuffers.reserve(GetMaxFramesInFlight());
+    m_MultiBoreUniformBuffers.reserve(GetMaxFramesInFlight());
+    m_BoreEventBuffers.reserve(GetMaxFramesInFlight());
 
     // reserve — 只分配内存，不创建对象 resize — 让 vector 包含 n 个默认构造的对象(每帧传 river domain + 潮头 progress)
     m_RiverFieldUniformBuffers.resize(GetMaxFramesInFlight());
@@ -1037,6 +1054,28 @@ void Stage10RiverWaterApp::CreateUniformBuffers()
                 VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
         );
         m_RiverFieldUniformBuffers[i]->Map();
+
+        auto multiBoreBuffer = std::make_unique<vkp::Buffer>(
+            GetPhysicalDevice(),
+            GetDevice(),
+            sizeof(water::MultiBoreUBO),
+            VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
+        );
+        multiBoreBuffer->Map();
+        m_MultiBoreUniformBuffers.push_back(std::move(multiBoreBuffer));
+
+        auto boreEventBuffer = std::make_unique<vkp::Buffer>(
+            GetPhysicalDevice(),
+            GetDevice(),
+            sizeof(water::BoreEventGPU) * water::kMaxBoreEvents,
+            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
+        );
+        boreEventBuffer->Map();
+        m_BoreEventBuffers.push_back(std::move(boreEventBuffer));
     }
 }
 
@@ -1078,7 +1117,7 @@ void Stage10RiverWaterApp::CreateDescriptorPool()
         .SetMaxSets(GetMaxFramesInFlight())
         .AddPoolSize(
             VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-            GetMaxFramesInFlight() * 5
+            GetMaxFramesInFlight() * 6
         )
         .AddPoolSize(
             VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
@@ -1086,7 +1125,7 @@ void Stage10RiverWaterApp::CreateDescriptorPool()
         )
         .AddPoolSize(
             VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-            GetMaxFramesInFlight()
+            GetMaxFramesInFlight() * 2
         )
         .Build();
 }
@@ -1114,11 +1153,15 @@ void Stage10RiverWaterApp::CreateFoamComputeDescriptorPool()
             .SetMaxSets(GetMaxFramesInFlight() * 3)
             .AddPoolSize(
                 VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-                GetMaxFramesInFlight() * 7
+                GetMaxFramesInFlight() * 9
             )
             .AddPoolSize(
                 VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-                GetMaxFramesInFlight() * 14
+                GetMaxFramesInFlight() * 16
+            )
+            .AddPoolSize(
+                VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                GetMaxFramesInFlight()
             )
             .AddPoolSize(
                 VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
@@ -1174,6 +1217,16 @@ void Stage10RiverWaterApp::CreateDescriptorSets()
         riverFieldInfo.buffer = *m_RiverFieldUniformBuffers[i];
         riverFieldInfo.offset = 0;
         riverFieldInfo.range = sizeof(water::RiverFieldUBO);
+
+        VkDescriptorBufferInfo multiBoreInfo{};
+        multiBoreInfo.buffer = *m_MultiBoreUniformBuffers[i];
+        multiBoreInfo.offset = 0;
+        multiBoreInfo.range = sizeof(water::MultiBoreUBO);
+
+        VkDescriptorBufferInfo boreEventInfo{};
+        boreEventInfo.buffer = *m_BoreEventBuffers[i];
+        boreEventInfo.offset = 0;
+        boreEventInfo.range = sizeof(water::BoreEventGPU) * water::kMaxBoreEvents;
 
         // 3. 准备 位移图 的绑定信息。
         //    GetDescriptorInfo 内部会封装 VkImageView 和 VkSampler，
@@ -1232,6 +1285,8 @@ void Stage10RiverWaterApp::CreateDescriptorSets()
             .WriteBuffer(15, &riverFieldInfo)
             .WriteImage(16, &riverFlowInfo)
             .WriteImage(17, &riverCoordinateInfo)
+            .WriteBuffer(18, &multiBoreInfo)
+            .WriteBuffer(19, &boreEventInfo)
             .Build(m_DescriptorSets[i]); // 完成分配与写入
 
         // 如果分配或写入失败（比如池子空间不足），立即抛出异常
@@ -1340,6 +1395,22 @@ void Stage10RiverWaterApp::CreateFoamComputeDescriptorSets()
         waterParamsInfo.offset = 0;
         waterParamsInfo.range = sizeof(water::WaterParamsUBO);
 
+        VkDescriptorBufferInfo multiBoreInfo{};
+        multiBoreInfo.buffer = *m_MultiBoreUniformBuffers[i];
+        multiBoreInfo.offset = 0;
+        multiBoreInfo.range = sizeof(water::MultiBoreUBO);
+
+        VkDescriptorBufferInfo boreEventInfo{};
+        boreEventInfo.buffer = *m_BoreEventBuffers[i];
+        boreEventInfo.offset = 0;
+        boreEventInfo.range = sizeof(water::BoreEventGPU) * water::kMaxBoreEvents;
+
+        VkDescriptorImageInfo riverFlowInfo =
+            m_RiverFlowTexture->GetDescriptorInfo(*m_RiverSampler);
+
+        VkDescriptorImageInfo riverCoordinateInfo =
+            m_RiverCoordinateTexture->GetDescriptorInfo(*m_RiverSampler);
+
         water::WaterSurfaceGPUResources gpuResources =
             m_TessendorfGPU->GetGPUResources(i);
 
@@ -1364,6 +1435,10 @@ void Stage10RiverWaterApp::CreateFoamComputeDescriptorSets()
                 .WriteImage(13, &gpuResources.cascades[2].normalAux)
                 .WriteBuffer(14, &waterParamsInfo)
                 .WriteImage(15, &sourceVelocityStorageInfo)
+                .WriteBuffer(16, &multiBoreInfo)
+                .WriteBuffer(17, &boreEventInfo)
+                .WriteImage(18, &riverFlowInfo)
+                .WriteImage(19, &riverCoordinateInfo)
                 .Build(m_FoamSourceSets[i]);
 
         if(!success){
@@ -1398,6 +1473,14 @@ void Stage10RiverWaterApp::CreateFoamComputeDescriptorSets()
             VkDescriptorImageInfo nextFoamInfo =
                 m_FoamStateImages[writeIndex]->GetStorageDescriptorInfo();
 
+            VkDescriptorImageInfo riverFlowInfo =
+                m_RiverFlowTexture->GetDescriptorInfo(*m_RiverSampler);
+
+            VkDescriptorBufferInfo multiBoreInfo{};
+            multiBoreInfo.buffer = *m_MultiBoreUniformBuffers[frameIndex];
+            multiBoreInfo.offset = 0;
+            multiBoreInfo.range = sizeof(water::MultiBoreUBO);
+
             bool success =
                 vkp::DescriptorWriter(
                     *m_FoamAdvectSetLayout,
@@ -1407,6 +1490,8 @@ void Stage10RiverWaterApp::CreateFoamComputeDescriptorSets()
                     .WriteImage(1, &previousFoamInfo)
                     .WriteImage(2, &sourceVelocityInfo)
                     .WriteImage(3, &nextFoamInfo)
+                    .WriteImage(4, &riverFlowInfo)
+                    .WriteBuffer(5, &multiBoreInfo)
                     .Build(m_FoamAdvectSets[frameIndex][ping]);
 
             if(!success){
@@ -1598,6 +1683,15 @@ void Stage10RiverWaterApp::Update(core::Timestep timestep)
     m_LastBoreDeltaTime = boreDeltaTime;
     m_BoreTime += boreDeltaTime;
 
+    if(!m_BorePaused){
+        m_BoreEventManager.Update(
+            boreDeltaTime,
+            m_RiverLength,
+            m_BoreProfileConfig.profileHalfWidth,
+            BuildBoreEventManagerConfig()
+        );
+    }
+
     UpdateWindowTitle();
 
     float profileDeltaTime = 0.0f;
@@ -1630,6 +1724,7 @@ void Stage10RiverWaterApp::PrepareFrame(uint32_t frameIndex, uint32_t imageIndex
     UpdateBoreFrontUniformBuffer(frameIndex);
     UpdateRiverFieldUniformBuffer(frameIndex);
     UpdateBoreProfileUniformBuffer(frameIndex);
+    UpdateMultiBoreBuffers(frameIndex);
     UpdateFoamParamsUniformBuffer(frameIndex);
     UpdateFoamSimulationUniformBuffer(frameIndex);
     UpdateWaterMaterialUniformBuffer(frameIndex);
@@ -1827,8 +1922,62 @@ void Stage10RiverWaterApp::UpdateBoreProfileUniformBuffer(uint32_t frameIndex)
     // y = profileWidth：剖面宽度缩放因子，在着色器中用于映射 signedDistance 到纹理 U 轴
     // z = animationMode：动画模式（0 = OneShot 单次播放，1 = Looping 循环播放）
     // w = profileEnabled：剖面效果开关（1.0 = 启用涌潮，0.0 = 关闭）
+    float boreProgress =
+        m_BoreFrontParams.initialOffset +
+        m_BoreFrontParams.speed *
+        m_BoreTime;
+
+    float travelPhase =
+        glm::clamp(
+            boreProgress / glm::max(m_RiverLength, 1.0f),
+            0.0f,
+            1.0f
+        );
+
+    float profilePhase = m_BoreProfileGui.fixedPhase;
+
+    if(!m_ProfilePaused){
+        if(travelPhase < 0.15f){
+            float t =
+                glm::clamp(
+                    travelPhase / 0.15f,
+                    0.0f,
+                    1.0f
+                );
+
+            profilePhase =
+                glm::mix(
+                    0.0f,
+                    0.60f,
+                    t
+                );
+        }
+        else if(travelPhase < 0.80f){
+            profilePhase = 0.60f;
+        }
+        else{
+            float t =
+                glm::clamp(
+                    (travelPhase - 0.80f) / 0.20f,
+                    0.0f,
+                    1.0f
+                );
+
+            profilePhase =
+                glm::mix(
+                    0.60f,
+                    1.0f,
+                    t
+                );
+        }
+    }
+
+    float profileTime =
+        profilePhase *
+        m_BoreProfileConfig.duration;
+    
     ubo.animation = glm::vec4(
-        m_BoreProfileConfig.duration * m_BoreProfileGui.fixedPhase,
+        profileTime,
         m_BoreProfileGui.profileWidthScale,
         static_cast<float>(static_cast<int>(m_ProfileMode)),
         m_ProfileEnabled ? 1.0f : 0.0f
@@ -1858,6 +2007,127 @@ void Stage10RiverWaterApp::UpdateBoreProfileUniformBuffer(uint32_t frameIndex)
         &ubo,
         sizeof(ubo)
     );
+}
+
+void Stage10RiverWaterApp::UpdateMultiBoreBuffers(uint32_t frameIndex)
+{
+    const std::vector<water::BoreEvent>& events =
+        m_BoreEventManager.GetActiveEvents();
+
+    m_BoreEventGpuScratch.fill(water::BoreEventGPU{});
+
+    uint32_t activeCount = 0;
+
+    for(const water::BoreEvent& event : events){
+        if(!event.active || activeCount >= water::kMaxBoreEvents){
+            continue;
+        }
+
+        water::BoreEventGPU gpu{};
+        gpu.motion = glm::vec4(
+            event.progressMeters,
+            event.speed,
+            event.age,
+            1.0f
+        );
+
+        gpu.shape = glm::vec4(
+            event.amplitudeScale,
+            event.widthScale,
+            event.forwardScale,
+            event.curvatureScale
+        );
+
+        gpu.appearance = glm::vec4(
+            event.foamScale,
+            ComputeProfilePhaseForProgress(
+                event.progressMeters,
+                event.profilePhaseOffset
+            ),
+            event.variationPhase,
+            static_cast<float>(event.seed) / 4294967295.0f
+        );
+
+        gpu.suppression = m_BoreProfileGui.suppression;
+
+        m_BoreEventGpuScratch[activeCount] = gpu;
+        ++activeCount;
+    }
+
+    water::MultiBoreUBO ubo{};
+    ubo.metadata = glm::ivec4(
+        static_cast<int>(activeCount),
+        static_cast<int>(water::kMaxBoreEvents),
+        m_MultiBoreGui.enabled ? 1 : 0,
+        0
+    );
+
+    ubo.river = glm::vec4(
+        -1024.0f,
+        -1024.0f,
+        2048.0f,
+        m_RiverLength
+    );
+
+    m_MultiBoreUniformBuffers[frameIndex]->CopyToMapped(
+        &ubo,
+        sizeof(ubo)
+    );
+
+    m_BoreEventBuffers[frameIndex]->CopyToMapped(
+        m_BoreEventGpuScratch.data(),
+        sizeof(water::BoreEventGPU) * water::kMaxBoreEvents
+    );
+}
+
+water::BoreEventManagerConfig Stage10RiverWaterApp::BuildBoreEventManagerConfig() const
+{
+    water::BoreEventManagerConfig config{};
+    config.enabled = m_MultiBoreGui.enabled;
+    config.minSpawnInterval = m_MultiBoreGui.minSpawnInterval;
+    config.maxSpawnInterval = m_MultiBoreGui.maxSpawnInterval;
+    config.retryMinInterval = m_MultiBoreGui.retryMinInterval;
+    config.retryMaxInterval = m_MultiBoreGui.retryMaxInterval;
+    config.baseSpeed = m_MultiBoreGui.baseSpeed;
+    config.removeMargin = m_MultiBoreGui.removeMargin;
+    config.minimumSeparationPadding = m_MultiBoreGui.minimumSeparationPadding;
+    return config;
+}
+
+float Stage10RiverWaterApp::ComputeProfilePhaseForProgress(
+    float progressMeters,
+    float phaseOffset
+) const
+{
+    float travelPhase =
+        glm::clamp(
+            progressMeters / glm::max(m_RiverLength, 1.0f),
+            0.0f,
+            1.0f
+        );
+
+    float profilePhase = m_BoreProfileGui.fixedPhase;
+
+    if(!m_ProfilePaused){
+        if(travelPhase < 0.15f){
+            float t = glm::clamp(travelPhase / 0.15f, 0.0f, 1.0f);
+            profilePhase = glm::mix(0.0f, 0.60f, t);
+        }
+        else if(travelPhase < 0.80f){
+            profilePhase = 0.60f;
+        }
+        else{
+            float t = glm::clamp((travelPhase - 0.80f) / 0.20f, 0.0f, 1.0f);
+            profilePhase = glm::mix(0.60f, 1.0f, t);
+        }
+    }
+
+    return glm::clamp(profilePhase + phaseOffset * 0.08f, 0.0f, 1.0f);
+}
+
+void Stage10RiverWaterApp::ResetMultiBoreEvents()
+{
+    m_BoreEventManager.Reset(static_cast<uint32_t>(m_MultiBoreGui.seed));
 }
 
 void Stage10RiverWaterApp::UpdateFoamParamsUniformBuffer(uint32_t frameIndex)
@@ -2422,6 +2692,7 @@ void Stage10RiverWaterApp::ResetBoreEvent()
     m_BoreTime = 0.0f;
     m_ProfileTime = m_BoreProfileConfig.duration * m_BoreProfileGui.fixedPhase;
     m_CurrentFoamStateIndex = 0;
+    ResetMultiBoreEvents();
 }
 
 void Stage10RiverWaterApp::DrawGui()
@@ -2479,6 +2750,26 @@ void Stage10RiverWaterApp::DrawGui()
     }
 
     if(ImGui::CollapsingHeader("Bore Front - 一线潮波前：控制潮头沿河推进的速度、位置和开关", ImGuiTreeNodeFlags_DefaultOpen)){
+        ImGui::Checkbox("Multi Bore Enabled - 启用多潮头事件系统", &m_MultiBoreGui.enabled);
+        ImGui::Text("Active events - 当前活跃潮头: %u / %u", m_BoreEventManager.GetActiveCount(), water::kMaxBoreEvents);
+        ImGui::Text("Next spawn - 下次生成倒计时: %.2f s", m_BoreEventManager.GetSpawnCountdown());
+        ImGui::DragInt("Random Seed - 随机种子", &m_MultiBoreGui.seed, 1.0f, 1, 999999);
+        ImGui::DragFloat("Spawn Min - 最短生成间隔 s", &m_MultiBoreGui.minSpawnInterval, 0.1f, 0.1f, 60.0f);
+        ImGui::DragFloat("Spawn Max - 最长生成间隔 s", &m_MultiBoreGui.maxSpawnInterval, 0.1f, 0.1f, 60.0f);
+        ImGui::DragFloat("Retry Min - 间距不足时最短重试 s", &m_MultiBoreGui.retryMinInterval, 0.05f, 0.05f, 10.0f);
+        ImGui::DragFloat("Retry Max - 间距不足时最长重试 s", &m_MultiBoreGui.retryMaxInterval, 0.05f, 0.05f, 10.0f);
+        ImGui::DragFloat("Base Speed - 新潮头基础速度 m/s", &m_MultiBoreGui.baseSpeed, 0.1f, 0.0f, 80.0f);
+        ImGui::DragFloat("Remove Margin - 河尾回收余量 m", &m_MultiBoreGui.removeMargin, 1.0f, 0.0f, 500.0f);
+        ImGui::DragFloat("Separation Padding - 最小间距额外 padding m", &m_MultiBoreGui.minimumSeparationPadding, 1.0f, 0.0f, 200.0f);
+        if(ImGui::Button("Reset Multi Bore - 重置多潮头事件")){
+            ResetMultiBoreEvents();
+        }
+        ImGui::SameLine();
+        if(ImGui::Button("Spawn One - 立刻生成一个潮头")){
+            m_BoreEventManager.SpawnManual(BuildBoreEventManagerConfig());
+        }
+
+        ImGui::Separator();
         ImGui::Checkbox("Bore Paused - 暂停潮头推进时间", &m_BorePaused);
         ImGui::Checkbox("（已弃用）Use Front LUT - 使用旧 LUT 横向波前扰动", &m_BoreUseLUT);
         ImGui::Checkbox("Debug Ridge - 启用调试浪脊增强", &m_BoreDebugRidgeEnabled);
