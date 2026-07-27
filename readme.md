@@ -4,6 +4,8 @@ cmake -S . -B build -G "Visual Studio 18 2026" -A x64 -DCMAKE_TOOLCHAIN_FILE=D:\
 编shader
 glslc shaders\stage4_textured_quad.vert -o shaders\stage4_textured_quad.vert.spv
 glslc shaders\stage4_textured_quad.frag -o shaders\stage4_textured_quad.frag.spv
+glslc shaders\water\foam\foam_advect.comp -o shaders\water\foam\foam_advect.comp.spv
+glslc shaders\water\foam\foam_source.comp -o shaders\water\foam\foam_source.comp.spv
 
 增量编译
 cmake --build build --config Debug --parallel         

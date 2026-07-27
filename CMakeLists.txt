@@ -905,6 +905,7 @@ add_executable(stage10_river_water
     src/scene/water/bore/FrontParameterLUT.cpp
     src/scene/water/bore/BoreFrontField.cpp
     src/scene/water/bore/BoreWaveProfile.cpp
+    src/scene/water/bore/BoreEventManager.cpp
 
     src/scene/water/foam/FoamDetailGenerator.cpp
 
