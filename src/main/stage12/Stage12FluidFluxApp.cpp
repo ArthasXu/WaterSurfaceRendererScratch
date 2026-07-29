@@ -1,4 +1,4 @@
-#include "main/stage11/Stage11ProgressBoreApp.h"
+#include "main/stage12/Stage12FluidFluxApp.h"
 
 #include "core/Log.h"
 #include "gui/Gui.h"
@@ -166,9 +166,9 @@ std::vector<PackedHalf4> PackHalf4Vector(
 }
 }
 
-void Stage11ProgressBoreApp::Start()
+void Stage12FluidFluxApp::Start()
 {
-    VKP_INFO("Stage11ProgressBoreApp started");
+    VKP_INFO("Stage12FluidFluxApp started");
 
     static_assert(sizeof(glm::vec4) == 16);
 
@@ -208,7 +208,7 @@ void Stage11ProgressBoreApp::Start()
     SetupGui();
 }
 
-void Stage11ProgressBoreApp::ShutdownApp()
+void Stage12FluidFluxApp::ShutdownApp()
 {
     if(m_GuiDescriptorPool != VK_NULL_HANDLE){
         gui::Shutdown();
@@ -275,7 +275,7 @@ void Stage11ProgressBoreApp::ShutdownApp()
     m_RiverField.reset();
 }
 
-void Stage11ProgressBoreApp::CreatePipelines()
+void Stage12FluidFluxApp::CreatePipelines()
 {
     vkp::PipelineConfig config{};
 
@@ -308,8 +308,8 @@ void Stage11ProgressBoreApp::CreatePipelines()
     m_SolidPipeline = std::make_unique<vkp::Pipeline>(
         GetDevice(),
         GetRenderPass(),
-        "shaders/water/stage11_progress_bore.vert.spv",
-        "shaders/water/stage11_progress_bore.frag.spv",
+        "shaders/water/stage12_fluid_flux.vert.spv",
+        "shaders/water/stage12_fluid_flux.frag.spv",
         config
     );
 
@@ -320,14 +320,14 @@ void Stage11ProgressBoreApp::CreatePipelines()
         m_WireframePipeline = std::make_unique<vkp::Pipeline>(
             GetDevice(),
             GetRenderPass(),
-            "shaders/water/stage11_progress_bore.vert.spv",
-            "shaders/water/stage11_progress_bore.frag.spv",
+            "shaders/water/stage12_fluid_flux.vert.spv",
+            "shaders/water/stage12_fluid_flux.frag.spv",
             wireframeConfig
         );
     }
 }
 
-void Stage11ProgressBoreApp::CreateFoamComputePipelines()
+void Stage12FluidFluxApp::CreateFoamComputePipelines()
 {
     water::ComputePipelineConfig sourceConfig{};
     sourceConfig.descriptorSetLayouts = {
@@ -361,7 +361,7 @@ void Stage11ProgressBoreApp::CreateFoamComputePipelines()
 
 // ===== 几何描述符集布局（set = 0）：水面几何与物理资源 =====
 // 包含相机、FFT 波浪、涌潮波前（BoreFront）和涌潮剖面（BoreProfile）的全部资源
-void Stage11ProgressBoreApp::CreateDescriptorSetLayout()
+void Stage12FluidFluxApp::CreateDescriptorSetLayout()
 {
     m_DescriptorSetLayout = vkp::DescriptorSetLayout::Builder(GetDevice())
         // Binding 0：CameraUBO（MVP 矩阵 + 调试模式），顶点/片段着色器可访问
@@ -408,7 +408,7 @@ void Stage11ProgressBoreApp::CreateDescriptorSetLayout()
 
 // ===== 外观描述符集布局（set = 1）：泡沫与材质资源 =====
 // 与几何/物理管线完全解耦，未来适配不同材质或 FFT 源时只需替换此 set
-void Stage11ProgressBoreApp::CreateAppearanceDescriptorSetLayout()
+void Stage12FluidFluxApp::CreateAppearanceDescriptorSetLayout()
 {
     m_AppearanceDescriptorSetLayout =
         vkp::DescriptorSetLayout::Builder(GetDevice())
@@ -444,7 +444,7 @@ void Stage11ProgressBoreApp::CreateAppearanceDescriptorSetLayout()
 }
 
 // ===== 泡沫计算描述符集布局（set = 2） =====
-void Stage11ProgressBoreApp::CreateFoamComputeDescriptorSetLayouts()
+void Stage12FluidFluxApp::CreateFoamComputeDescriptorSetLayouts()
 {
     m_FoamSourceSetLayout =
         vkp::DescriptorSetLayout::Builder(GetDevice())
@@ -482,7 +482,7 @@ void Stage11ProgressBoreApp::CreateFoamComputeDescriptorSetLayouts()
             .Build();
 }
 
-void Stage11ProgressBoreApp::CreateWaterGrid()
+void Stage12FluidFluxApp::CreateWaterGrid()
 {
     water::WaterGridConfig config{};
     config.cellCountX = 128;
@@ -501,7 +501,7 @@ void Stage11ProgressBoreApp::CreateWaterGrid()
     );
 }
 
-void Stage11ProgressBoreApp::CreateWaterPatch()
+void Stage12FluidFluxApp::CreateWaterPatch()
 {
     m_WaterPatchMesh =
         std::make_unique<water::WaterPatchMesh>(
@@ -543,7 +543,7 @@ void Stage11ProgressBoreApp::CreateWaterPatch()
 }
 
 // 生成 U 形 field 并上传 GPU
-void Stage11ProgressBoreApp::CreateRiverResources()
+void Stage12FluidFluxApp::CreateRiverResources()
 {
     // struct RiverControlPoint
     // {
@@ -662,7 +662,7 @@ void Stage11ProgressBoreApp::CreateRiverResources()
         );
 }
 
-void Stage11ProgressBoreApp::CreateSamplers()
+void Stage12FluidFluxApp::CreateSamplers()
 {
     VkFormatFeatureFlags linearFeatures =
         VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT |
@@ -715,7 +715,7 @@ void Stage11ProgressBoreApp::CreateSamplers()
     );
 }
 
-void Stage11ProgressBoreApp::CreateBoreFrontResources()
+void Stage12FluidFluxApp::CreateBoreFrontResources()
 {
     m_BoreFrontParams.origin = glm::vec2(0.0f);
     m_BoreFrontParams.direction = glm::normalize(glm::vec2(1.0f, 0.15f));
@@ -750,7 +750,7 @@ void Stage11ProgressBoreApp::CreateBoreFrontResources()
         );
 }
 
-void Stage11ProgressBoreApp::CreateBoreProfileResources()
+void Stage12FluidFluxApp::CreateBoreProfileResources()
 {
     m_BoreProfileConfig = water::BoreWaveProfileConfig{};
     m_BoreProfileData =
@@ -856,7 +856,7 @@ void Stage11ProgressBoreApp::CreateBoreProfileResources()
     m_ProfilePaused = false;
 }
 
-void Stage11ProgressBoreApp::CreateFoamResources()
+void Stage12FluidFluxApp::CreateFoamResources()
 {
     m_FoamDetailData =
         water::GenerateFoamDetailTexture(
@@ -882,7 +882,7 @@ void Stage11ProgressBoreApp::CreateFoamResources()
         );
 }
 
-void Stage11ProgressBoreApp::CreateFoamStateResources()
+void Stage12FluidFluxApp::CreateFoamStateResources()
 {
     VkImageUsageFlags stateUsage =
         VK_IMAGE_USAGE_STORAGE_BIT |
@@ -946,7 +946,7 @@ void Stage11ProgressBoreApp::CreateFoamStateResources()
         );
 }
 
-void Stage11ProgressBoreApp::CreateGPUFFTSource()
+void Stage12FluidFluxApp::CreateGPUFFTSource()
 {
     m_TessendorfGPU = std::make_unique<water::WSTessendorfGPU>(
         GetPhysicalDevice(),
@@ -960,7 +960,7 @@ void Stage11ProgressBoreApp::CreateGPUFFTSource()
     );
 }
 
-void Stage11ProgressBoreApp::CreateUniformBuffers()
+void Stage12FluidFluxApp::CreateUniformBuffers()
 {
     m_BoreFrontUniformBuffers.clear();
     m_BoreProfileUniformBuffers.clear();
@@ -1105,7 +1105,7 @@ void Stage11ProgressBoreApp::CreateUniformBuffers()
 
 // visible tiles 每帧变，使用 host-visible persistent mapped SSBO 最简单
 // 把所有可见 Tile 的变换数据打包成一个数组，存进 SSBO
-void Stage11ProgressBoreApp::CreateTileInstanceBuffers()
+void Stage12FluidFluxApp::CreateTileInstanceBuffers()
 {
     m_TileInstanceBuffers.clear();
     m_TileInstanceBuffers.reserve(GetMaxFramesInFlight());
@@ -1135,7 +1135,7 @@ void Stage11ProgressBoreApp::CreateTileInstanceBuffers()
     }
 }
 
-void Stage11ProgressBoreApp::CreateDescriptorPool()
+void Stage12FluidFluxApp::CreateDescriptorPool()
 {
     m_DescriptorPool = vkp::DescriptorPool::Builder(GetDevice())
         .SetMaxSets(GetMaxFramesInFlight())
@@ -1154,7 +1154,7 @@ void Stage11ProgressBoreApp::CreateDescriptorPool()
         .Build();
 }
 
-void Stage11ProgressBoreApp::CreateAppearanceDescriptorPool()
+void Stage12FluidFluxApp::CreateAppearanceDescriptorPool()
 {
     m_AppearanceDescriptorPool =
         vkp::DescriptorPool::Builder(GetDevice())
@@ -1170,7 +1170,7 @@ void Stage11ProgressBoreApp::CreateAppearanceDescriptorPool()
             .Build();
 }
 
-void Stage11ProgressBoreApp::CreateFoamComputeDescriptorPool()
+void Stage12FluidFluxApp::CreateFoamComputeDescriptorPool()
 {
     m_FoamComputeDescriptorPool =
         vkp::DescriptorPool::Builder(GetDevice())
@@ -1200,7 +1200,7 @@ void Stage11ProgressBoreApp::CreateFoamComputeDescriptorPool()
 // 绑定内容：CameraUBO、WaterParamsUBO、fftDisplacement0~2（三层的位移纹理）、fftNormalAux0~2（三层的法线辅助纹理）等。
 // 着色器类型：顶点着色器（.vert）、片段着色器（.frag）。
 // 描述符集布局：m_DescriptorSetLayout（在 Stage10RiverWaterApp 中创建，与计算管线的布局不同）。
-void Stage11ProgressBoreApp::CreateDescriptorSets()
+void Stage12FluidFluxApp::CreateDescriptorSets()
 {
     // 为每个飞行帧预留一个描述符集的空位
     m_DescriptorSets.resize(GetMaxFramesInFlight());
@@ -1326,7 +1326,7 @@ void Stage11ProgressBoreApp::CreateDescriptorSets()
     }
 }
 
-void Stage11ProgressBoreApp::CreateAppearanceDescriptorSets()
+void Stage12FluidFluxApp::CreateAppearanceDescriptorSets()
 {
     m_AppearanceDescriptorSets.resize(GetMaxFramesInFlight());
 
@@ -1379,7 +1379,7 @@ void Stage11ProgressBoreApp::CreateAppearanceDescriptorSets()
     // 共 GetMaxFramesInFlight() 个。这些描述符集包含了计算该帧泡沫源所需的全部资源。
     // 为泡沫平流计算 (foam_advect.comp) 创建描述符集：类型为 m_FoamAdvectSets，固定只有 2 套（不是按飞行帧分的）。
     // 这两套正好对应 Ping-Pong 状态切换所需的两种配置——读状态0写状态1，或读状态1写状态0。
-void Stage11ProgressBoreApp::CreateFoamComputeDescriptorSets()
+void Stage12FluidFluxApp::CreateFoamComputeDescriptorSets()
 {
     m_FoamSourceSets.resize(GetMaxFramesInFlight());
     m_FoamAdvectSets.resize(GetMaxFramesInFlight());
@@ -1552,7 +1552,7 @@ void Stage11ProgressBoreApp::CreateFoamComputeDescriptorSets()
     // 第五步：插入后置屏障
         // 将刚写入的新状态图从“计算可写”转换为“片段可读”，这样后续的 Graphics Pass 才能正确采样新泡沫。
     // 翻转 Ping-Pong 索引：m_CurrentFoamStateIndex = writeIndex。下一次调用时，读/写对象自动互换。
-void Stage11ProgressBoreApp::RecordFoamSimulation(
+void Stage12FluidFluxApp::RecordFoamSimulation(
     VkCommandBuffer commandBuffer,
     uint32_t frameIndex
 )
@@ -1625,7 +1625,7 @@ void Stage11ProgressBoreApp::RecordFoamSimulation(
         writeIndex;
 }
 
-void Stage11ProgressBoreApp::InitializeFoamStateImages()
+void Stage12FluidFluxApp::InitializeFoamStateImages()
 {
     VkCommandBuffer commandBuffer =
         GetCommandPool().BeginOneTimeCommands(GetDevice());
@@ -1645,7 +1645,7 @@ void Stage11ProgressBoreApp::InitializeFoamStateImages()
     );
 }
 
-void Stage11ProgressBoreApp::UpdateCamera(float deltaTime)
+void Stage12FluidFluxApp::UpdateCamera(float deltaTime)
 {
     float moveSpeed = 320.0f;
 
@@ -1688,7 +1688,7 @@ void Stage11ProgressBoreApp::UpdateCamera(float deltaTime)
     }
 }
 
-void Stage11ProgressBoreApp::Update(core::Timestep timestep)
+void Stage12FluidFluxApp::Update(core::Timestep timestep)
 {
     float deltaTime = timestep.GetSeconds();
 
@@ -1751,7 +1751,7 @@ void Stage11ProgressBoreApp::Update(core::Timestep timestep)
     }
 }
 
-void Stage11ProgressBoreApp::PrepareFrame(uint32_t frameIndex, uint32_t imageIndex)
+void Stage12FluidFluxApp::PrepareFrame(uint32_t frameIndex, uint32_t imageIndex)
 {
     UpdateCameraUniformBuffer(frameIndex);
     UpdateWaterParamsUniformBuffer(frameIndex);
@@ -1767,7 +1767,7 @@ void Stage11ProgressBoreApp::PrepareFrame(uint32_t frameIndex, uint32_t imageInd
     UpdateTileInstanceBuffer(frameIndex);
 }
 
-void Stage11ProgressBoreApp::UpdateCameraUniformBuffer(uint32_t frameIndex)
+void Stage12FluidFluxApp::UpdateCameraUniformBuffer(uint32_t frameIndex)
 {
     VkExtent2D extent = GetSwapChain().GetExtent();
 
@@ -1792,7 +1792,7 @@ void Stage11ProgressBoreApp::UpdateCameraUniformBuffer(uint32_t frameIndex)
     );
 }
 
-void Stage11ProgressBoreApp::UpdateWaterParamsUniformBuffer(uint32_t frameIndex)
+void Stage12FluidFluxApp::UpdateWaterParamsUniformBuffer(uint32_t frameIndex)
 {
     water::WaterParamsUBO ubo{}; // GPU 端的 UBO 结构体
     ubo.patchLengths = glm::vec4(
@@ -1829,7 +1829,7 @@ void Stage11ProgressBoreApp::UpdateWaterParamsUniformBuffer(uint32_t frameIndex)
     );
 }
 
-void Stage11ProgressBoreApp::UpdateBoreFrontUniformBuffer(uint32_t frameIndex)
+void Stage12FluidFluxApp::UpdateBoreFrontUniformBuffer(uint32_t frameIndex)
 {
     glm::vec2 direction =
         glm::normalize(m_BoreFrontParams.direction);
@@ -1887,7 +1887,7 @@ void Stage11ProgressBoreApp::UpdateBoreFrontUniformBuffer(uint32_t frameIndex)
     );
 }
 
-void Stage11ProgressBoreApp::UpdateRiverFieldUniformBuffer(
+void Stage12FluidFluxApp::UpdateRiverFieldUniformBuffer(
     uint32_t frameIndex
 )
 {
@@ -1935,7 +1935,7 @@ void Stage11ProgressBoreApp::UpdateRiverFieldUniformBuffer(
         );
 }
 
-void Stage11ProgressBoreApp::UpdateBoreProfileUniformBuffer(uint32_t frameIndex)
+void Stage12FluidFluxApp::UpdateBoreProfileUniformBuffer(uint32_t frameIndex)
 {
     water::BoreProfileUBO ubo{};
 
@@ -2043,7 +2043,7 @@ void Stage11ProgressBoreApp::UpdateBoreProfileUniformBuffer(uint32_t frameIndex)
     );
 }
 
-void Stage11ProgressBoreApp::UpdateMultiBoreBuffers(uint32_t frameIndex)
+void Stage12FluidFluxApp::UpdateMultiBoreBuffers(uint32_t frameIndex)
 {
     const std::vector<water::BoreEvent>& events =
         m_BoreEventManager.GetActiveEvents();
@@ -2133,7 +2133,7 @@ void Stage11ProgressBoreApp::UpdateMultiBoreBuffers(uint32_t frameIndex)
     );
 }
 
-water::BoreEventManagerConfig Stage11ProgressBoreApp::BuildBoreEventManagerConfig() const
+water::BoreEventManagerConfig Stage12FluidFluxApp::BuildBoreEventManagerConfig() const
 {
     water::BoreEventManagerConfig config{};
     config.enabled = m_MultiBoreGui.enabled;
@@ -2147,7 +2147,7 @@ water::BoreEventManagerConfig Stage11ProgressBoreApp::BuildBoreEventManagerConfi
     return config;
 }
 
-float Stage11ProgressBoreApp::ComputeProfilePhaseForProgress(
+float Stage12FluidFluxApp::ComputeProfilePhaseForProgress(
     float progressMeters,
     float phaseOffset
 ) const
@@ -2178,12 +2178,12 @@ float Stage11ProgressBoreApp::ComputeProfilePhaseForProgress(
     return glm::clamp(profilePhase + phaseOffset * 0.08f, 0.0f, 1.0f);
 }
 
-void Stage11ProgressBoreApp::ResetMultiBoreEvents()
+void Stage12FluidFluxApp::ResetMultiBoreEvents()
 {
     m_BoreEventManager.Reset(static_cast<uint32_t>(m_MultiBoreGui.seed));
 }
 
-void Stage11ProgressBoreApp::UpdateFoamParamsUniformBuffer(uint32_t frameIndex)
+void Stage12FluidFluxApp::UpdateFoamParamsUniformBuffer(uint32_t frameIndex)
 {
     water::FoamParamsUBO ubo{};
 
@@ -2232,7 +2232,7 @@ void Stage11ProgressBoreApp::UpdateFoamParamsUniformBuffer(uint32_t frameIndex)
     );
 }
 
-void Stage11ProgressBoreApp::UpdateFoamSimulationUniformBuffer(uint32_t frameIndex)
+void Stage12FluidFluxApp::UpdateFoamSimulationUniformBuffer(uint32_t frameIndex)
 {
     // 限制时间步长，防止泡沫平流和扩散不稳定（最大 1/30 秒）
     float foamDt =
@@ -2284,7 +2284,7 @@ void Stage11ProgressBoreApp::UpdateFoamSimulationUniformBuffer(uint32_t frameInd
 
 // 更新水体材质 UBO（每帧、每飞行帧调用）
 // 将预设的水体颜色、光学参数、光照方向和雾效参数写入当前帧的 Uniform Buffer
-void Stage11ProgressBoreApp::UpdateWaterMaterialUniformBuffer(uint32_t frameIndex)
+void Stage12FluidFluxApp::UpdateWaterMaterialUniformBuffer(uint32_t frameIndex)
 {
     water::WaterMaterialUBO ubo{};
 
@@ -2326,7 +2326,7 @@ void Stage11ProgressBoreApp::UpdateWaterMaterialUniformBuffer(uint32_t frameInde
 }
 
 // 判断 Tile 是水域、陆地还是河岸
-bool Stage11ProgressBoreApp::ClassifyRiverTile(
+bool Stage12FluidFluxApp::ClassifyRiverTile(
     water::WaterTile& tile
 ) const
 {
@@ -2432,7 +2432,7 @@ bool Stage11ProgressBoreApp::ClassifyRiverTile(
     // coarse tile 先至少分到 Level 4
     // 岸边至少 Level 5
     // 潮头附近强制 Level 6
-uint32_t Stage11ProgressBoreApp::GetRiverRequiredLevel(
+uint32_t Stage12FluidFluxApp::GetRiverRequiredLevel(
     const water::WaterTile& tile
 ) const
 {
@@ -2500,7 +2500,7 @@ uint32_t Stage11ProgressBoreApp::GetRiverRequiredLevel(
 }
 
 // 每帧根据相机生成可见 Tile
-void Stage11ProgressBoreApp::UpdateQuadtree()
+void Stage12FluidFluxApp::UpdateQuadtree()
 {
     if(!m_WaterQuadtree){
         return;
@@ -2532,7 +2532,7 @@ void Stage11ProgressBoreApp::UpdateQuadtree()
         m_WaterQuadtree->GetVisibleTiles();
 }
 
-void Stage11ProgressBoreApp::UpdateTileInstanceBuffer(
+void Stage12FluidFluxApp::UpdateTileInstanceBuffer(
     uint32_t frameIndex
 )
 {
@@ -2585,7 +2585,7 @@ void Stage11ProgressBoreApp::UpdateTileInstanceBuffer(
     );
 }
 
-void Stage11ProgressBoreApp::DrawQuadtreeTiles(
+void Stage12FluidFluxApp::DrawQuadtreeTiles(
     VkCommandBuffer commandBuffer
 )
 {
@@ -2605,7 +2605,7 @@ void Stage11ProgressBoreApp::DrawQuadtreeTiles(
     );
 }
 
-void Stage11ProgressBoreApp::Render(VkCommandBuffer commandBuffer, uint32_t imageIndex)
+void Stage12FluidFluxApp::Render(VkCommandBuffer commandBuffer, uint32_t imageIndex)
 {
     VkCommandBufferBeginInfo beginInfo{};
     beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
@@ -2720,7 +2720,7 @@ void Stage11ProgressBoreApp::Render(VkCommandBuffer commandBuffer, uint32_t imag
     }
 }
 
-void Stage11ProgressBoreApp::SetupGui()
+void Stage12FluidFluxApp::SetupGui()
 {
     auto poolSizes = gui::GetDescriptorPoolSizes();
 
@@ -2755,7 +2755,7 @@ void Stage11ProgressBoreApp::SetupGui()
     );
 }
 
-void Stage11ProgressBoreApp::RebuildQuadtreeFromGui()
+void Stage12FluidFluxApp::RebuildQuadtreeFromGui()
 {
     vkDeviceWaitIdle(GetDevice());
     m_WaterQuadtree.reset();
@@ -2763,7 +2763,7 @@ void Stage11ProgressBoreApp::RebuildQuadtreeFromGui()
     CreateWaterPatch();
 }
 
-void Stage11ProgressBoreApp::ResetBoreEvent()
+void Stage12FluidFluxApp::ResetBoreEvent()
 {
     m_BoreTime = 0.0f;
     m_ProfileTime = m_BoreProfileConfig.duration * m_BoreProfileGui.fixedPhase;
@@ -2771,13 +2771,13 @@ void Stage11ProgressBoreApp::ResetBoreEvent()
     ResetMultiBoreEvents();
 }
 
-void Stage11ProgressBoreApp::DrawGui()
+void Stage12FluidFluxApp::DrawGui()
 {
     gui::NewFrame();
 
     ImGui::SetNextWindowSize(ImVec2(430.0f, 680.0f), ImGuiCond_FirstUseEver);
 
-    if(!ImGui::Begin("Stage 11 Progress Bore", &m_GuiEnabled)){
+    if(!ImGui::Begin("Stage 12 Fluid Flux", &m_GuiEnabled)){
         ImGui::End();
         return;
     }
@@ -2951,7 +2951,7 @@ void Stage11ProgressBoreApp::DrawGui()
     ImGui::End();
 }
 
-void Stage11ProgressBoreApp::UpdateWindowTitle()
+void Stage12FluidFluxApp::UpdateWindowTitle()
 {
     m_TitleUpdateTimer += 1.0f / 60.0f;
 
@@ -2965,7 +2965,7 @@ void Stage11ProgressBoreApp::UpdateWindowTitle()
     const glm::vec3& target = m_Camera.GetTarget();
 
     std::ostringstream title;
-    title << "Stage 11 - Progress Bore | " 
+    title << "Stage 12 - Fluid Flux | " 
         << "pos=(" << pos.x << ", " << pos.y << ", " << pos.z
         << ") lookAt=(" << target.x << ", " << target.y << ", " << target.z  
         << ") mode=" << m_DebugMode
@@ -2977,12 +2977,12 @@ void Stage11ProgressBoreApp::UpdateWindowTitle()
     GetWindow().SetTitle(title.str());
 }
 
-void Stage11ProgressBoreApp::OnFramebufferResize(int width, int height)
+void Stage12FluidFluxApp::OnFramebufferResize(int width, int height)
 {
     core::Application::OnFramebufferResize(width, height);
 }
 
-void Stage11ProgressBoreApp::OnKey(int key, int scancode, int action, int mods)
+void Stage12FluidFluxApp::OnKey(int key, int scancode, int action, int mods)
 {
     // 保留基类的默认按键行为（如 ESC 退出等）
     core::Application::OnKey(key, scancode, action, mods);
@@ -3173,7 +3173,7 @@ void Stage11ProgressBoreApp::OnKey(int key, int scancode, int action, int mods)
     }   
 }
 
-void Stage11ProgressBoreApp::OnMouseMove(double x, double y)
+void Stage12FluidFluxApp::OnMouseMove(double x, double y)
 {
     if(m_GuiEnabled){
         ImGuiIO& io = ImGui::GetIO();
@@ -3206,7 +3206,7 @@ void Stage11ProgressBoreApp::OnMouseMove(double x, double y)
     );
 }
 
-void Stage11ProgressBoreApp::OnMouseButton(int button, int action, int mods)
+void Stage12FluidFluxApp::OnMouseButton(int button, int action, int mods)
 {
     if(m_GuiEnabled){
         ImGuiIO& io = ImGui::GetIO();

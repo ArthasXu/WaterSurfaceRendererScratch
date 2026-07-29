@@ -38,7 +38,7 @@ void Application::SetupWindow() { // 设置窗口
          throw std::runtime_error("Failed to initialize GLFW"); 
     }
 
-    m_Window = std::make_unique<Window>(1280, 720, "Stage 3 - Clear Color"); // 创建窗口
+    m_Window = std::make_unique<Window>(1280, 720, ""); // 创建窗口
 
     m_Window->OnFramebufferResize = [this](int width, int height){ // 设置窗口大小改变回调
         OnFramebufferResize(width, height); // 调用窗口大小改变回调
