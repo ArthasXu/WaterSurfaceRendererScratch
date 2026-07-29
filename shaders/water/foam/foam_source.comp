@@ -83,6 +83,7 @@ layout(std430, set = 0, binding = 17) readonly buffer BoreEventBuffer
 
 layout(set = 0, binding = 18) uniform sampler2D riverFlowTexture;
 layout(set = 0, binding = 19) uniform sampler2D riverCoordinateTexture;
+layout(set = 0, binding = 20) uniform sampler2D riverProgressTexture;
 
 // smoothstep 的解析导数，用于后续计算水位抬升的坡度
 float SmoothStepDerivative(float edge0, float edge1, float x) {
@@ -162,19 +163,21 @@ void main() {
 
     vec4 riverFlow = textureLod(riverFlowTexture, riverUV, 0.0);
     vec4 riverCoord = textureLod(riverCoordinateTexture, riverUV, 0.0);
-    float waterMask = smoothstep(0.05, 0.95, riverFlow.a);
-    float boreAmplitude = riverFlow.b;
-    float progressMeters = riverCoord.r * max(multiBore.riverInfo.w, 1.0);
-    float lateral = clamp(riverCoord.g, -1.0, 1.0);
+    bool useProgressField = (multiBore.metadata.w == 1);
+    vec4 progressField = textureLod(riverProgressTexture, riverUV, 0.0);
+    float waterMask = smoothstep(0.05, 0.95, useProgressField ? progressField.g : riverFlow.a);
+    float boreAmplitude = useProgressField ? progressField.b : riverFlow.b;
+    float progressMeters = (useProgressField ? progressField.r : riverCoord.r) * max(multiBore.riverInfo.w, 1.0);
+    float lateral = clamp(useProgressField ? progressField.a : riverCoord.g, -1.0, 1.0);
     float lateralSquared = lateral * lateral;
 
     ivec2 coordinateSize = textureSize(riverCoordinateTexture, 0);
     vec2 texelUV = 1.0 / vec2(coordinateSize);
     float texelWorldSize = multiBore.riverInfo.z / float(coordinateSize.x);
-    float progressLeft = textureLod(riverCoordinateTexture, riverUV - vec2(texelUV.x, 0.0), 0.0).r * multiBore.riverInfo.w;
-    float progressRight = textureLod(riverCoordinateTexture, riverUV + vec2(texelUV.x, 0.0), 0.0).r * multiBore.riverInfo.w;
-    float progressDown = textureLod(riverCoordinateTexture, riverUV - vec2(0.0, texelUV.y), 0.0).r * multiBore.riverInfo.w;
-    float progressUp = textureLod(riverCoordinateTexture, riverUV + vec2(0.0, texelUV.y), 0.0).r * multiBore.riverInfo.w;
+    float progressLeft  = (useProgressField ? textureLod(riverProgressTexture, riverUV - vec2(texelUV.x, 0.0), 0.0).r : textureLod(riverCoordinateTexture, riverUV - vec2(texelUV.x, 0.0), 0.0).r) * multiBore.riverInfo.w;
+    float progressRight = (useProgressField ? textureLod(riverProgressTexture, riverUV + vec2(texelUV.x, 0.0), 0.0).r : textureLod(riverCoordinateTexture, riverUV + vec2(texelUV.x, 0.0), 0.0).r) * multiBore.riverInfo.w;
+    float progressDown  = (useProgressField ? textureLod(riverProgressTexture, riverUV - vec2(0.0, texelUV.y), 0.0).r : textureLod(riverCoordinateTexture, riverUV - vec2(0.0, texelUV.y), 0.0).r) * multiBore.riverInfo.w;
+    float progressUp    = (useProgressField ? textureLod(riverProgressTexture, riverUV + vec2(0.0, texelUV.y), 0.0).r : textureLod(riverCoordinateTexture, riverUV + vec2(0.0, texelUV.y), 0.0).r) * multiBore.riverInfo.w;
     vec2 progressGradient = vec2(progressRight - progressLeft, progressUp - progressDown) / (2.0 * max(texelWorldSize, 1.0e-4));
     vec2 fallbackFlowDirection = length(riverFlow.rg) > 1.0e-4 ? normalize(riverFlow.rg) : vec2(0.0, 1.0);
     vec2 riverDirection = length(progressGradient) > 1.0e-4 ? normalize(progressGradient) : fallbackFlowDirection;
@@ -254,8 +257,12 @@ void main() {
 
             float eventMask = boreEnabled * profileEnabled * activeRegionMask * waterMask;
             float eventAmplitude = boreAmplitude * event.shape.x;
-            float eventProfileFoam = eventProfile.b * eventAmplitude * eventMask * event.appearance.x;
-            float eventBreakingFoam = eventDerivative.a * eventAmplitude * eventMask * event.appearance.x;
+            // 离波前窗口：超出剖面域时 eventProfileU 被 clamp，会继承剖面边缘的非零 rearFoam，
+            // 导致下游整片铺常量泡沫。这里淡到 0，与顶点着色器保持一致。
+            float eventFrontFoamWindow =
+                1.0 - smoothstep(eventHalfWidth * 0.85, eventHalfWidth, abs(eventSignedDistance));
+            float eventProfileFoam = eventProfile.b * eventAmplitude * eventMask * event.appearance.x * eventFrontFoamWindow;
+            float eventBreakingFoam = eventDerivative.a * eventAmplitude * eventMask * event.appearance.x * eventFrontFoamWindow;
             float eventFoamSource = max(eventProfileFoam, eventBreakingFoam);
 
             profileFoam = SoftUnion(profileFoam, eventProfileFoam);

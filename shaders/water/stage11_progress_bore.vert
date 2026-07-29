@@ -92,6 +92,9 @@ layout(set = 0, binding = 18) uniform MultiBoreUBO
 {
     ivec4 metadata;
     vec4 riverInfo;
+    vec4 crestNoiseA;   // x=横向频率 y=沿河频率X z=沿河频率Y w=动画速度
+    vec4 crestNoiseB;   // x=细节频率 y=细节权重 z=振幅下限 w=振幅上限
+    vec4 crestNoiseC;   // x=顶抖强度 y=顶抖频率
 } multiBore;
 
 layout(std430, set = 0, binding = 19) readonly buffer BoreEventBuffer
@@ -245,6 +248,20 @@ float ValueNoise(vec2 p){
     return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
 }
 
+// 多层分形噪声：叠加 5 个倍频，得到大起伏 + 细碎复杂波动，返回约 [0,1]
+float FBM(vec2 p){
+    float sum = 0.0;
+    float amp = 0.5;
+    float norm = 0.0;
+    for(int i = 0; i < 5; ++i){
+        sum += amp * ValueNoise(p);
+        norm += amp;
+        p *= 2.02;      // 略偏离 2.0，避免各层网格对齐产生规则伪影
+        amp *= 0.5;
+    }
+    return sum / norm;
+}
+
 void main(){
     // 将顶点从模型空间变换到世界空间，得到未变形的水面基础位置
     // Patch 局部坐标映射到 Tile 世界坐标
@@ -321,14 +338,14 @@ void main(){
     
     float progressDown =
         (useProgressField
-            ? textureLod(riverProgressTexture, riverUV - vec2(texelUV.y, 0.0), 0.0).r
-            : textureLod(riverCoordinateTexture, riverUV - vec2(texelUV.y, 0.0), 0.0).r)
+            ? textureLod(riverProgressTexture, riverUV - vec2(0.0, texelUV.y), 0.0).r
+            : textureLod(riverCoordinateTexture, riverUV - vec2(0.0, texelUV.y), 0.0).r)
          * river.domain.w;
 
     float progressUp =
         (useProgressField
-            ? textureLod(riverProgressTexture, riverUV + vec2(texelUV.y, 0.0), 0.0).r
-            : textureLod(riverCoordinateTexture, riverUV + vec2(texelUV.y, 0.0), 0.0).r)
+            ? textureLod(riverProgressTexture, riverUV + vec2(0.0, texelUV.y), 0.0).r
+            : textureLod(riverCoordinateTexture, riverUV + vec2(0.0, texelUV.y), 0.0).r)
          * river.domain.w;
 
     // progress 的梯度（世界空间），指向 progress 增加最快的方向，即河流的切线方向
@@ -344,11 +361,14 @@ void main(){
 
 
     // riverFlow.rg 是从 Flow Map（绑定在 binding=16）中采样得到的局部流向，它随河道弯曲而变化
-    // 优先使用梯度方向作为局部流向（更平滑），若梯度过小则回退到 Flow Map 的流向
+    // 优先使用梯度方向作为局部流向（更平滑），梯度过小时回退 Flow Map；
+    // 若两者都近似零向量(河道末端/未烘焙)，用固定默认方向，避免 normalize(0)=NaN 造成尖锐凸起。
     vec2 localFlowDirection =
         length(progressGradient) > 1.0e-4
         ? normalize(progressGradient)
-        : normalize(riverFlow.rg);
+        : (length(riverFlow.rg) > 1.0e-4
+            ? normalize(riverFlow.rg)
+            : vec2(0.0, 1.0));
 
     // if(dot(localFlowDirection, riverFlow.rg) < 0.0){
     //     localFlowDirection =
@@ -763,11 +783,21 @@ void main(){
 
             float eventAmplitude = boreAmplitude * event.shape.x;
 
-            // 低频：整条潮头的大起伏（每个事件用 variationPhase 作种子，互不相同）
-            float crestNoise = ValueNoise(baseWorldPosition.xz * 0.03 + event.appearance.z);
-            // 沿横向再叠一层，让左右不一样，破掉"一堵墙"
-            float lateralNoise = ValueNoise(vec2(lateral * 4.0, event.appearance.z));
-            float amplitudeVariation = mix(0.75, 1.25, crestNoise * 0.6 + lateralNoise * 0.4);
+            // ===== 浪脊坐标系噪声：打破"一堵墙" =====
+            // x 轴：横向 lateral 铺开(控制沿河宽度方向的团块数) + 顶点沿河位置 progressMeters 提供二维细节
+            // y 轴：eventProgress 让整块噪声随潮头推进而流动(动画，不再冻在世界里)
+            // event.appearance.z：每个潮头独立种子，彼此不同
+            vec2 crestUV =
+                vec2(lateral * multiBore.crestNoiseA.x + progressMeters * multiBore.crestNoiseA.y,
+                     eventProgress * multiBore.crestNoiseA.w + progressMeters * multiBore.crestNoiseA.z)
+                + event.appearance.z;
+
+            float crestBig    = FBM(crestUV);                              // 大尺度起伏
+            float crestDetail = FBM(crestUV * multiBore.crestNoiseB.x);    // 细小复杂波动
+            float crestField  = mix(crestBig, crestDetail, multiBore.crestNoiseB.y);
+
+            // 幅度调制：[振幅下限, 振幅上限]，高低差
+            float amplitudeVariation = mix(multiBore.crestNoiseB.z, multiBore.crestNoiseB.w, crestField);
             eventAmplitude *= amplitudeVariation;
 
             float eventCommonMask = commonBoreMask;
@@ -786,6 +816,16 @@ void main(){
                 eventProfile.g *
                 upwardScale *
                 eventStrength;
+
+            // 浪脊顶边参差：高频噪声[-1,1]只叠在波峰(eventProfile.a)附近，
+            // 让"墙顶"变成起伏的浪脊，只改高度不动 signedDistance，避免撕裂
+            float crestTopWobble = (FBM(crestUV * multiBore.crestNoiseC.y) - 0.5) * 2.0;
+            eventLocalVertical +=
+                crestTopWobble *
+                eventProfile.a *
+                upwardScale *
+                eventStrength *
+                multiBore.crestNoiseC.x;
 
             float eventBackMask =
                 1.0 - smoothstep(-riseWidth, riseWidth, eventSignedDistance);
@@ -829,8 +869,17 @@ void main(){
             midWeight = min(midWeight, mix(1.0, event.suppression.y, eventCrestMask));
             longWeight = min(longWeight, mix(1.0, event.suppression.z, eventCrestMask));
 
-            float eventProfileFoam = eventProfile.b * eventAmplitude * eventCommonMask * event.appearance.x;
-            float eventBreakingFoam = eventDerivative.a * eventAmplitude * eventCommonMask * event.appearance.x;
+            // 离波前窗口：eventProfileU 在 |eventSignedDistance|>eventHalfWidth 时被 clamp 到 0/1，
+            // 会继承剖面纹理边缘的非零 rearFoam，导致潮头已过的整片下游铺满常量泡沫(网格/暗块 bug)。
+            // 超出剖面域即把泡沫淡到 0，只保留波前附近的真实泡沫。
+            float eventFrontFoamWindow =
+                1.0 - smoothstep(eventHalfWidth * 0.85, eventHalfWidth, abs(eventSignedDistance));
+
+            float eventProfileFoam = eventProfile.b * eventAmplitude * eventCommonMask * event.appearance.x
+                                      * eventFrontFoamWindow;
+            float eventBreakingFoam = eventDerivative.a * eventAmplitude * eventCommonMask * event.appearance.x
+                                      * mix(0.6, 1.4, crestField)
+                                      * eventFrontFoamWindow;
             
             multiProfileFoam = 1.0 - (1.0 - multiProfileFoam) * (1.0 - eventProfileFoam);
             multiBreakingFoam = 1.0 - (1.0 - multiBreakingFoam) * (1.0 - eventBreakingFoam);
@@ -886,12 +935,18 @@ void main(){
         water.simulation.z +        // 法线扰动强度
         boreSlope;                  // 涌潮坡度
 
+    // 单潮头回退路径的离波前窗口：与多潮头一致，超出剖面域时把泡沫淡到 0，
+    // 避免继承剖面边缘 rearFoam 造成下游整片铺泡沫。
+    float singleFrontFoamWindow =
+        1.0 - smoothstep(profileHalfWidth * 0.85, profileHalfWidth, abs(signedDistance));
+
     float profileFoam =
         multiBore.metadata.z != 0 && multiBore.metadata.x > 0
         ? multiProfileFoam
         : boreProfile.b *
             boreAmplitude *
-            commonBoreMask;
+            commonBoreMask *
+            singleFrontFoamWindow;
 
     float fftJacobianFoam =
         smoothstep(
@@ -915,7 +970,8 @@ void main(){
         ? multiBreakingFoam
         : boreDerivative.a *
             boreAmplitude *
-            commonBoreMask;
+            commonBoreMask *
+            singleFrontFoamWindow;
 
     vec2 boreFlowVelocity =
         multiBore.metadata.z != 0 && multiBore.metadata.x > 0

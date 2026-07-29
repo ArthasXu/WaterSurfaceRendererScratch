@@ -1,4 +1,4 @@
-#include "main/stage10/Stage10RiverWaterApp.h"
+#include "main/stage11/Stage11ProgressBoreApp.h"
 
 #include "core/Log.h"
 #include "gui/Gui.h"
@@ -166,7 +166,7 @@ std::vector<PackedHalf4> PackHalf4Vector(
 }
 }
 
-void Stage10RiverWaterApp::Start()
+void Stage11ProgressBoreApp::Start()
 {
     VKP_INFO("Stage10RiverWaterApp started");
 
@@ -208,7 +208,7 @@ void Stage10RiverWaterApp::Start()
     SetupGui();
 }
 
-void Stage10RiverWaterApp::ShutdownApp()
+void Stage11ProgressBoreApp::ShutdownApp()
 {
     if(m_GuiDescriptorPool != VK_NULL_HANDLE){
         gui::Shutdown();
@@ -275,7 +275,7 @@ void Stage10RiverWaterApp::ShutdownApp()
     m_RiverField.reset();
 }
 
-void Stage10RiverWaterApp::CreatePipelines()
+void Stage11ProgressBoreApp::CreatePipelines()
 {
     vkp::PipelineConfig config{};
 
@@ -308,8 +308,8 @@ void Stage10RiverWaterApp::CreatePipelines()
     m_SolidPipeline = std::make_unique<vkp::Pipeline>(
         GetDevice(),
         GetRenderPass(),
-        "shaders/water/stage10_river_water.vert.spv",
-        "shaders/water/stage10_river_water.frag.spv",
+        "shaders/water/stage11_progress_bore.vert.spv",
+        "shaders/water/stage11_progress_bore.frag.spv",
         config
     );
 
@@ -320,14 +320,14 @@ void Stage10RiverWaterApp::CreatePipelines()
         m_WireframePipeline = std::make_unique<vkp::Pipeline>(
             GetDevice(),
             GetRenderPass(),
-            "shaders/water/stage10_river_water.vert.spv",
-            "shaders/water/stage10_river_water.frag.spv",
+            "shaders/water/stage11_progress_bore.vert.spv",
+            "shaders/water/stage11_progress_bore.frag.spv",
             wireframeConfig
         );
     }
 }
 
-void Stage10RiverWaterApp::CreateFoamComputePipelines()
+void Stage11ProgressBoreApp::CreateFoamComputePipelines()
 {
     water::ComputePipelineConfig sourceConfig{};
     sourceConfig.descriptorSetLayouts = {
@@ -361,7 +361,7 @@ void Stage10RiverWaterApp::CreateFoamComputePipelines()
 
 // ===== 几何描述符集布局（set = 0）：水面几何与物理资源 =====
 // 包含相机、FFT 波浪、涌潮波前（BoreFront）和涌潮剖面（BoreProfile）的全部资源
-void Stage10RiverWaterApp::CreateDescriptorSetLayout()
+void Stage11ProgressBoreApp::CreateDescriptorSetLayout()
 {
     m_DescriptorSetLayout = vkp::DescriptorSetLayout::Builder(GetDevice())
         // Binding 0：CameraUBO（MVP 矩阵 + 调试模式），顶点/片段着色器可访问
@@ -408,7 +408,7 @@ void Stage10RiverWaterApp::CreateDescriptorSetLayout()
 
 // ===== 外观描述符集布局（set = 1）：泡沫与材质资源 =====
 // 与几何/物理管线完全解耦，未来适配不同材质或 FFT 源时只需替换此 set
-void Stage10RiverWaterApp::CreateAppearanceDescriptorSetLayout()
+void Stage11ProgressBoreApp::CreateAppearanceDescriptorSetLayout()
 {
     m_AppearanceDescriptorSetLayout =
         vkp::DescriptorSetLayout::Builder(GetDevice())
@@ -444,7 +444,7 @@ void Stage10RiverWaterApp::CreateAppearanceDescriptorSetLayout()
 }
 
 // ===== 泡沫计算描述符集布局（set = 2） =====
-void Stage10RiverWaterApp::CreateFoamComputeDescriptorSetLayouts()
+void Stage11ProgressBoreApp::CreateFoamComputeDescriptorSetLayouts()
 {
     m_FoamSourceSetLayout =
         vkp::DescriptorSetLayout::Builder(GetDevice())
@@ -482,7 +482,7 @@ void Stage10RiverWaterApp::CreateFoamComputeDescriptorSetLayouts()
             .Build();
 }
 
-void Stage10RiverWaterApp::CreateWaterGrid()
+void Stage11ProgressBoreApp::CreateWaterGrid()
 {
     water::WaterGridConfig config{};
     config.cellCountX = 128;
@@ -501,7 +501,7 @@ void Stage10RiverWaterApp::CreateWaterGrid()
     );
 }
 
-void Stage10RiverWaterApp::CreateWaterPatch()
+void Stage11ProgressBoreApp::CreateWaterPatch()
 {
     m_WaterPatchMesh =
         std::make_unique<water::WaterPatchMesh>(
@@ -543,7 +543,7 @@ void Stage10RiverWaterApp::CreateWaterPatch()
 }
 
 // 生成 U 形 field 并上传 GPU
-void Stage10RiverWaterApp::CreateRiverResources()
+void Stage11ProgressBoreApp::CreateRiverResources()
 {
     // struct RiverControlPoint
     // {
@@ -662,7 +662,7 @@ void Stage10RiverWaterApp::CreateRiverResources()
         );
 }
 
-void Stage10RiverWaterApp::CreateSamplers()
+void Stage11ProgressBoreApp::CreateSamplers()
 {
     VkFormatFeatureFlags linearFeatures =
         VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT |
@@ -715,7 +715,7 @@ void Stage10RiverWaterApp::CreateSamplers()
     );
 }
 
-void Stage10RiverWaterApp::CreateBoreFrontResources()
+void Stage11ProgressBoreApp::CreateBoreFrontResources()
 {
     m_BoreFrontParams.origin = glm::vec2(0.0f);
     m_BoreFrontParams.direction = glm::normalize(glm::vec2(1.0f, 0.15f));
@@ -750,7 +750,7 @@ void Stage10RiverWaterApp::CreateBoreFrontResources()
         );
 }
 
-void Stage10RiverWaterApp::CreateBoreProfileResources()
+void Stage11ProgressBoreApp::CreateBoreProfileResources()
 {
     m_BoreProfileConfig = water::BoreWaveProfileConfig{};
     m_BoreProfileData =
@@ -856,7 +856,7 @@ void Stage10RiverWaterApp::CreateBoreProfileResources()
     m_ProfilePaused = false;
 }
 
-void Stage10RiverWaterApp::CreateFoamResources()
+void Stage11ProgressBoreApp::CreateFoamResources()
 {
     m_FoamDetailData =
         water::GenerateFoamDetailTexture(
@@ -882,7 +882,7 @@ void Stage10RiverWaterApp::CreateFoamResources()
         );
 }
 
-void Stage10RiverWaterApp::CreateFoamStateResources()
+void Stage11ProgressBoreApp::CreateFoamStateResources()
 {
     VkImageUsageFlags stateUsage =
         VK_IMAGE_USAGE_STORAGE_BIT |
@@ -946,7 +946,7 @@ void Stage10RiverWaterApp::CreateFoamStateResources()
         );
 }
 
-void Stage10RiverWaterApp::CreateGPUFFTSource()
+void Stage11ProgressBoreApp::CreateGPUFFTSource()
 {
     m_TessendorfGPU = std::make_unique<water::WSTessendorfGPU>(
         GetPhysicalDevice(),
@@ -960,7 +960,7 @@ void Stage10RiverWaterApp::CreateGPUFFTSource()
     );
 }
 
-void Stage10RiverWaterApp::CreateUniformBuffers()
+void Stage11ProgressBoreApp::CreateUniformBuffers()
 {
     m_BoreFrontUniformBuffers.clear();
     m_BoreProfileUniformBuffers.clear();
@@ -1105,7 +1105,7 @@ void Stage10RiverWaterApp::CreateUniformBuffers()
 
 // visible tiles 每帧变，使用 host-visible persistent mapped SSBO 最简单
 // 把所有可见 Tile 的变换数据打包成一个数组，存进 SSBO
-void Stage10RiverWaterApp::CreateTileInstanceBuffers()
+void Stage11ProgressBoreApp::CreateTileInstanceBuffers()
 {
     m_TileInstanceBuffers.clear();
     m_TileInstanceBuffers.reserve(GetMaxFramesInFlight());
@@ -1135,7 +1135,7 @@ void Stage10RiverWaterApp::CreateTileInstanceBuffers()
     }
 }
 
-void Stage10RiverWaterApp::CreateDescriptorPool()
+void Stage11ProgressBoreApp::CreateDescriptorPool()
 {
     m_DescriptorPool = vkp::DescriptorPool::Builder(GetDevice())
         .SetMaxSets(GetMaxFramesInFlight())
@@ -1154,7 +1154,7 @@ void Stage10RiverWaterApp::CreateDescriptorPool()
         .Build();
 }
 
-void Stage10RiverWaterApp::CreateAppearanceDescriptorPool()
+void Stage11ProgressBoreApp::CreateAppearanceDescriptorPool()
 {
     m_AppearanceDescriptorPool =
         vkp::DescriptorPool::Builder(GetDevice())
@@ -1170,7 +1170,7 @@ void Stage10RiverWaterApp::CreateAppearanceDescriptorPool()
             .Build();
 }
 
-void Stage10RiverWaterApp::CreateFoamComputeDescriptorPool()
+void Stage11ProgressBoreApp::CreateFoamComputeDescriptorPool()
 {
     m_FoamComputeDescriptorPool =
         vkp::DescriptorPool::Builder(GetDevice())
@@ -1200,7 +1200,7 @@ void Stage10RiverWaterApp::CreateFoamComputeDescriptorPool()
 // 绑定内容：CameraUBO、WaterParamsUBO、fftDisplacement0~2（三层的位移纹理）、fftNormalAux0~2（三层的法线辅助纹理）等。
 // 着色器类型：顶点着色器（.vert）、片段着色器（.frag）。
 // 描述符集布局：m_DescriptorSetLayout（在 Stage10RiverWaterApp 中创建，与计算管线的布局不同）。
-void Stage10RiverWaterApp::CreateDescriptorSets()
+void Stage11ProgressBoreApp::CreateDescriptorSets()
 {
     // 为每个飞行帧预留一个描述符集的空位
     m_DescriptorSets.resize(GetMaxFramesInFlight());
@@ -1326,7 +1326,7 @@ void Stage10RiverWaterApp::CreateDescriptorSets()
     }
 }
 
-void Stage10RiverWaterApp::CreateAppearanceDescriptorSets()
+void Stage11ProgressBoreApp::CreateAppearanceDescriptorSets()
 {
     m_AppearanceDescriptorSets.resize(GetMaxFramesInFlight());
 
@@ -1379,7 +1379,7 @@ void Stage10RiverWaterApp::CreateAppearanceDescriptorSets()
     // 共 GetMaxFramesInFlight() 个。这些描述符集包含了计算该帧泡沫源所需的全部资源。
     // 为泡沫平流计算 (foam_advect.comp) 创建描述符集：类型为 m_FoamAdvectSets，固定只有 2 套（不是按飞行帧分的）。
     // 这两套正好对应 Ping-Pong 状态切换所需的两种配置——读状态0写状态1，或读状态1写状态0。
-void Stage10RiverWaterApp::CreateFoamComputeDescriptorSets()
+void Stage11ProgressBoreApp::CreateFoamComputeDescriptorSets()
 {
     m_FoamSourceSets.resize(GetMaxFramesInFlight());
     m_FoamAdvectSets.resize(GetMaxFramesInFlight());
@@ -1552,7 +1552,7 @@ void Stage10RiverWaterApp::CreateFoamComputeDescriptorSets()
     // 第五步：插入后置屏障
         // 将刚写入的新状态图从“计算可写”转换为“片段可读”，这样后续的 Graphics Pass 才能正确采样新泡沫。
     // 翻转 Ping-Pong 索引：m_CurrentFoamStateIndex = writeIndex。下一次调用时，读/写对象自动互换。
-void Stage10RiverWaterApp::RecordFoamSimulation(
+void Stage11ProgressBoreApp::RecordFoamSimulation(
     VkCommandBuffer commandBuffer,
     uint32_t frameIndex
 )
@@ -1625,7 +1625,7 @@ void Stage10RiverWaterApp::RecordFoamSimulation(
         writeIndex;
 }
 
-void Stage10RiverWaterApp::InitializeFoamStateImages()
+void Stage11ProgressBoreApp::InitializeFoamStateImages()
 {
     VkCommandBuffer commandBuffer =
         GetCommandPool().BeginOneTimeCommands(GetDevice());
@@ -1645,7 +1645,7 @@ void Stage10RiverWaterApp::InitializeFoamStateImages()
     );
 }
 
-void Stage10RiverWaterApp::UpdateCamera(float deltaTime)
+void Stage11ProgressBoreApp::UpdateCamera(float deltaTime)
 {
     float moveSpeed = 320.0f;
 
@@ -1688,7 +1688,7 @@ void Stage10RiverWaterApp::UpdateCamera(float deltaTime)
     }
 }
 
-void Stage10RiverWaterApp::Update(core::Timestep timestep)
+void Stage11ProgressBoreApp::Update(core::Timestep timestep)
 {
     float deltaTime = timestep.GetSeconds();
 
@@ -1751,7 +1751,7 @@ void Stage10RiverWaterApp::Update(core::Timestep timestep)
     }
 }
 
-void Stage10RiverWaterApp::PrepareFrame(uint32_t frameIndex, uint32_t imageIndex)
+void Stage11ProgressBoreApp::PrepareFrame(uint32_t frameIndex, uint32_t imageIndex)
 {
     UpdateCameraUniformBuffer(frameIndex);
     UpdateWaterParamsUniformBuffer(frameIndex);
@@ -1767,7 +1767,7 @@ void Stage10RiverWaterApp::PrepareFrame(uint32_t frameIndex, uint32_t imageIndex
     UpdateTileInstanceBuffer(frameIndex);
 }
 
-void Stage10RiverWaterApp::UpdateCameraUniformBuffer(uint32_t frameIndex)
+void Stage11ProgressBoreApp::UpdateCameraUniformBuffer(uint32_t frameIndex)
 {
     VkExtent2D extent = GetSwapChain().GetExtent();
 
@@ -1792,7 +1792,7 @@ void Stage10RiverWaterApp::UpdateCameraUniformBuffer(uint32_t frameIndex)
     );
 }
 
-void Stage10RiverWaterApp::UpdateWaterParamsUniformBuffer(uint32_t frameIndex)
+void Stage11ProgressBoreApp::UpdateWaterParamsUniformBuffer(uint32_t frameIndex)
 {
     water::WaterParamsUBO ubo{}; // GPU 端的 UBO 结构体
     ubo.patchLengths = glm::vec4(
@@ -1829,7 +1829,7 @@ void Stage10RiverWaterApp::UpdateWaterParamsUniformBuffer(uint32_t frameIndex)
     );
 }
 
-void Stage10RiverWaterApp::UpdateBoreFrontUniformBuffer(uint32_t frameIndex)
+void Stage11ProgressBoreApp::UpdateBoreFrontUniformBuffer(uint32_t frameIndex)
 {
     glm::vec2 direction =
         glm::normalize(m_BoreFrontParams.direction);
@@ -1887,7 +1887,7 @@ void Stage10RiverWaterApp::UpdateBoreFrontUniformBuffer(uint32_t frameIndex)
     );
 }
 
-void Stage10RiverWaterApp::UpdateRiverFieldUniformBuffer(
+void Stage11ProgressBoreApp::UpdateRiverFieldUniformBuffer(
     uint32_t frameIndex
 )
 {
@@ -1935,7 +1935,7 @@ void Stage10RiverWaterApp::UpdateRiverFieldUniformBuffer(
         );
 }
 
-void Stage10RiverWaterApp::UpdateBoreProfileUniformBuffer(uint32_t frameIndex)
+void Stage11ProgressBoreApp::UpdateBoreProfileUniformBuffer(uint32_t frameIndex)
 {
     water::BoreProfileUBO ubo{};
 
@@ -2043,7 +2043,7 @@ void Stage10RiverWaterApp::UpdateBoreProfileUniformBuffer(uint32_t frameIndex)
     );
 }
 
-void Stage10RiverWaterApp::UpdateMultiBoreBuffers(uint32_t frameIndex)
+void Stage11ProgressBoreApp::UpdateMultiBoreBuffers(uint32_t frameIndex)
 {
     const std::vector<water::BoreEvent>& events =
         m_BoreEventManager.GetActiveEvents();
@@ -2103,6 +2103,25 @@ void Stage10RiverWaterApp::UpdateMultiBoreBuffers(uint32_t frameIndex)
         m_RiverLength
     );
 
+    ubo.crestNoiseA = glm::vec4(
+        m_CrestNoiseGui.lateralFrequency,
+        m_CrestNoiseGui.alongFrequencyX,
+        m_CrestNoiseGui.alongFrequencyY,
+        m_CrestNoiseGui.animationSpeed
+    );
+    ubo.crestNoiseB = glm::vec4(
+        m_CrestNoiseGui.detailFrequency,
+        m_CrestNoiseGui.detailWeight,
+        m_CrestNoiseGui.amplitudeMin,
+        m_CrestNoiseGui.amplitudeMax
+    );
+    ubo.crestNoiseC = glm::vec4(
+        m_CrestNoiseGui.wobbleStrength,
+        m_CrestNoiseGui.wobbleFrequency,
+        0.0f,
+        0.0f
+    );
+
     m_MultiBoreUniformBuffers[frameIndex]->CopyToMapped(
         &ubo,
         sizeof(ubo)
@@ -2114,7 +2133,7 @@ void Stage10RiverWaterApp::UpdateMultiBoreBuffers(uint32_t frameIndex)
     );
 }
 
-water::BoreEventManagerConfig Stage10RiverWaterApp::BuildBoreEventManagerConfig() const
+water::BoreEventManagerConfig Stage11ProgressBoreApp::BuildBoreEventManagerConfig() const
 {
     water::BoreEventManagerConfig config{};
     config.enabled = m_MultiBoreGui.enabled;
@@ -2128,7 +2147,7 @@ water::BoreEventManagerConfig Stage10RiverWaterApp::BuildBoreEventManagerConfig(
     return config;
 }
 
-float Stage10RiverWaterApp::ComputeProfilePhaseForProgress(
+float Stage11ProgressBoreApp::ComputeProfilePhaseForProgress(
     float progressMeters,
     float phaseOffset
 ) const
@@ -2159,12 +2178,12 @@ float Stage10RiverWaterApp::ComputeProfilePhaseForProgress(
     return glm::clamp(profilePhase + phaseOffset * 0.08f, 0.0f, 1.0f);
 }
 
-void Stage10RiverWaterApp::ResetMultiBoreEvents()
+void Stage11ProgressBoreApp::ResetMultiBoreEvents()
 {
     m_BoreEventManager.Reset(static_cast<uint32_t>(m_MultiBoreGui.seed));
 }
 
-void Stage10RiverWaterApp::UpdateFoamParamsUniformBuffer(uint32_t frameIndex)
+void Stage11ProgressBoreApp::UpdateFoamParamsUniformBuffer(uint32_t frameIndex)
 {
     water::FoamParamsUBO ubo{};
 
@@ -2201,8 +2220,8 @@ void Stage10RiverWaterApp::UpdateFoamParamsUniformBuffer(uint32_t frameIndex)
     ubo.runtime = glm::vec4(
         static_cast<float>(outputFoamStateIndex),
         1.0f,
-        0.0f,
-        0.0f
+        m_FoamGui.oceanFoamFadeNear,
+        m_FoamGui.oceanFoamFadeFar
     );
 
     ubo.domain = m_FoamGui.domain;
@@ -2213,7 +2232,7 @@ void Stage10RiverWaterApp::UpdateFoamParamsUniformBuffer(uint32_t frameIndex)
     );
 }
 
-void Stage10RiverWaterApp::UpdateFoamSimulationUniformBuffer(uint32_t frameIndex)
+void Stage11ProgressBoreApp::UpdateFoamSimulationUniformBuffer(uint32_t frameIndex)
 {
     // 限制时间步长，防止泡沫平流和扩散不稳定（最大 1/30 秒）
     float foamDt =
@@ -2265,7 +2284,7 @@ void Stage10RiverWaterApp::UpdateFoamSimulationUniformBuffer(uint32_t frameIndex
 
 // 更新水体材质 UBO（每帧、每飞行帧调用）
 // 将预设的水体颜色、光学参数、光照方向和雾效参数写入当前帧的 Uniform Buffer
-void Stage10RiverWaterApp::UpdateWaterMaterialUniformBuffer(uint32_t frameIndex)
+void Stage11ProgressBoreApp::UpdateWaterMaterialUniformBuffer(uint32_t frameIndex)
 {
     water::WaterMaterialUBO ubo{};
 
@@ -2307,7 +2326,7 @@ void Stage10RiverWaterApp::UpdateWaterMaterialUniformBuffer(uint32_t frameIndex)
 }
 
 // 判断 Tile 是水域、陆地还是河岸
-bool Stage10RiverWaterApp::ClassifyRiverTile(
+bool Stage11ProgressBoreApp::ClassifyRiverTile(
     water::WaterTile& tile
 ) const
 {
@@ -2413,7 +2432,7 @@ bool Stage10RiverWaterApp::ClassifyRiverTile(
     // coarse tile 先至少分到 Level 4
     // 岸边至少 Level 5
     // 潮头附近强制 Level 6
-uint32_t Stage10RiverWaterApp::GetRiverRequiredLevel(
+uint32_t Stage11ProgressBoreApp::GetRiverRequiredLevel(
     const water::WaterTile& tile
 ) const
 {
@@ -2429,11 +2448,6 @@ uint32_t Stage10RiverWaterApp::GetRiverRequiredLevel(
             std::max(requiredLevel, 5u);
     }
 
-    float boreProgress =
-        m_BoreFrontParams.initialOffset +
-        m_BoreFrontParams.speed *
-            m_BoreTime;
-
     float highDetailMargin =
         m_BoreProfileConfig.profileHalfWidth +
         24.0f;
@@ -2442,12 +2456,40 @@ uint32_t Stage10RiverWaterApp::GetRiverRequiredLevel(
         tile.maxRiverProgress >
         tile.minRiverProgress;
 
-    bool intersectsBore =
-        hasProgressRange &&
-        boreProgress + highDetailMargin >=
-            tile.minRiverProgress &&
-        boreProgress - highDetailMargin <=
-            tile.maxRiverProgress;
+    bool intersectsBore = false;
+
+    if(hasProgressRange){
+        // 多潮头模式：遍历所有活跃事件，任一潮头落在该 tile 的沿河进度范围内即强制最高 LOD，
+        // 避免真实潮头所在 tile 未被细分导致与相邻 tile 层级差过大出现裂缝。
+        const std::vector<water::BoreEvent>& events =
+            m_BoreEventManager.GetActiveEvents();
+
+        for(const water::BoreEvent& event : events){
+            if(!event.active){
+                continue;
+            }
+
+            float boreProgress = event.progressMeters;
+
+            if(boreProgress + highDetailMargin >= tile.minRiverProgress &&
+               boreProgress - highDetailMargin <= tile.maxRiverProgress){
+                intersectsBore = true;
+                break;
+            }
+        }
+
+        // 回退：多潮头未启用/无活跃事件时，沿用旧单潮头波前位置
+        if(!intersectsBore && events.empty()){
+            float boreProgress =
+                m_BoreFrontParams.initialOffset +
+                m_BoreFrontParams.speed *
+                    m_BoreTime;
+
+            intersectsBore =
+                boreProgress + highDetailMargin >= tile.minRiverProgress &&
+                boreProgress - highDetailMargin <= tile.maxRiverProgress;
+        }
+    }
 
     if(intersectsBore){
         requiredLevel =
@@ -2458,7 +2500,7 @@ uint32_t Stage10RiverWaterApp::GetRiverRequiredLevel(
 }
 
 // 每帧根据相机生成可见 Tile
-void Stage10RiverWaterApp::UpdateQuadtree()
+void Stage11ProgressBoreApp::UpdateQuadtree()
 {
     if(!m_WaterQuadtree){
         return;
@@ -2490,7 +2532,7 @@ void Stage10RiverWaterApp::UpdateQuadtree()
         m_WaterQuadtree->GetVisibleTiles();
 }
 
-void Stage10RiverWaterApp::UpdateTileInstanceBuffer(
+void Stage11ProgressBoreApp::UpdateTileInstanceBuffer(
     uint32_t frameIndex
 )
 {
@@ -2543,7 +2585,7 @@ void Stage10RiverWaterApp::UpdateTileInstanceBuffer(
     );
 }
 
-void Stage10RiverWaterApp::DrawQuadtreeTiles(
+void Stage11ProgressBoreApp::DrawQuadtreeTiles(
     VkCommandBuffer commandBuffer
 )
 {
@@ -2563,7 +2605,7 @@ void Stage10RiverWaterApp::DrawQuadtreeTiles(
     );
 }
 
-void Stage10RiverWaterApp::Render(VkCommandBuffer commandBuffer, uint32_t imageIndex)
+void Stage11ProgressBoreApp::Render(VkCommandBuffer commandBuffer, uint32_t imageIndex)
 {
     VkCommandBufferBeginInfo beginInfo{};
     beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
@@ -2678,7 +2720,7 @@ void Stage10RiverWaterApp::Render(VkCommandBuffer commandBuffer, uint32_t imageI
     }
 }
 
-void Stage10RiverWaterApp::SetupGui()
+void Stage11ProgressBoreApp::SetupGui()
 {
     auto poolSizes = gui::GetDescriptorPoolSizes();
 
@@ -2713,7 +2755,7 @@ void Stage10RiverWaterApp::SetupGui()
     );
 }
 
-void Stage10RiverWaterApp::RebuildQuadtreeFromGui()
+void Stage11ProgressBoreApp::RebuildQuadtreeFromGui()
 {
     vkDeviceWaitIdle(GetDevice());
     m_WaterQuadtree.reset();
@@ -2721,7 +2763,7 @@ void Stage10RiverWaterApp::RebuildQuadtreeFromGui()
     CreateWaterPatch();
 }
 
-void Stage10RiverWaterApp::ResetBoreEvent()
+void Stage11ProgressBoreApp::ResetBoreEvent()
 {
     m_BoreTime = 0.0f;
     m_ProfileTime = m_BoreProfileConfig.duration * m_BoreProfileGui.fixedPhase;
@@ -2729,7 +2771,7 @@ void Stage10RiverWaterApp::ResetBoreEvent()
     ResetMultiBoreEvents();
 }
 
-void Stage10RiverWaterApp::DrawGui()
+void Stage11ProgressBoreApp::DrawGui()
 {
     gui::NewFrame();
 
@@ -2826,6 +2868,22 @@ void Stage10RiverWaterApp::DrawGui()
         }
     }
 
+    if(ImGui::CollapsingHeader("Crest Noise - 浪脊噪声：打破一堵墙，控制大起伏/细碎波动/顶边参差")){
+        ImGui::TextWrapped("整体振幅调制(改高度+泡沫)");
+        ImGui::SliderFloat("Lateral Freq - 横向(河宽)团块数", &m_CrestNoiseGui.lateralFrequency, 0.0f, 12.0f);
+        ImGui::SliderFloat("Along Freq X - 沿河频率X", &m_CrestNoiseGui.alongFrequencyX, 0.0f, 0.2f, "%.4f");
+        ImGui::SliderFloat("Along Freq Y - 沿河频率Y", &m_CrestNoiseGui.alongFrequencyY, 0.0f, 0.2f, "%.4f");
+        ImGui::SliderFloat("Anim Speed - 随潮头流动速度", &m_CrestNoiseGui.animationSpeed, 0.0f, 0.5f, "%.4f");
+        ImGui::SliderFloat("Detail Freq - 细碎波动频率", &m_CrestNoiseGui.detailFrequency, 1.0f, 16.0f);
+        ImGui::SliderFloat("Detail Weight - 大/细占比", &m_CrestNoiseGui.detailWeight, 0.0f, 1.0f);
+        ImGui::SliderFloat("Amplitude Min - 振幅下限", &m_CrestNoiseGui.amplitudeMin, 0.0f, 1.0f);
+        ImGui::SliderFloat("Amplitude Max - 振幅上限", &m_CrestNoiseGui.amplitudeMax, 1.0f, 3.0f);
+        ImGui::Separator();
+        ImGui::TextWrapped("浪脊顶边参差(只改高度)");
+        ImGui::SliderFloat("Wobble Strength - 顶抖强度", &m_CrestNoiseGui.wobbleStrength, 0.0f, 1.5f);
+        ImGui::SliderFloat("Wobble Freq - 顶抖频率", &m_CrestNoiseGui.wobbleFrequency, 0.5f, 12.0f);
+    }
+
     if(ImGui::CollapsingHeader("Bore Profile - 潮头剖面：控制 Wave Profile 的宽度、高度、前向推挤和水位抬升", ImGuiTreeNodeFlags_DefaultOpen)){
         ImGui::Checkbox("Profile Paused - 固定剖面动画相位", &m_ProfilePaused);
         ImGui::Checkbox("Auto Repeat - 自动重复触发潮头事件", &m_AutoRepeatEvent);
@@ -2852,6 +2910,10 @@ void Stage10RiverWaterApp::DrawGui()
         ImGui::DragFloat("State Diffusion - 状态泡沫扩散系数", &m_FoamGui.stateDiffusion, 0.001f, 0.0f, 1.0f);
         ImGui::Checkbox("Foam Solver - 开关状态泡沫计算", &m_FoamGui.solverEnabled);
         ImGui::DragFloat4("Foam Domain - 状态泡沫世界范围 minX/minZ/sizeX/sizeZ", glm::value_ptr(m_FoamGui.domain), 1.0f);
+        ImGui::Separator();
+        ImGui::TextWrapped("FFT 全局海洋泡沫距离淡出(压掉潮外远处的网格泡沫)。想彻底关掉海洋泡沫可把 Source Strength 的 Slope/Jacobian 两项调 0。");
+        ImGui::DragFloat("Ocean Foam Fade Near - 开始淡出距离 m", &m_FoamGui.oceanFoamFadeNear, 1.0f, 0.0f, 2000.0f);
+        ImGui::DragFloat("Ocean Foam Fade Far - 完全消失距离 m", &m_FoamGui.oceanFoamFadeFar, 1.0f, 0.0f, 4000.0f);
     }
 
     if(ImGui::CollapsingHeader("Water Material - 水体材质：控制颜色、反射、高光、泥沙和远景雾")){
@@ -2889,7 +2951,7 @@ void Stage10RiverWaterApp::DrawGui()
     ImGui::End();
 }
 
-void Stage10RiverWaterApp::UpdateWindowTitle()
+void Stage11ProgressBoreApp::UpdateWindowTitle()
 {
     m_TitleUpdateTimer += 1.0f / 60.0f;
 
@@ -2915,12 +2977,12 @@ void Stage10RiverWaterApp::UpdateWindowTitle()
     GetWindow().SetTitle(title.str());
 }
 
-void Stage10RiverWaterApp::OnFramebufferResize(int width, int height)
+void Stage11ProgressBoreApp::OnFramebufferResize(int width, int height)
 {
     core::Application::OnFramebufferResize(width, height);
 }
 
-void Stage10RiverWaterApp::OnKey(int key, int scancode, int action, int mods)
+void Stage11ProgressBoreApp::OnKey(int key, int scancode, int action, int mods)
 {
     // 保留基类的默认按键行为（如 ESC 退出等）
     core::Application::OnKey(key, scancode, action, mods);
@@ -3111,7 +3173,7 @@ void Stage10RiverWaterApp::OnKey(int key, int scancode, int action, int mods)
     }   
 }
 
-void Stage10RiverWaterApp::OnMouseMove(double x, double y)
+void Stage11ProgressBoreApp::OnMouseMove(double x, double y)
 {
     if(m_GuiEnabled){
         ImGuiIO& io = ImGui::GetIO();
@@ -3144,7 +3206,7 @@ void Stage10RiverWaterApp::OnMouseMove(double x, double y)
     );
 }
 
-void Stage10RiverWaterApp::OnMouseButton(int button, int action, int mods)
+void Stage11ProgressBoreApp::OnMouseButton(int button, int action, int mods)
 {
     if(m_GuiEnabled){
         ImGuiIO& io = ImGui::GetIO();
@@ -3156,5 +3218,18 @@ void Stage10RiverWaterApp::OnMouseButton(int button, int action, int mods)
     if(button == GLFW_MOUSE_BUTTON_RIGHT && action == GLFW_PRESS){
         m_CameraControlEnabled = !m_CameraControlEnabled;
         m_FirstMouse = true;
+
+        // 锁定/释放光标：进入相机控制时用 DISABLED（隐藏并锁定到中心，提供无边界的相对位移，
+        // 移动到屏幕边缘也不会丢失 delta，实现"纯依据移动量转向"）；退出时恢复普通光标供 GUI 使用
+        GLFWwindow* nativeWindow = GetWindow().GetNativeWindow();
+        if(m_CameraControlEnabled){
+            glfwSetInputMode(nativeWindow, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+            if(glfwRawMouseMotionSupported()){
+                glfwSetInputMode(nativeWindow, GLFW_RAW_MOUSE_MOTION, GLFW_TRUE);
+            }
+        }
+        else{
+            glfwSetInputMode(nativeWindow, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
+        }
     }
 }
