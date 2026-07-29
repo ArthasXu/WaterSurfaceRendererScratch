@@ -70,7 +70,7 @@
 //   - 减少 CPU → GPU 的数据传输：每帧仅传递时间参数和 push constants，无需上传数 MB 的位移场数据
 //   - 为后续实时多层 FFT 海浪叠加（近中远波谱 + LOD 分级网格）和泡沫/白浪判据提供高性能计算基础
 //   - Compute Shader 与图形管线在同一命令缓冲中执行，通过管线屏障精确同步，无需跨 API 互操作
-class Stage10RiverWaterApp : public core::Application
+class Stage11ProgressBoreApp : public core::Application
 {
 protected:
     void Start() override;
@@ -121,6 +121,8 @@ private:
         float stateEnabled = 0.0f;
         glm::vec4 domain{-128.0f, -128.0f, 256.0f, 256.0f};
         bool solverEnabled = true;
+        float oceanFoamFadeNear = 150.0f;  // FFT 全局泡沫开始淡出的相机距离
+        float oceanFoamFadeFar = 600.0f;   // FFT 全局泡沫完全消失的相机距离
     };
 
     struct WaterMaterialGuiParams
@@ -164,6 +166,20 @@ private:
     {
         SDFFlowMap = 0,     // 旧：Flow + Coordinate 两张图
         ProgressField = 1   // 新：单张 Progress 图
+    };
+
+    struct CrestNoiseGuiParams
+    {
+        float lateralFrequency = 3.0f;   // 横向(河宽)团块数
+        float alongFrequencyX = 0.03f;   // 沿河频率(x轴)
+        float alongFrequencyY = 0.02f;   // 沿河频率(y轴)
+        float animationSpeed = 0.06f;    // 随潮头推进的流动速度
+        float detailFrequency = 5.0f;    // 细碎波动频率
+        float detailWeight = 0.35f;      // 大/细占比 [0,1]
+        float amplitudeMin = 0.5f;       // 振幅下限
+        float amplitudeMax = 1.5f;       // 振幅上限
+        float wobbleStrength = 0.35f;    // 浪脊顶抖强度
+        float wobbleFrequency = 3.0f;    // 浪脊顶抖频率
     };
 
 private:
@@ -241,7 +257,7 @@ private:
     bool m_FirstMouse = true;
     double m_LastMouseX = 0.0;
     double m_LastMouseY = 0.0;
-    bool m_CameraControlEnabled = true;
+    bool m_CameraControlEnabled = false;
 
     float m_Time = 0.0f;
     float m_TitleUpdateTimer = 0.0f;
@@ -260,6 +276,7 @@ private:
     MultiBoreGuiParams m_MultiBoreGui{};
 
     BoreFieldMode m_BoreFieldMode = BoreFieldMode::SDFFlowMap;
+    CrestNoiseGuiParams m_CrestNoiseGui{};
 
     // 配置参数：决定 FFT 网格大小和物理范围，供创建 WSTessendorfCPU 和分配纹理使用。
     water::Stage6OceanConfig m_OceanConfig =

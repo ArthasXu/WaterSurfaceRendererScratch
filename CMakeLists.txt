@@ -906,6 +906,7 @@ add_executable(stage10_river_water
     src/scene/water/bore/BoreFrontField.cpp
     src/scene/water/bore/BoreWaveProfile.cpp
     src/scene/water/bore/BoreEventManager.cpp
+    src/scene/water/river/ProgressFieldBaker.cpp
 
     src/scene/water/foam/FoamDetailGenerator.cpp
 
@@ -948,6 +949,103 @@ target_compile_features(stage10_river_water
 )
 
 target_link_libraries(stage10_river_water
+    PRIVATE
+    Vulkan::Vulkan
+    glfw
+    glm::glm
+    spdlog::spdlog
+    FFTW3::fftw3
+)
+
+
+# stage11-progress-bore
+add_executable(stage11-progress-bore
+    src/main/stage11/stage11_main.cpp
+    src/main/stage11/Stage11ProgressBoreApp.cpp
+    src/gui/Gui.cpp
+
+    D:/WaterSurfaceRendering_h72/libs/imgui/imgui.cpp
+    D:/WaterSurfaceRendering_h72/libs/imgui/imgui_draw.cpp
+    D:/WaterSurfaceRendering_h72/libs/imgui/imgui_tables.cpp
+    D:/WaterSurfaceRendering_h72/libs/imgui/imgui_widgets.cpp
+    D:/WaterSurfaceRendering_h72/libs/imgui/imgui_demo.cpp
+    D:/WaterSurfaceRendering_h72/libs/imgui/backends/imgui_impl_glfw.cpp
+    D:/WaterSurfaceRendering_h72/libs/imgui/backends/imgui_impl_vulkan.cpp
+
+    src/core/Application.cpp
+    src/core/Window.cpp
+    src/core/Timer.cpp
+    src/core/Log.cpp
+
+    src/scene/Camera.cpp
+
+    src/scene/water/gpu/ComputePipeline.cpp
+    src/scene/water/gpu/GPUFFT2D.cpp
+    src/scene/water/gpu/WSTessendorfGPU.cpp
+
+    src/scene/water/render/DepthBuffer.cpp
+    src/scene/water/render/DynamicImage2D.cpp
+    src/scene/water/render/WaterGrid.cpp
+    src/scene/water/render/WaterSampler.cpp
+    src/scene/water/render/WaterVertex.cpp
+    src/scene/water/render/StaticFloatTexture2D.cpp
+    src/scene/water/render/StaticDataTexture2D.cpp
+    src/scene/water/render/ComputeImage2D.cpp
+
+    src/scene/water/lod/WaterPatchMesh.cpp
+    src/scene/water/lod/WaterQuadtree.cpp
+
+    src/scene/water/river/RiverSpline.cpp
+    src/scene/water/river/RiverFieldBaker.cpp
+    src/scene/water/river/RiverField.cpp
+
+    src/scene/water/bore/FrontParameterLUT.cpp
+    src/scene/water/bore/BoreFrontField.cpp
+    src/scene/water/bore/BoreWaveProfile.cpp
+    src/scene/water/bore/BoreEventManager.cpp
+    src/scene/water/river/ProgressFieldBaker.cpp
+
+    src/scene/water/foam/FoamDetailGenerator.cpp
+
+    src/scene/water/sources/WSTessendorfCPU.cpp
+    src/scene/water/sources/WSTessendorfCascadesCPU.cpp
+
+    src/vulkan/Instance.cpp
+    src/vulkan/Surface.cpp
+    src/vulkan/PhysicalDevice.cpp
+    src/vulkan/Image.cpp
+    src/vulkan/ImageView.cpp
+    src/vulkan/Device.cpp
+    src/vulkan/RenderPass.cpp
+    src/vulkan/ShaderModule.cpp
+    src/vulkan/Pipeline.cpp
+    src/vulkan/SwapChain.cpp
+    src/vulkan/CommandPool.cpp
+    src/vulkan/CommandBuffer.cpp
+    src/vulkan/SyncObjects.cpp
+    src/vulkan/Buffer.cpp
+    src/vulkan/Descriptors.cpp
+)
+
+add_custom_command(TARGET stage11-progress-bore POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+        "${CMAKE_SOURCE_DIR}/shaders"
+        "$<TARGET_FILE_DIR:stage11-progress-bore>/shaders"
+)
+
+target_include_directories(stage11-progress-bore
+    PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+    D:/WaterSurfaceRendering_h72/libs/imgui
+    D:/WaterSurfaceRendering_h72/libs/imgui/backends
+)
+
+target_compile_features(stage11-progress-bore
+    PRIVATE
+    cxx_std_17
+)
+
+target_link_libraries(stage11-progress-bore
     PRIVATE
     Vulkan::Vulkan
     glfw
