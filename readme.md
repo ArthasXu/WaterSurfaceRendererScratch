@@ -30,5 +30,7 @@ Flow Map 初始化： src\main\stage10\Stage10RiverWaterApp.cpp - CreateRiverRes
 实现Progress Map + 潮头水平面高度noise：.\build\Debug\stage11-progress-bore.exe
 类Fluid Flux水体渲染优化：.\build\Debug\stage12-fluid-flux.exe
 
+贴图生成器： .\build\Debug\river-field-baker.exe
+
 git push origin stage8-bore-wave-profile
 git push -u gitlab stage8-bore-wave-profile

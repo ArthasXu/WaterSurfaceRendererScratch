@@ -29,6 +29,7 @@
 #include "scene/water/river/RiverFieldBaker.h"
 #include "scene/water/river/RiverResourceContract.h"
 #include "scene/water/river/ProgressFieldTypes.h"
+#include "scene/water/river/ShoreFieldTypes.h"
 
 #include "vulkan/Buffer.h"
 #include "vulkan/Descriptors.h"
@@ -190,6 +191,9 @@ private:
 
     void CreateRiverResources();
 
+    // 依据当前 m_ShoreParams 重新烘焙岸线场并刷新 binding 21
+    void RebakeShoreField();
+
     void UpdateRiverFieldUniformBuffer(
         uint32_t frameIndex
     );
@@ -278,6 +282,13 @@ private:
     BoreFieldMode m_BoreFieldMode = BoreFieldMode::SDFFlowMap;
     CrestNoiseGuiParams m_CrestNoiseGui{};
 
+    // 岸线场烘焙参数（GUI 可调，改后点 Rebake 重烘焙）
+    water::ShoreFieldParams m_ShoreParams{};
+    // GUI 请求重烘焙的延迟标志，在帧录制前的安全点执行
+    bool m_ShoreRebakePending = false;
+    // 记录烘焙时使用的场配置，供 RebakeShoreField 复用
+    water::RiverFieldConfig m_RiverFieldConfig{};
+
     // 配置参数：决定 FFT 网格大小和物理范围，供创建 WSTessendorfCPU 和分配纹理使用。
     water::Stage6OceanConfig m_OceanConfig =
         water::MakeStage6ReferenceOceanConfig();
@@ -360,6 +371,7 @@ private:
     std::unique_ptr<water::StaticDataTexture2D> m_RiverFlowTexture;
     std::unique_ptr<water::StaticDataTexture2D> m_RiverCoordinateTexture;
     std::unique_ptr<water::StaticDataTexture2D> m_ProgressFieldTexture;
+    std::unique_ptr<water::StaticDataTexture2D> m_ShoreMaskTexture;
     water::FoamDetailTextureData m_FoamDetailData{};
     std::unique_ptr<water::StaticDataTexture2D> m_FoamDetailTexture;
 

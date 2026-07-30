@@ -79,6 +79,7 @@ layout(set = 0, binding = 15) uniform RiverFieldUBO
 layout(set = 0, binding = 16) uniform sampler2D riverFlowTexture;
 layout(set = 0, binding = 17) uniform sampler2D riverCoordinateTexture;
 layout(set = 0, binding = 20) uniform sampler2D riverProgressTexture;
+layout(set = 0, binding = 21) uniform sampler2D shoreMaskTexture;
 
 struct BoreEventGPU
 {
@@ -168,6 +169,7 @@ layout(location = 12) out vec4 fragFoamFlowData;
 layout(location = 13) out vec4 fragFinalDisplacement;
 layout(location = 14) out vec4 fragRiverFlow;
 layout(location = 15) out vec4 fragRiverCoord;
+layout(location = 16) out vec4 fragShore;
 
 struct CascadeSample
 {
@@ -359,6 +361,7 @@ void main(){
     fragRiverFlow = riverFlow;
     fragRiverCoord = riverCoord;
 
+    fragShore = textureLod(shoreMaskTexture, riverUV, 0.0);
 
     // riverFlow.rg 是从 Flow Map（绑定在 binding=16）中采样得到的局部流向，它随河道弯曲而变化
     // 优先使用梯度方向作为局部流向（更平滑），梯度过小时回退 Flow Map；
