@@ -1095,6 +1095,8 @@ add_executable(stage12-fluid-flux
     src/scene/water/river/RiverFieldBaker.cpp
     src/scene/water/river/RiverField.cpp
     src/scene/water/river/ProgressFieldBaker.cpp
+    src/scene/water/river/ShoreFieldBaker.cpp
+    src/scene/water/river/RiverFieldBundle.cpp
 
     src/scene/water/bore/FrontParameterLUT.cpp
     src/scene/water/bore/BoreFrontField.cpp
@@ -1148,4 +1150,74 @@ target_link_libraries(stage12-fluid-flux
     glm::glm
     spdlog::spdlog
     FFTW3::fftw3
+)
+
+# ===== river-field-baker：河流场烘焙工具（窗口 + Vulkan + ImGui 参数编辑）=====
+add_executable(river-field-baker
+    src/tools/river_field_baker/main.cpp
+    src/tools/river_field_baker/RiverFieldBakerApp.cpp
+
+    src/gui/Gui.cpp
+
+    D:/WaterSurfaceRendering_h72/libs/imgui/imgui.cpp
+    D:/WaterSurfaceRendering_h72/libs/imgui/imgui_draw.cpp
+    D:/WaterSurfaceRendering_h72/libs/imgui/imgui_tables.cpp
+    D:/WaterSurfaceRendering_h72/libs/imgui/imgui_widgets.cpp
+    D:/WaterSurfaceRendering_h72/libs/imgui/imgui_demo.cpp
+    D:/WaterSurfaceRendering_h72/libs/imgui/backends/imgui_impl_glfw.cpp
+    D:/WaterSurfaceRendering_h72/libs/imgui/backends/imgui_impl_vulkan.cpp
+
+    src/core/Application.cpp
+    src/core/Window.cpp
+    src/core/Timer.cpp
+    src/core/Log.cpp
+
+    src/scene/water/render/DepthBuffer.cpp
+
+    src/scene/water/river/RiverSpline.cpp
+    src/scene/water/river/RiverFieldBaker.cpp
+    src/scene/water/river/ProgressFieldBaker.cpp
+    src/scene/water/river/ShoreFieldBaker.cpp
+    src/scene/water/river/RiverFieldBundle.cpp
+
+    src/vulkan/Instance.cpp
+    src/vulkan/Surface.cpp
+    src/vulkan/PhysicalDevice.cpp
+    src/vulkan/Image.cpp
+    src/vulkan/ImageView.cpp
+    src/vulkan/Device.cpp
+    src/vulkan/RenderPass.cpp
+    src/vulkan/SwapChain.cpp
+    src/vulkan/CommandPool.cpp
+    src/vulkan/CommandBuffer.cpp
+    src/vulkan/SyncObjects.cpp
+    src/vulkan/Buffer.cpp
+    src/vulkan/Descriptors.cpp
+)
+
+target_include_directories(river-field-baker
+    PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+    D:/WaterSurfaceRendering_h72/libs/imgui
+    D:/WaterSurfaceRendering_h72/libs/imgui/backends
+)
+
+target_compile_features(river-field-baker
+    PRIVATE
+    cxx_std_17
+)
+
+# match the /utf-8 flag other targets inherit from spdlog/fmt, so the
+# Chinese comments in the shared river sources parse correctly under MSVC
+target_compile_options(river-field-baker
+    PRIVATE
+    $<$<CXX_COMPILER_ID:MSVC>:/utf-8>
+)
+
+target_link_libraries(river-field-baker
+    PRIVATE
+    Vulkan::Vulkan
+    glfw
+    glm::glm
+    spdlog::spdlog
 )

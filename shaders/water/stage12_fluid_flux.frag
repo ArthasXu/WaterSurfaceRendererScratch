@@ -31,6 +31,7 @@ layout(location = 12) in vec4 fragFoamFlowData;
 layout(location = 13) in vec4 fragFinalDisplacement;
 layout(location = 14) in vec4 fragRiverFlow;
 layout(location = 15) in vec4 fragRiverCoord;
+layout(location = 16) in vec4 fragShore;
 
 // 摄像机 UBO（绑定 set=0, binding=0）
 layout(set = 0, binding = 0) uniform CameraUBO {
@@ -797,6 +798,15 @@ void main()
             );
         return;
     }
+
+    // 到岸的有符号距离：>0 河内，<0 岸上 河道中心亮、岸线处灰(0.5)、岸上暗 → SDF 正确
+    // wetnessBase：河内=1，岸上在 wetRunup 内线性淡出 河内白、岸上渐黑 → wetness 基底
+    // sand：岸线两侧一段范围内为 1 岸线一条亮带 → sand
+    // terrainHeight 占位：岸上按坡度抬升，河内=0（B 步换成真实 heightmap）岸上渐亮的坡 → 占位地形高度
+    if(mode == 44){ outColor = vec4(vec3(clamp(fragShore.r / 200.0 + 0.5, 0.0, 1.0)), 1.0); return; }
+    if(mode == 45){ outColor = vec4(vec3(fragShore.g), 1.0); return; } // wetnessBase
+    if(mode == 46){ outColor = vec4(vec3(fragShore.b), 1.0); return; } // sand
+    if(mode == 47){ outColor = vec4(vec3(fragShore.a / 12.0), 1.0); return; } // terrainHeight
 
     // 默认：显示 UV 坐标（红绿通道）
     outColor = vec4(fragUV, 0.0, 1.0);

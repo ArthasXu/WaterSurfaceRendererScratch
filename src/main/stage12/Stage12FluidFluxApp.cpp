@@ -7,6 +7,8 @@
 #include "scene/water/bore/BoreWaveProfile.h"
 #include "scene/water/foam/FoamDetailGenerator.h"
 #include "scene/water/river/ProgressFieldBaker.h"
+#include "scene/water/river/ShoreFieldBaker.h"
+#include "scene/water/river/RiverFieldBundle.h"
 
 #include <GLFW/glfw3.h>
 #include <glm/gtc/constants.hpp>
@@ -93,7 +95,7 @@ const char* DebugModeName(int mode)
     case 3: return "3 Slope 斜率可视化";
     case 4: return "4 Breaking 波浪破碎判据";
     case 5: return "5 World Normal 世界空间法线";
-    case 6: return "6 Bore Signed Distance 波前距离场";
+    case 6: return "6 Bore Signed Distance 波前距离场（单浪）";
     case 7: return "7 Front Fade 波前长度淡入淡出掩码";
     case 8: return "8 Front U 波前线坐标";
     case 9: return "9 Front Normal 局部波前法线方向";
@@ -131,6 +133,10 @@ const char* DebugModeName(int mode)
     case 41: return "41 River Progress 沿河归一化进度";
     case 42: return "42 River Lateral 横向归一化坐标";
     case 43: return "43 River Mask 水域掩码";
+    case 44: return "44 Bank Distance 到岸的有符号距离";
+    case 45: return "45 Wetness Base 河内=1 岸上线性淡出";
+    case 46: return "46 Sand 岸线一条亮带";
+    case 47: return "47 Terrain Height 岸上按坡度抬升";
     default: return "Custom";
     }
 }
@@ -239,6 +245,7 @@ void Stage12FluidFluxApp::ShutdownApp()
     m_RiverCoordinateTexture.reset();
     m_RiverFlowTexture.reset();
     m_ProgressFieldTexture.reset();
+    m_ShoreMaskTexture.reset();
 
     m_FoamComputeDescriptorPool.reset();
     m_AppearanceDescriptorPool.reset();
@@ -403,6 +410,7 @@ void Stage12FluidFluxApp::CreateDescriptorSetLayout()
         .AddBinding(18, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT)
         .AddBinding(19, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT)
         .AddBinding(20, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT)
+        .AddBinding(21, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT)
         .Build();
 }
 
@@ -587,27 +595,52 @@ void Stage12FluidFluxApp::CreateRiverResources()
     fieldConfig.bankFade = 4.0f;
     fieldConfig.bankFadeDistance = 16.0f;   
 
-    // 预烘焙河流场纹理数据
-    water::RiverFieldData fieldData =
-        water::BakeRiverField(
-            fieldConfig,
-            m_RiverSpline
-        );
+    // 保存场配置，供 RebakeShoreField 复用
+    m_RiverFieldConfig = fieldConfig;
 
-    m_RiverLength =
-        fieldData.riverLength;
+    // ===== 优先读离线烘焙的 bundle，缺失/失效则回退到即时烘焙 =====
+    // 昂贵的逐像素 spline.Project 烘焙已移到 river-field-baker 工具。
+    // spline 已 Build（成本低），GUI 的 RebakeShoreField 仍可用。
+    std::vector<glm::vec4> flowField;
+    std::vector<glm::vec4> coordinateField;
+    std::vector<glm::vec4> progressField;
+    std::vector<glm::vec4> shoreField;
 
-    // 打包并上传为 GPU 纹理
-    std::vector<PackedHalf4> flowPacked =
-        PackHalf4Vector(fieldData.flow);
+    water::RiverFieldBundle bundle{};
+    if(water::LoadRiverFieldBundle("assets/river/river_field.bin", bundle)){
+        VKP_INFO("Loaded river field bundle from disk (baking skipped)");
+        fieldConfig = bundle.config;
+        m_RiverFieldConfig = bundle.config;
+        m_RiverLength = bundle.riverLength;
+        flowField = std::move(bundle.flow);
+        coordinateField = std::move(bundle.coordinate);
+        progressField = std::move(bundle.progress);
+        shoreField = std::move(bundle.shore);
+    } else {
+        VKP_INFO("River field bundle missing/invalid; baking at runtime (slow). Run river-field-baker to cache it.");
+        water::RiverFieldData fieldData =
+            water::BakeRiverField(fieldConfig, m_RiverSpline);
+        m_RiverLength = fieldData.riverLength;
+        flowField = std::move(fieldData.flow);
+        coordinateField = std::move(fieldData.coordinate);
+        progressField =
+            std::move(water::BakeProgressField(fieldConfig, m_RiverSpline).field);
+        shoreField =
+            std::move(water::BakeShoreField(fieldConfig, m_RiverSpline, m_ShoreParams).field);
+    }
 
-    VkDeviceSize flowTextureSize =
+    // ===== 打包并上传为 GPU 纹理 =====
+    std::vector<PackedHalf4> flowPacked = PackHalf4Vector(flowField);
+    std::vector<PackedHalf4> progressPacked = PackHalf4Vector(progressField);
+    std::vector<PackedHalf4> shorePacked = PackHalf4Vector(shoreField);
+
+    VkDeviceSize halfTextureSize =
         static_cast<VkDeviceSize>(fieldConfig.resolution) *
         static_cast<VkDeviceSize>(fieldConfig.resolution) *
         sizeof(PackedHalf4);
 
     VkDeviceSize coordinateTextureSize =
-        static_cast<VkDeviceSize>(fieldData.coordinate.size()) *
+        static_cast<VkDeviceSize>(coordinateField.size()) *
         sizeof(glm::vec4);
 
     m_RiverFlowTexture =
@@ -620,7 +653,7 @@ void Stage12FluidFluxApp::CreateRiverResources()
             fieldConfig.resolution,
             VK_FORMAT_R16G16B16A16_SFLOAT,
             flowPacked.data(),
-            flowTextureSize
+            halfTextureSize
         );
 
     m_RiverCoordinateTexture =
@@ -632,16 +665,9 @@ void Stage12FluidFluxApp::CreateRiverResources()
             fieldConfig.resolution,
             fieldConfig.resolution,
             VK_FORMAT_R32G32B32A32_SFLOAT,
-            fieldData.coordinate.data(),
+            coordinateField.data(),
             coordinateTextureSize
         );
-
-
-    water::ProgressFieldData progressData =
-        water::BakeProgressField(fieldConfig, m_RiverSpline);
-
-    std::vector<PackedHalf4> progressPacked =
-        PackHalf4Vector(progressData.field);
 
     m_ProgressFieldTexture =
         std::make_unique<water::StaticDataTexture2D>(
@@ -653,13 +679,70 @@ void Stage12FluidFluxApp::CreateRiverResources()
             fieldConfig.resolution,
             VK_FORMAT_R16G16B16A16_SFLOAT,
             progressPacked.data(),
-            static_cast<VkDeviceSize>(progressPacked.size()) * sizeof(PackedHalf4)
+            halfTextureSize
         );
+
+    m_ShoreMaskTexture =
+        std::make_unique<water::StaticDataTexture2D>(
+            GetPhysicalDevice(),
+            GetDevice(),
+            GetCommandPool(),
+            GetDevice().GetGraphicsQueue(),
+            fieldConfig.resolution,
+            fieldConfig.resolution,
+            VK_FORMAT_R16G16B16A16_SFLOAT,
+            shorePacked.data(),
+            halfTextureSize
+        );
+
+    // ===== 重建 CPU 端 RiverField（供四叉树 LOD 剔除查询）=====
+    water::RiverFieldData riverFieldData{};
+    riverFieldData.config = fieldConfig;
+    riverFieldData.riverLength = m_RiverLength;
+    riverFieldData.flow = std::move(flowField);
+    riverFieldData.coordinate = std::move(coordinateField);
 
     m_RiverField =
         std::make_unique<water::RiverField>(
-            std::move(fieldData)
+            std::move(riverFieldData)
         );
+}
+
+void Stage12FluidFluxApp::RebakeShoreField()
+{
+    // 等待 GPU 空闲，确保旧纹理不再被任何在飞命令引用
+    vkDeviceWaitIdle(GetDevice());
+
+    // 用当前 GUI 参数重新烘焙岸线场
+    water::ShoreFieldData shoreData =
+        water::BakeShoreField(m_RiverFieldConfig, m_RiverSpline, m_ShoreParams);
+
+    std::vector<PackedHalf4> shorePacked =
+        PackHalf4Vector(shoreData.field);
+
+    // 重建 GPU 纹理（StaticDataTexture2D 无原地更新接口）
+    m_ShoreMaskTexture =
+        std::make_unique<water::StaticDataTexture2D>(
+            GetPhysicalDevice(),
+            GetDevice(),
+            GetCommandPool(),
+            GetDevice().GetGraphicsQueue(),
+            m_RiverFieldConfig.resolution,
+            m_RiverFieldConfig.resolution,
+            VK_FORMAT_R16G16B16A16_SFLOAT,
+            shorePacked.data(),
+            static_cast<VkDeviceSize>(shorePacked.size()) * sizeof(PackedHalf4)
+        );
+
+    // 新纹理 view 变化，原地覆盖各帧描述符集的 binding 21（不重新分配池）
+    for(uint32_t i = 0; i < GetMaxFramesInFlight(); ++i){
+        VkDescriptorImageInfo shoreMaskInfo =
+            m_ShoreMaskTexture->GetDescriptorInfo(*m_RiverSampler);
+
+        vkp::DescriptorWriter(*m_DescriptorSetLayout, *m_DescriptorPool)
+            .WriteImage(21, &shoreMaskInfo)
+            .Overwrite(m_DescriptorSets[i]);
+    }
 }
 
 void Stage12FluidFluxApp::CreateSamplers()
@@ -1145,7 +1228,7 @@ void Stage12FluidFluxApp::CreateDescriptorPool()
         )
         .AddPoolSize(
             VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-            GetMaxFramesInFlight() * 13
+            GetMaxFramesInFlight() * 14
         )
         .AddPoolSize(
             VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
@@ -1290,6 +1373,11 @@ void Stage12FluidFluxApp::CreateDescriptorSets()
                 *m_RiverSampler
             );
 
+        VkDescriptorImageInfo shoreMaskInfo =
+            m_ShoreMaskTexture->GetDescriptorInfo(
+                *m_RiverSampler
+            );
+
         // 5. 用 DescriptorWriter 将上述资源按顺序写入描述符集
         //    binding 0：camera UBO 每一帧，在 UpdateCameraUniformBuffer 中生成视图矩阵 投影矩阵 着色器通过 binding = 0 读取这个 UBO，完成顶点到裁剪空间的变换
         //    binding 1：water params UBO 存储控制波浪变形的全局参数(FFT 分辨率 补丁长度 choppy 强度 调试模式标志)
@@ -1317,6 +1405,7 @@ void Stage12FluidFluxApp::CreateDescriptorSets()
             .WriteBuffer(18, &multiBoreInfo)
             .WriteBuffer(19, &boreEventInfo)
             .WriteImage(20, &progressFieldInfo)
+            .WriteImage(21, &shoreMaskInfo)
             .Build(m_DescriptorSets[i]); // 完成分配与写入
 
         // 如果分配或写入失败（比如池子空间不足），立即抛出异常
@@ -1902,9 +1991,9 @@ void Stage12FluidFluxApp::UpdateRiverFieldUniformBuffer(
     // w = riverLength  – 河流中轴线总长度（米）
     ubo.domain =
         glm::vec4(
-            -1024.0f,      // worldMinX
-            -1024.0f,      // worldMinZ
-            2048.0f,       // worldSize
+            m_RiverFieldConfig.worldMin.x,  // worldMinX
+            m_RiverFieldConfig.worldMin.y,  // worldMinZ
+            m_RiverFieldConfig.worldSize,   // worldSize
             m_RiverLength  // 河流总长度（由 BakeRiverField 计算得出）
         );
 
@@ -2097,9 +2186,9 @@ void Stage12FluidFluxApp::UpdateMultiBoreBuffers(uint32_t frameIndex)
     );
 
     ubo.river = glm::vec4(
-        -1024.0f,
-        -1024.0f,
-        2048.0f,
+        m_RiverFieldConfig.worldMin.x,
+        m_RiverFieldConfig.worldMin.y,
+        m_RiverFieldConfig.worldSize,
         m_RiverLength
     );
 
@@ -2607,6 +2696,13 @@ void Stage12FluidFluxApp::DrawQuadtreeTiles(
 
 void Stage12FluidFluxApp::Render(VkCommandBuffer commandBuffer, uint32_t imageIndex)
 {
+    // 在录制命令前的安全点执行重烘焙：此处不在任何命令缓冲区录制中，
+    // RebakeShoreField 内部 vkDeviceWaitIdle 后销毁/重建纹理不会使在飞命令失效
+    if(m_ShoreRebakePending){
+        RebakeShoreField();
+        m_ShoreRebakePending = false;
+    }
+
     VkCommandBufferBeginInfo beginInfo{};
     beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
 
@@ -2798,7 +2894,7 @@ void Stage12FluidFluxApp::DrawGui()
         ImGui::Checkbox("Bore Enabled - 开关一线潮整体位移", &m_BoreEnabled);
         ImGui::Checkbox("Profile Enabled - 开关 Wave Profile 剖面效果", &m_ProfileEnabled);
 
-        ImGui::SliderInt("Debug Mode - 片元 shader 输出模式", &m_DebugMode, 0, 43);
+        ImGui::SliderInt("Debug Mode - 片元 shader 输出模式", &m_DebugMode, 0, 47);
         ImGui::Text("%s", DebugModeName(m_DebugMode));
 
         if(ImGui::Button("Final")){
@@ -2806,12 +2902,6 @@ void Stage12FluidFluxApp::DrawGui()
         }
         if(ImGui::Button("Height 高度场灰度图")){
             m_DebugMode = 1;
-        }
-        if(ImGui::Button("Amplitude 振幅乘数")){
-            m_DebugMode = 10;
-        }
-        if(ImGui::Button("Bore Signed Distance 波前距离场")){
-            m_DebugMode = 6;
         }
     }
 
@@ -2948,6 +3038,16 @@ void Stage12FluidFluxApp::DrawGui()
         ImGui::Text("Current river length - 当前河流中轴线的总长度: %.1f m", m_RiverLength);
     }
 
+    if(ImGui::CollapsingHeader("Shore Field - 岸线场：湿润带/沙滩/岸上地形烘焙参数（改后需 Rebake）")){
+        ImGui::SliderFloat("Wet Runup - 岸上湿润带延伸(米)", &m_ShoreParams.wetRunup, 0.0f, 120.0f);
+        ImGui::SliderFloat("Sand Width - 沙滩影响半径(米)", &m_ShoreParams.sandWidth, 0.0f, 200.0f);
+        ImGui::SliderFloat("Beach Slope - 岸上地形坡度", &m_ShoreParams.beachSlope, 0.0f, 1.0f, "%.3f");
+        ImGui::SliderFloat("Max Beach Height - 岸上地形最大抬升(米)", &m_ShoreParams.maxBeachHeight, 0.0f, 60.0f);
+        if(ImGui::Button("Rebake Shore Field - 重新烘焙岸线场")){
+            m_ShoreRebakePending = true;
+        }
+    }
+
     ImGui::End();
 }
 
@@ -3075,7 +3175,7 @@ void Stage12FluidFluxApp::OnKey(int key, int scancode, int action, int mods)
         }
 
         if(key == GLFW_KEY_M){
-            m_DebugMode = (m_DebugMode + 1) % 44;
+            m_DebugMode = (m_DebugMode + 1) % 48;
         }
 
         // Tab：切换线框渲染模式
