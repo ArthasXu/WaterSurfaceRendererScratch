@@ -92,7 +92,7 @@ glm::mat4 Camera::GetViewMatrix() const { // 获取视图矩阵
 }
 
 glm::mat4 Camera::GetProjectionMatrix(float aspectRatio) const { // 获取投影矩阵
-    glm::mat4 proj = glm::perspective(glm::radians(m_Fov), aspectRatio, 0.1f, 1000.0f); // 获取投影矩阵
+    glm::mat4 proj = glm::perspective(glm::radians(m_Fov), aspectRatio, 0.5f, 20000.0f); // 获取投影矩阵
     proj[1][1] *= -1.0f; // 翻转Y轴
     return proj; // 返回投影矩阵
 }

@@ -1,0 +1,11 @@
+prefix=D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/fftw3_x64-windows
+exec_prefix=D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/fftw3_x64-windows
+libdir=D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/fftw3_x64-windows/lib
+includedir=D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/fftw3_x64-windows/include
+
+Name: FFTW
+Description: fast Fourier transform library
+Version: 3.3.10
+Libs: -L${libdir} -lfftw3l 
+Libs.private: -lm
+Cflags: -I${includedir}

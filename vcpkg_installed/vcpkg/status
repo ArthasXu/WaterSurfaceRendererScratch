@@ -1,15 +1,15 @@
 Package: vcpkg-cmake-config
-Version: 2024-05-23
+Version: 2026-07-21
 Architecture: x64-windows
 Multi-Arch: same
-Abi: 1b115e07875b8efed7e6dd8c2c527ba4a9ddc30276092be564a4f286d3be5490
+Abi: 93b23066881fe07510bb4c55a32a4788b0b68a8ac03121f8d5042fffe214d019
 Status: install ok installed
 
 Package: vcpkg-cmake
 Version: 2024-04-23
 Architecture: x64-windows
 Multi-Arch: same
-Abi: 9869b04895f49ffee5b5391674a725e44d8167803edb7aff8051ba065b412576
+Abi: 34dbd6a0d4151dfa9a8e67b08554b1c6e9448206c4954cfc31ec2ffc26c0f6ef
 Status: install ok installed
 
 Package: fftw3
@@ -17,7 +17,7 @@ Version: 3.3.11
 Depends: vcpkg-cmake, vcpkg-cmake-config
 Architecture: x64-windows
 Multi-Arch: same
-Abi: 46a184ba23dc2afef29e6b4da13258498445c592fd701d4d09438c5fd88b2e7d
+Abi: 2d54eec2316954858d261f99841f7ba2ad776c61dbe45d2d43ebd671823b3cc0
 Description: FFTW is a C subroutine library for computing the discrete Fourier transform (DFT) in one or more dimensions, of arbitrary input size, and of both real and complex data (as well as of even/odd data, i.e. the discrete cosine/sine transforms or DCT/DST).
 Status: install ok installed
 
@@ -27,7 +27,7 @@ Port-Version: 1
 Depends: vcpkg-cmake, vcpkg-cmake-config
 Architecture: x64-windows
 Multi-Arch: same
-Abi: d86bcdd77298226fa2e792a68e42ed11992e5318e60caef9460fbccd0bf851de
+Abi: b14c54d05cbdd7fe86886994c74bd8f8a2a2a4124fd8fee65f77375789f023ed
 Description: GLFW is a free, Open Source, multi-platform library for OpenGL, OpenGL ES and Vulkan application development. It provides a simple, platform-independent API for creating windows, contexts and surfaces, reading input, handling events, etc.
 Status: install ok installed
 
@@ -36,7 +36,7 @@ Version: 1.0.3
 Depends: vcpkg-cmake, vcpkg-cmake-config
 Architecture: x64-windows
 Multi-Arch: same
-Abi: f53a4000842b05de11463744a7204dab28691a3e1085e22a3c8badf07cf566d5
+Abi: ad78f22eeaeab128cfcb5f6fe7b0760d8f866e292e8724f9c106a4dca7275881
 Description: OpenGL Mathematics (GLM)
 Status: install ok installed
 
@@ -46,25 +46,27 @@ Port-Version: 1
 Depends: vcpkg-cmake, vcpkg-cmake-config
 Architecture: x64-windows
 Multi-Arch: same
-Abi: 586ce73704f249ecb4fbc8e3a792497c65b78194b371e60d45d068a780c92b57
+Abi: 89593bfe8d16509d5fd93d5b8760c42f36172ba13b160bc2d606274b8a198b34
 Description: Bloat-free Immediate Mode Graphical User interface for C++ with minimal dependencies.
 Status: install ok installed
 
 Package: fmt
 Version: 12.2.0
+Port-Version: 1
 Depends: vcpkg-cmake, vcpkg-cmake-config
 Architecture: x64-windows
 Multi-Arch: same
-Abi: 04415bb7737fb2d5a74bc1590064ba2b5a7e83a8e0be9267cf506ddd54820415
+Abi: 07e23c6c845c950abb36ac9659c22477b7d98ad697ff90a26566f8fe3b2668be
 Description: {fmt} is an open-source formatting library providing a fast and safe alternative to C stdio and C++ iostreams.
 Status: install ok installed
 
 Package: spdlog
 Version: 1.17.0
+Port-Version: 1
 Depends: vcpkg-cmake, vcpkg-cmake-config
 Architecture: x64-windows
 Multi-Arch: same
-Abi: 63db9756266bf999d0ec2779373d5e315be8abacffcc0df86dcd2075aa6ee00b
+Abi: 0f5aa827b27394cca39e37d61e70a3646c8343589b02905475cca4348a08df63
 Description: Very fast, header-only/compiled, C++ logging library.
 Default-Features: fmt, tz-offset
 Status: install ok installed
@@ -89,7 +91,51 @@ Version: 2024-07-29
 Port-Version: 1
 Architecture: x64-windows
 Multi-Arch: same
-Abi: 089b2bdf383035436bc894424ed5a2c1036a60e0f8f1e2b492542188c09aacea
+Abi: ebb53d17d9a3c347f10d8a9044c2a4e205d430681bedbd1f031317e6143e4028
 Description: public domain header-only libraries
+Status: install ok installed
+
+Package: vulkan-headers
+Version: 1.4.350.1
+Depends: vcpkg-cmake, vcpkg-cmake-config
+Architecture: x64-windows
+Multi-Arch: same
+Abi: d09720694f816dbbb18e11bb590e185fbf2282dcee0bdc70b41ebebfff06ae46
+Description: Vulkan header files and API registry
+Status: install ok installed
+
+Package: vulkan-loader
+Version: 1.4.350.1
+Depends: vcpkg-cmake, vcpkg-cmake-config, vulkan-headers
+Architecture: x64-windows
+Multi-Arch: same
+Abi: 44bf4404288c75fe044e6a52720b9db3118f63612f2c4306fbd2447143dc08e1
+Description: Vulkan Development Tools
+Status: install ok installed
+
+Package: vulkan
+Version: 2023-12-17
+Depends: vcpkg-cmake, vulkan-headers, vulkan-loader
+Architecture: x64-windows
+Multi-Arch: same
+Abi: 42bf29b51ac442dc701a3421b93d774a5a02ec6a2e95e4c0fcc4ec383837d11e
+Description: A stub package that ensures that Vulkan headers and a loader are available.
+    On Android, the NDK provides a loader at API level 24 or higher.
+Status: install ok installed
+
+Package: imgui
+Feature: glfw-binding
+Depends: glfw3
+Architecture: x64-windows
+Multi-Arch: same
+Description: Make available GLFW binding
+Status: install ok installed
+
+Package: imgui
+Feature: vulkan-binding
+Depends: vulkan
+Architecture: x64-windows
+Multi-Arch: same
+Description: Make available Vulkan binding
 Status: install ok installed
 

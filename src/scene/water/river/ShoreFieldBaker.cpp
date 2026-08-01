@@ -17,7 +17,8 @@ float SmoothStep(float edge0, float edge1, float x)
 ShoreFieldData BakeShoreField(
     const RiverFieldConfig& config,
     const RiverSpline& spline,
-    const ShoreFieldParams& params
+    const ShoreFieldParams& params,
+    const Heightmap* heightmap
 )
 {
     ShoreFieldData data{};
@@ -55,10 +56,21 @@ ShoreFieldData BakeShoreField(
             float sand =
                 1.0f - SmoothStep(0.0f, params.sandWidth, std::abs(bankDistance));
 
-            // terrainHeight 占位：岸上按坡度抬升，河内=0（B 步换成真实 heightmap）
-            float terrainHeight =
-                glm::min(std::max(0.0f, -bankDistance) * params.beachSlope,
-                         params.maxBeachHeight);
+            // A：地形高度。优先用真实 heightmap，否则回退到线性坡度占位
+            float terrainHeight;
+            if(heightmap && heightmap->valid()){
+                terrainHeight =
+                    heightmap->Sample(u, v) * params.terrainHeightScale;
+            } else {
+                terrainHeight =
+                    glm::min(std::max(0.0f, -bankDistance) * params.beachSlope,
+                             params.maxBeachHeight);
+            }
+            // 河道内把河床压到水面下，保证水深为正（供 C 的吸收计算）
+            if(bankDistance > 0.0f){
+                terrainHeight -= params.riverBedDepth *
+                    SmoothStep(0.0f, config.bankFade, bankDistance);
+            }
 
             data.field[index] = glm::vec4(
                 bankDistance,   // R

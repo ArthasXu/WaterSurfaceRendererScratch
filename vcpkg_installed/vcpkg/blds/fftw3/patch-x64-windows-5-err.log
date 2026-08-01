@@ -1,0 +1,8 @@
+Checking patch CMakeLists.txt...
+Hunk #2 succeeded at 197 (offset -7 lines).
+Hunk #3 succeeded at 220 (offset -7 lines).
+Hunk #4 succeeded at 236 (offset -7 lines).
+Checking patch cmake.config.h.in...
+Hunk #1 succeeded at 207 (offset -4 lines).
+Applied patch CMakeLists.txt cleanly.
+Applied patch cmake.config.h.in cleanly.

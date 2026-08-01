@@ -24,5 +24,7 @@ struct alignas(16) WaterMaterialUBO
     glm::vec4 opticalParams;    // 光学参数（fresnelPower, reflectionStrength, absorptionStrength, sedimentAmount）
     glm::vec4 lightParams;      // 光照参数（sunDirection.xyz, specularStrength）
     glm::vec4 fogParams;        // 雾与远景参数（fogStart, fogEnd, horizonFade, reserved）
+    glm::vec4 absorptionCoeff{0.35f, 0.06f, 0.03f, 0.0f}; // RGB 每米吸收，红最快
+    glm::vec4 shallowParams{0.85f, 6.0f, 0.0f, 0.0f};     // x=河床反照率强度 y=最大可见水深(米)
 };
 }

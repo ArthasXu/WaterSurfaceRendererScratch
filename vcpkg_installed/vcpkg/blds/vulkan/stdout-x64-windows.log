@@ -1,0 +1,6 @@
+-- Configuring x64-windows
+-- Found Vulkan 1.4.350 (D:/WaterSurfaceRendererScratch/vcpkg_installed/x64-windows/lib/vulkan-1.lib)
+-- Installing: D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/vulkan_x64-windows/share/vulkan/detect-vulkan/CMakeLists.txt
+-- Installing: D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/vulkan_x64-windows/share/vulkan/detect-vulkan/vulkan-result.cmake.in
+-- Installing: D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/vulkan_x64-windows/share/vulkan/usage
+-- Skipping post-build validation due to VCPKG_POLICY_EMPTY_PACKAGE

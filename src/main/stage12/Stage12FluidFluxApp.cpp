@@ -208,6 +208,8 @@ void Stage12FluidFluxApp::Start()
     CreateAppearanceDescriptorSets();
     CreateFoamComputeDescriptorSets();
 
+    CreateTerrainResources();
+
     InitializeFoamStateImages();
     ResetMultiBoreEvents();
 
@@ -227,6 +229,11 @@ void Stage12FluidFluxApp::ShutdownApp()
 
     m_FoamSourcePipeline.reset();
     m_FoamAdvectPipeline.reset();
+
+    m_TerrainPipeline.reset(); 
+    m_TerrainGrid.reset();
+
+    m_SkyPipeline.reset();
 
     m_DescriptorSets.clear();
     m_AppearanceDescriptorSets.clear();
@@ -332,6 +339,46 @@ void Stage12FluidFluxApp::CreatePipelines()
             wireframeConfig
         );
     }
+
+    // 水面地形管线
+    vkp::PipelineConfig terrainConfig{};
+    terrainConfig.descriptorSetLayouts = { *m_DescriptorSetLayout };
+    auto terrainBinding = water::WaterVertex::GetBindingDescription();
+    auto terrainAttrs = water::WaterVertex::GetAttributeDescriptions();
+    terrainConfig.bindingDescriptions = { terrainBinding };
+    terrainConfig.attributeDescriptions = {
+        terrainAttrs[0], terrainAttrs[1], terrainAttrs[2] };
+    terrainConfig.depthTestEnable = true;
+    terrainConfig.depthWriteEnable = true;
+    terrainConfig.depthCompareOp = VK_COMPARE_OP_LESS;
+    terrainConfig.cullMode = VK_CULL_MODE_NONE;
+    terrainConfig.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+    terrainConfig.polygonMode = VK_POLYGON_MODE_FILL;
+
+    m_TerrainPipeline = std::make_unique<vkp::Pipeline>(
+        GetDevice(), GetRenderPass(),
+        "shaders/water/terrain.vert.spv",
+        "shaders/water/terrain.frag.spv",
+        terrainConfig);
+
+    // 天空盒管线
+    vkp::PipelineConfig skyConfig{};
+    skyConfig.descriptorSetLayouts = {
+        *m_DescriptorSetLayout,
+        *m_AppearanceDescriptorSetLayout
+    };
+    // 无顶点缓冲：bindingDescriptions/attributeDescriptions 保持空
+    skyConfig.depthTestEnable  = false;
+    skyConfig.depthWriteEnable = false;
+    skyConfig.cullMode  = VK_CULL_MODE_NONE;
+    skyConfig.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+    skyConfig.polygonMode = VK_POLYGON_MODE_FILL;
+
+    m_SkyPipeline = std::make_unique<vkp::Pipeline>(
+        GetDevice(), GetRenderPass(),
+        "shaders/water/sky.vert.spv",
+        "shaders/water/sky.frag.spv",
+        skyConfig);
 }
 
 void Stage12FluidFluxApp::CreateFoamComputePipelines()
@@ -597,6 +644,7 @@ void Stage12FluidFluxApp::CreateRiverResources()
 
     // 保存场配置，供 RebakeShoreField 复用
     m_RiverFieldConfig = fieldConfig;
+    m_TerrainHeightmap = water::LoadHeightmap("assets/terrain/heightmap.png");
 
     // ===== 优先读离线烘焙的 bundle，缺失/失效则回退到即时烘焙 =====
     // 昂贵的逐像素 spline.Project 烘焙已移到 river-field-baker 工具。
@@ -626,7 +674,7 @@ void Stage12FluidFluxApp::CreateRiverResources()
         progressField =
             std::move(water::BakeProgressField(fieldConfig, m_RiverSpline).field);
         shoreField =
-            std::move(water::BakeShoreField(fieldConfig, m_RiverSpline, m_ShoreParams).field);
+            std::move(water::BakeShoreField(fieldConfig, m_RiverSpline, m_ShoreParams, &m_TerrainHeightmap).field);
     }
 
     // ===== 打包并上传为 GPU 纹理 =====
@@ -708,6 +756,26 @@ void Stage12FluidFluxApp::CreateRiverResources()
         );
 }
 
+void Stage12FluidFluxApp::CreateTerrainResources()
+{
+    water::WaterGridConfig cfg{};
+    cfg.cellCountX = 256;
+    cfg.cellCountZ = 256;
+    cfg.sizeX = m_RiverFieldConfig.worldSize;
+    cfg.sizeZ = m_RiverFieldConfig.worldSize;
+    // WaterGrid 顶点用 (u-0.5)*size 自居中于 origin，
+    // 因此 origin 要取域中心 worldMin + worldSize/2，才能覆盖 [worldMin, worldMin+worldSize]
+    cfg.origin = glm::vec3(
+        m_RiverFieldConfig.worldMin.x + m_RiverFieldConfig.worldSize * 0.5f,
+        0.0f,
+        m_RiverFieldConfig.worldMin.y + m_RiverFieldConfig.worldSize * 0.5f);
+
+    m_TerrainGrid = std::make_unique<water::WaterGrid>(
+        GetPhysicalDevice(), GetDevice(), GetCommandPool(),
+        GetDevice().GetGraphicsQueue(), cfg,
+        water::WaterGridUploadMode::StaticDeviceLocal);
+}
+
 void Stage12FluidFluxApp::RebakeShoreField()
 {
     // 等待 GPU 空闲，确保旧纹理不再被任何在飞命令引用
@@ -715,7 +783,7 @@ void Stage12FluidFluxApp::RebakeShoreField()
 
     // 用当前 GUI 参数重新烘焙岸线场
     water::ShoreFieldData shoreData =
-        water::BakeShoreField(m_RiverFieldConfig, m_RiverSpline, m_ShoreParams);
+        water::BakeShoreField(m_RiverFieldConfig, m_RiverSpline, m_ShoreParams, &m_TerrainHeightmap);
 
     std::vector<PackedHalf4> shorePacked =
         PackHalf4Vector(shoreData.field);
@@ -2407,6 +2475,14 @@ void Stage12FluidFluxApp::UpdateWaterMaterialUniformBuffer(uint32_t frameIndex)
     // w: 0.0                 – 预留
     ubo.fogParams = m_WaterMaterialGui.fogParams;
 
+    // ===== 吸收参数 =====
+    // 吸收参数：RGB 每米吸收系数 + 填充 0
+    ubo.absorptionCoeff = glm::vec4(m_WaterMaterialGui.absorption, 0.0f);
+    // 浅水参数：x=河床反照率, y=最大可见水深
+    ubo.shallowParams = glm::vec4(m_WaterMaterialGui.bedAlbedo, 
+                              m_WaterMaterialGui.maxVisibleDepth, 
+                              0.0f, 0.0f);
+    
     // 将数据写入当前帧对应的 Uniform Buffer（持久映射，直接拷贝）
     m_WaterMaterialUniformBuffers[frameIndex]->CopyToMapped(
         &ubo,
@@ -2767,6 +2843,18 @@ void Stage12FluidFluxApp::Render(VkCommandBuffer commandBuffer, uint32_t imageIn
 
     vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
 
+    if(m_SkyPipeline){
+        vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+            *m_SkyPipeline);
+        vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+            m_SkyPipeline->GetLayout(), 0, 1,
+            &m_DescriptorSets[currentFrame], 0, nullptr);
+        vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+            m_SkyPipeline->GetLayout(), 1, 1,
+            &m_AppearanceDescriptorSets[currentFrame], 0, nullptr);
+        vkCmdDraw(commandBuffer, 3, 1, 0, 0);
+    }
+
     vkp::Pipeline* pipeline = m_SolidPipeline.get();
 
     if(m_UseWireframe && m_WireframePipeline){
@@ -2802,7 +2890,20 @@ void Stage12FluidFluxApp::Render(VkCommandBuffer commandBuffer, uint32_t imageIn
     );
 
     // 绘制多个 Quadtree Tile，而不是一个固定 Grid
+    // 注意：DrawQuadtreeTiles 依赖上面绑定的 m_SolidPipeline，不自绑管线，
+    // 因此地形绘制（会切换到 m_TerrainPipeline）必须放在水体 tile 之后。
     DrawQuadtreeTiles(commandBuffer);
+
+    if(m_TerrainPipeline && m_TerrainGrid){
+        vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+            *m_TerrainPipeline);
+        vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+            m_TerrainPipeline->GetLayout(), 0, 1,
+            &m_DescriptorSets[currentFrame], 0, nullptr);
+        m_TerrainGrid->Bind(commandBuffer);
+        m_TerrainGrid->Draw(commandBuffer);
+    }
+
 
     if(m_GuiEnabled){
         DrawGui();
@@ -3014,6 +3115,9 @@ void Stage12FluidFluxApp::DrawGui()
         ImGui::DragFloat3("Sun Direction - 太阳方向 xyz", glm::value_ptr(m_WaterMaterialGui.sunDirection), 0.01f, -1.0f, 1.0f);
         ImGui::DragFloat("Specular - 太阳高光强度", &m_WaterMaterialGui.specularStrength, 0.05f, 0.0f, 10.0f);
         ImGui::DragFloat4("Fog - 雾起点/终点/地平线融合/保留", glm::value_ptr(m_WaterMaterialGui.fogParams), 1.0f, 0.0f, 5000.0f);
+        ImGui::SliderFloat3("Absorption - RGB 每米吸收", &m_WaterMaterialGui.absorption.x, 0.0f, 1.0f);
+        ImGui::SliderFloat("Bed Albedo - 河床反照率强度", &m_WaterMaterialGui.bedAlbedo, 0.0f, 2.0f);
+        ImGui::SliderFloat("Max Visible Depth - 最大可见水深(米)", &m_WaterMaterialGui.maxVisibleDepth, 0.5f, 30.0f);
     }
 
     if(ImGui::CollapsingHeader("Quadtree LOD - 四叉树细分：控制水面覆盖范围、最细层级和屏幕误差阈值")){
@@ -3043,6 +3147,8 @@ void Stage12FluidFluxApp::DrawGui()
         ImGui::SliderFloat("Sand Width - 沙滩影响半径(米)", &m_ShoreParams.sandWidth, 0.0f, 200.0f);
         ImGui::SliderFloat("Beach Slope - 岸上地形坡度", &m_ShoreParams.beachSlope, 0.0f, 1.0f, "%.3f");
         ImGui::SliderFloat("Max Beach Height - 岸上地形最大抬升(米)", &m_ShoreParams.maxBeachHeight, 0.0f, 60.0f);
+        ImGui::SliderFloat("Terrain Height Scale - heightmap[0,1]→米", &m_ShoreParams.terrainHeightScale, 0.0f, 80.0f);
+        ImGui::SliderFloat("River Bed Depth - 河床相对水面下沉(米)", &m_ShoreParams.riverBedDepth, 0.0f, 40.0f);
         if(ImGui::Button("Rebake Shore Field - 重新烘焙岸线场")){
             m_ShoreRebakePending = true;
         }

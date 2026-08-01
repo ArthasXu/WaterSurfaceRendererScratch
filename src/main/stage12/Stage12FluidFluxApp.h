@@ -31,6 +31,8 @@
 #include "scene/water/river/ProgressFieldTypes.h"
 #include "scene/water/river/ShoreFieldTypes.h"
 
+#include "scene/water/terrain/Heightmap.h"
+
 #include "vulkan/Buffer.h"
 #include "vulkan/Descriptors.h"
 #include "vulkan/Pipeline.h"
@@ -135,6 +137,9 @@ private:
         glm::vec3 sunDirection{-0.35f, 0.85f, 0.25f};
         float specularStrength = 1.2f;
         glm::vec4 fogParams{120.0f, 700.0f, 0.4f, 0.0f};
+        glm::vec3 absorption{0.35f,0.06f,0.03f}; 
+        float bedAlbedo=0.85f; 
+        float maxVisibleDepth=6.0f;
     };
 
     struct QuadtreeGuiParams
@@ -190,6 +195,7 @@ private:
     void CreateWaterPatch();
 
     void CreateRiverResources();
+    void CreateTerrainResources();
 
     // 依据当前 m_ShoreParams 重新烘焙岸线场并刷新 binding 21
     void RebakeShoreField();
@@ -400,4 +406,10 @@ private:
     std::unique_ptr<water::RiverField> m_RiverField;
     float m_RiverLength = 0.0f;
     float m_RiverBoreCurvatureMeters = 0.0f;
+
+    water::Heightmap m_TerrainHeightmap;
+    std::unique_ptr<water::WaterGrid> m_TerrainGrid;
+    std::unique_ptr<vkp::Pipeline> m_TerrainPipeline;
+
+    std::unique_ptr<vkp::Pipeline> m_SkyPipeline;
 };

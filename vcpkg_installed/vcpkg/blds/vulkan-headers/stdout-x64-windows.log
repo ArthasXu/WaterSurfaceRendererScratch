@@ -1,0 +1,9 @@
+Downloading https://github.com/KhronosGroup/Vulkan-Headers/archive/vulkan-sdk-1.4.350.1.tar.gz -> KhronosGroup-Vulkan-Headers-vulkan-sdk-1.4.350.1.tar.gz
+Successfully downloaded KhronosGroup-Vulkan-Headers-vulkan-sdk-1.4.350.1.tar.gz
+-- Extracting source C:/Users/xukeheng/AppData/Local/vcpkg/downloads/KhronosGroup-Vulkan-Headers-vulkan-sdk-1.4.350.1.tar.gz
+-- Using source at D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/blds/vulkan-headers/src/-1.4.350.1-9c7e87a66b.clean
+-- Configuring x64-windows
+-- Building x64-windows-rel
+-- Installing: D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/vulkan-headers_x64-windows/share/vulkan-headers/copyright
+-- Installing: D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/vulkan-headers_x64-windows/share/vulkan-headers/usage
+-- Performing post-build validation

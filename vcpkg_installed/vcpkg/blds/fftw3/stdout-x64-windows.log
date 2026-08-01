@@ -1,0 +1,57 @@
+Downloading https://www.fftw.org/fftw-3.3.11.tar.gz -> fftw-3.3.11.tar.gz
+Successfully downloaded fftw-3.3.11.tar.gz
+-- Extracting source C:/Users/xukeheng/AppData/Local/vcpkg/downloads/fftw-3.3.11.tar.gz
+-- Applying patch fftw3_arch_fix.patch
+-- Applying patch fix-avx2-fma-flags.patch
+-- Applying patch aligned_malloc.patch
+-- Applying patch fix-openmp.patch
+-- Applying patch install-subtargets.patch
+-- Applying patch neon.patch
+-- Using source at D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/blds/fftw3/src/fftw-3-1dc30b866b.clean
+-- fftw3...
+-- Configuring x64-windows
+-- Building x64-windows-dbg
+-- Building x64-windows-rel
+-- fftw3f...
+CMake Warning at D:/WaterSurfaceRendererScratch/vcpkg_installed/x64-windows/share/vcpkg-cmake/vcpkg_cmake_configure.cmake:19 (message):
+  vcpkg_cmake_configure already called; this function should only be called
+  once.
+Call Stack (most recent call first):
+  C:/Users/xukeheng/AppData/Local/vcpkg/registries/git-trees/5be0e3cb8c830f1af44a506ef612e32a7aeb3510/portfile.cmake:46 (vcpkg_cmake_configure)
+  scripts/ports.cmake:206 (include)
+
+
+-- Configuring x64-windows
+-- Building x64-windows-dbg
+-- Building x64-windows-rel
+-- fftw3l...
+CMake Warning at D:/WaterSurfaceRendererScratch/vcpkg_installed/x64-windows/share/vcpkg-cmake/vcpkg_cmake_configure.cmake:19 (message):
+  vcpkg_cmake_configure already called; this function should only be called
+  once.
+Call Stack (most recent call first):
+  C:/Users/xukeheng/AppData/Local/vcpkg/registries/git-trees/5be0e3cb8c830f1af44a506ef612e32a7aeb3510/portfile.cmake:46 (vcpkg_cmake_configure)
+  scripts/ports.cmake:206 (include)
+
+
+-- Configuring x64-windows
+-- Building x64-windows-dbg
+-- Building x64-windows-rel
+-- Fixing pkgconfig file: D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/fftw3_x64-windows/lib/pkgconfig/fftw3.pc
+-- Fixing pkgconfig file: D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/fftw3_x64-windows/lib/pkgconfig/fftw3f.pc
+-- Fixing pkgconfig file: D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/fftw3_x64-windows/lib/pkgconfig/fftw3l.pc
+Downloading msys2-mingw-w64-x86_64-pkgconf-1~2.5.1-1-any.pkg.tar.zst, trying https://mirror.msys2.org/mingw/mingw64/mingw-w64-x86_64-pkgconf-1~2.5.1-1-any.pkg.tar.zst
+error: curl operation failed with response code 403.
+error: Not a transient network error, won't retry download from https://mirror.msys2.org/mingw/mingw64/mingw-w64-x86_64-pkgconf-1~2.5.1-1-any.pkg.tar.zst
+Trying https://repo.msys2.org/mingw/mingw64/mingw-w64-x86_64-pkgconf-1~2.5.1-1-any.pkg.tar.zst
+Successfully downloaded msys2-mingw-w64-x86_64-pkgconf-1~2.5.1-1-any.pkg.tar.zst
+Downloading msys2-msys2-runtime-3.6.5-1-x86_64.pkg.tar.zst, trying https://mirror.msys2.org/msys/x86_64/msys2-runtime-3.6.5-1-x86_64.pkg.tar.zst
+error: curl operation failed with response code 403.
+error: Not a transient network error, won't retry download from https://mirror.msys2.org/msys/x86_64/msys2-runtime-3.6.5-1-x86_64.pkg.tar.zst
+Trying https://repo.msys2.org/msys/x86_64/msys2-runtime-3.6.5-1-x86_64.pkg.tar.zst
+Successfully downloaded msys2-msys2-runtime-3.6.5-1-x86_64.pkg.tar.zst
+-- Using msys root at C:/Users/xukeheng/AppData/Local/vcpkg/downloads/tools/msys2/3e71d1f8e22ab23f
+-- Fixing pkgconfig file: D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/fftw3_x64-windows/debug/lib/pkgconfig/fftw3.pc
+-- Fixing pkgconfig file: D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/fftw3_x64-windows/debug/lib/pkgconfig/fftw3f.pc
+-- Fixing pkgconfig file: D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/fftw3_x64-windows/debug/lib/pkgconfig/fftw3l.pc
+-- Installing: D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/fftw3_x64-windows/share/fftw3/copyright
+-- Performing post-build validation

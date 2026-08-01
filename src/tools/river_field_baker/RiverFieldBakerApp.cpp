@@ -16,6 +16,50 @@
 #include <cstring>
 #include <stdexcept>
 
+#include "scene/water/terrain/Heightmap.h"
+
+#define STB_IMAGE_WRITE_IMPLEMENTATION
+#include <stb_image_write.h>
+
+#include <filesystem>
+
+namespace
+{
+// 二维哈希，返回 [0,1)
+float Hash21(glm::vec2 p)
+{
+    p = glm::fract(p * glm::vec2(123.34f, 456.21f));
+    p += glm::dot(p, p + 45.32f);
+    return glm::fract(p.x * p.y);
+}
+
+// 双线性插值的值噪声
+float ValueNoise(glm::vec2 p)
+{
+    glm::vec2 i = glm::floor(p);
+    glm::vec2 f = glm::fract(p);
+    float a = Hash21(i);
+    float b = Hash21(i + glm::vec2(1.0f, 0.0f));
+    float c = Hash21(i + glm::vec2(0.0f, 1.0f));
+    float d = Hash21(i + glm::vec2(1.0f, 1.0f));
+    glm::vec2 u = f * f * (3.0f - 2.0f * f);
+    return glm::mix(glm::mix(a, b, u.x), glm::mix(c, d, u.x), u.y);
+}
+
+// 分形叠加（FBM）：多层不同频率的值噪声叠加，产生自然地形起伏
+float Fbm(glm::vec2 p, int octaves)
+{
+    float sum = 0.0f;
+    float amp = 0.5f;
+    for(int i = 0; i < octaves; ++i){
+        sum += amp * ValueNoise(p);
+        p *= 2.0f;
+        amp *= 0.5f;
+    }
+    return sum;
+}
+}
+
 void RiverFieldBakerApp::Start()
 {
     // 默认控制点：与旧 CLI baker / Stage12 CreateRiverResources 保持一致
@@ -179,6 +223,22 @@ void RiverFieldBakerApp::DrawGui()
         ImGui::SliderFloat("Sand Width - 沙滩影响半径(米)", &m_ShoreParams.sandWidth, 0.0f, 200.0f);
         ImGui::SliderFloat("Beach Slope - 岸上地形坡度", &m_ShoreParams.beachSlope, 0.0f, 1.0f, "%.3f");
         ImGui::SliderFloat("Max Beach Height - 岸上地形最大抬升(米)", &m_ShoreParams.maxBeachHeight, 0.0f, 60.0f);
+        ImGui::SliderFloat("Terrain Height Scale - heightmap[0,1]→米", &m_ShoreParams.terrainHeightScale, 0.0f, 80.0f);
+        ImGui::SliderFloat("River Bed Depth - 河床相对水面下沉(米)", &m_ShoreParams.riverBedDepth, 0.0f, 40.0f);
+    }
+
+    // ===== 高度图参数 =====
+    if(ImGui::CollapsingHeader("Heightmap Generator - 程序化生成地形高度图")){
+        ImGui::InputText("HM Path - 高度图输出路径", m_HeightmapPath, sizeof(m_HeightmapPath));
+        ImGui::SliderInt("HM Resolution - 高度图分辨率", &m_HeightmapResolution, 256, 4096);
+        ImGui::SliderFloat("Bank Runout - 岸上爬升距离(米)", &m_HmBankRunout, 50.0f, 1200.0f);
+        ImGui::SliderFloat("Bank Level - 最远处归一化高度", &m_HmBankLevel, 0.0f, 1.0f);
+        ImGui::SliderFloat("Noise Freq - 噪声频率(每米)", &m_HmNoiseFreq, 0.001f, 0.05f, "%.4f");
+        ImGui::SliderInt("Noise Octaves - FBM 层数", &m_HmNoiseOctaves, 1, 8);
+        ImGui::SliderFloat("Noise Amp - 噪声幅度", &m_HmNoiseAmp, 0.0f, 1.0f);
+        if(ImGui::Button("Generate Heightmap - 生成高度图", ImVec2(-1.0f, 32.0f))){
+            GenerateHeightmap();
+        }
     }
 
     // ===== 控制点编辑 =====
@@ -256,8 +316,12 @@ void RiverFieldBakerApp::BakeAndSave()
         water::BakeRiverField(m_FieldConfig, spline);
     water::ProgressFieldData progressData =
         water::BakeProgressField(m_FieldConfig, spline);
+    // 读入刚生成的高度图，让烘出的 ShoreField.a 用真实地形而非坡度占位
+    water::Heightmap heightmap = water::LoadHeightmap(m_HeightmapPath);
     water::ShoreFieldData shoreData =
-        water::BakeShoreField(m_FieldConfig, spline, m_ShoreParams);
+        water::BakeShoreField(
+            m_FieldConfig, spline, m_ShoreParams,
+            heightmap.valid() ? &heightmap : nullptr);
 
     auto t1 = std::chrono::high_resolution_clock::now();
     double seconds = std::chrono::duration<double>(t1 - t0).count();
@@ -282,6 +346,57 @@ void RiverFieldBakerApp::BakeAndSave()
         m_OutputPath, m_FieldConfig.resolution, seconds, bundle.riverLength
     );
     m_StatusText = buf;
+    VKP_INFO("[baker] {}", m_StatusText);
+}
+
+void RiverFieldBakerApp::GenerateHeightmap()
+{
+    const int res = m_HeightmapResolution;
+    std::vector<unsigned char> pixels(static_cast<size_t>(res) * res);
+
+    // 用当前控制点重建样条，使地形与河道走向对齐
+    water::RiverSpline spline;
+    spline.Build(m_ControlPoints, static_cast<uint32_t>(m_SamplesPerSegment));
+
+    for(int y = 0; y < res; ++y){
+        for(int x = 0; x < res; ++x){
+            float u = (static_cast<float>(x) + 0.5f) / static_cast<float>(res);
+            float v = (static_cast<float>(y) + 0.5f) / static_cast<float>(res);
+            glm::vec2 worldXZ =
+                m_FieldConfig.worldMin + glm::vec2(u, v) * m_FieldConfig.worldSize;
+
+            // 到河道中轴的投影：河内 bankDist>0，岸上 bankDist<0
+            water::RiverProjection proj = spline.Project(worldXZ);
+            float bankDist =
+                (proj.valid && proj.halfWidth > 0.001f)
+                ? proj.halfWidth - std::abs(proj.lateralMeters)
+                : -1000.0f;
+
+            // 离岸距离（米）→ 归一化基础高度：河道内=0，越往岸上越高
+            float outside = std::max(0.0f, -bankDist);
+            float base =
+                glm::clamp(outside / m_HmBankRunout, 0.0f, 1.0f) * m_HmBankLevel;
+
+            // FBM 噪声叠加沙丘/礁石细节（居中到 [-0.5,0.5] 再乘幅度）
+            float n = Fbm(worldXZ * m_HmNoiseFreq, m_HmNoiseOctaves);
+            float h = glm::clamp(base + (n - 0.5f) * m_HmNoiseAmp, 0.0f, 1.0f);
+
+            pixels[static_cast<size_t>(y) * res + x] =
+                static_cast<unsigned char>(h * 255.0f + 0.5f);
+        }
+    }
+
+    // 确保输出目录存在
+    std::filesystem::path outPath(m_HeightmapPath);
+    if(outPath.has_parent_path()){
+        std::filesystem::create_directories(outPath.parent_path());
+    }
+
+    if(stbi_write_png(m_HeightmapPath, res, res, 1, pixels.data(), res) != 0){
+        m_StatusText = std::string("Heightmap saved: ") + m_HeightmapPath;
+    } else {
+        m_StatusText = std::string("ERROR: failed to write ") + m_HeightmapPath;
+    }
     VKP_INFO("[baker] {}", m_StatusText);
 }
 

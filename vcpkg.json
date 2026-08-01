@@ -1,10 +1,17 @@
 {
-    "dependencies":[
-        "glfw3",
-        "glm",
-        "spdlog",
-        "fftw3",
-        "imgui",
-        "stb"
-    ]
+  "dependencies": [
+    "glfw3",
+    "glm",
+    "spdlog",
+    "fftw3",
+    {
+      "name": "imgui",
+      "features": [
+        "glfw-binding",
+        "vulkan-binding"
+      ]
+    },
+    "stb"
+  ],
+  "builtin-baseline": "c1d80d9cb071c3f4a98c67c1196b137cc5b72918"
 }
