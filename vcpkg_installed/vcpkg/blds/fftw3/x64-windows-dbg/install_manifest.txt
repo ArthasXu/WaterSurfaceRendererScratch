@@ -1,0 +1,12 @@
+D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/fftw3_x64-windows/debug/lib/fftw3l.lib
+D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/fftw3_x64-windows/debug/bin/fftw3l.dll
+D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/fftw3_x64-windows/debug/include/fftw3.h
+D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/fftw3_x64-windows/debug/include/fftw3.f
+D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/fftw3_x64-windows/debug/include/fftw3l.f03
+D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/fftw3_x64-windows/debug/include/fftw3q.f03
+D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/fftw3_x64-windows/debug/include/fftw3.f03
+D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/fftw3_x64-windows/debug/lib/pkgconfig/fftw3l.pc
+D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/fftw3_x64-windows/debug/lib/cmake/fftw3l/FFTW3lConfig.cmake
+D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/fftw3_x64-windows/debug/lib/cmake/fftw3l/FFTW3lConfigVersion.cmake
+D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/fftw3_x64-windows/debug/lib/cmake/fftw3l/FFTW3LibraryDepends.cmake
+D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/fftw3_x64-windows/debug/lib/cmake/fftw3l/FFTW3LibraryDepends-debug.cmake

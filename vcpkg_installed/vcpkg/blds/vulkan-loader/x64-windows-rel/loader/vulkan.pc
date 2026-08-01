@@ -1,0 +1,10 @@
+prefix=D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/vulkan-loader_x64-windows
+exec_prefix=${prefix}
+libdir=${exec_prefix}/lib
+includedir=${prefix}/include
+
+Name: Vulkan-Loader
+Description: Vulkan Loader
+Version: 1.4.350
+Libs: -L${libdir} -lvulkan-1
+Cflags: -I${includedir}

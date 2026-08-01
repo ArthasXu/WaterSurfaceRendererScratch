@@ -6,9 +6,10 @@ float WaterFresnel(
     float NdotV,
     float F0
 ){
-    float clampedNdotV =
-        clamp(NdotV, 0.0, 1.0);
+    // 钳位到有效范围
+    float clampedNdotV = clamp(NdotV, 0.0, 1.0);
 
+    // Schlick 近似：F0 + (1 - F0) * (1 - cosθ)^5
     return
         F0 +
         (1.0 - F0) *
@@ -18,19 +19,32 @@ float WaterFresnel(
         );
 }
 
-// 简易天空色采样
-// 将视线高度映射为 [0, 1] 的插值因子，在天顶颜色（暗蓝）和地平线颜色（亮灰蓝）之间做线性混合。
-// 这是一种最简单的程序化天空，不需要采样天空盒纹理
+// 带太阳的程序化天空：dir=视线方向, sunDir=太阳方向
+vec3 SkyColor(vec3 dir, vec3 sunDir)
+{
+    dir = normalize(dir);
+    float up = clamp(dir.y * 0.5 + 0.5, 0.0, 1.0);
+
+    vec3 horizon = vec3(0.75, 0.85, 0.92); // 地平线：浅青白
+    vec3 zenith  = vec3(0.20, 0.45, 0.78); // 天顶：饱和蓝
+    vec3 sky = mix(horizon, zenith, pow(up, 0.55));
+
+    // 太阳盘 + 两级光晕
+    float sd   = clamp(dot(dir, normalize(sunDir)), 0.0, 1.0);
+    float disk = smoothstep(0.9992, 0.9998, sd);
+    float glow = pow(sd, 400.0) * 0.7 + pow(sd, 18.0) * 0.18;
+    vec3 sunCol = vec3(1.0, 0.96, 0.86);
+    sky += sunCol * (disk * 10.0 + glow);
+
+    // 地平线大气增白
+    sky = mix(sky, vec3(0.88, 0.92, 0.96), pow(1.0 - up, 6.0) * 0.5);
+    return sky;
+}
+
+// 兼容旧调用（其他 stage 仍用无太阳版）
 vec3 SimpleSkyColor(vec3 viewDir)
 {
-    float t =
-        clamp(viewDir.y * 0.5 + 0.5, 0.0, 1.0);
-
-    return mix(
-        vec3(0.45, 0.58, 0.72), // 地平线附近的灰蓝色
-        vec3(0.08, 0.18, 0.32), // 天顶的暗蓝色
-        1.0 - t
-    );
+    return SkyColor(viewDir, normalize(vec3(0.4, 0.85, 0.3)));
 }
 
 // color：原始像素颜色（水面已着色的结果）。
@@ -59,4 +73,40 @@ vec3 ApplyDistanceFog(
         fogColor,
         fog
     );
+}
+
+// GGX 法线分布函数（NDF）
+// 描述在给定的粗糙度下，有多少比例的微观表面法线恰好指向了半角向量 H。这个比例决定了高光的强度和形状
+// NoH      ：法线与半角向量的夹角余弦
+// roughness：表面粗糙度（0=完全光滑，1=极端粗糙）
+float D_GGX(float NoH, float roughness)
+{
+    // 粗糙度平方，让参数与视觉感知更线性
+    float a  = roughness * roughness;
+    float a2 = a * a;
+
+    // 标准 GGX/Trowbridge‑Reitz 公式
+    float d  = NoH * NoH * (a2 - 1.0) + 1.0;
+
+    // 分母是 π * d²，除以π保证能量守恒
+    return a2 / max(3.14159265 * d * d, 1e-7);
+}
+
+// Smith GGX 可见性函数
+// 和 D_GGX 配合使用，修正光线在掠射角时被粗糙表面自身遮挡导致的亮度衰减
+// NoV      ：视线与法线的夹角余弦
+// NoL      ：光线与法线的夹角余弦
+// roughness：表面粗糙度
+float V_SmithGGX(float NoV, float NoL, float roughness)
+{
+    float a  = roughness * roughness;
+    // k 是粗糙度相关的修正因子，这里用的是 GGX 的经典简化
+    float k  = a * 0.5;
+
+    // 分别计算视线方向和光线方向的几何遮蔽
+    float gv = NoL * (NoV * (1.0 - k) + k);
+    float gl = NoV * (NoL * (1.0 - k) + k);
+
+    // 返回可见性，分母防止除零
+    return 0.5 / max(gv + gl, 1e-5);
 }

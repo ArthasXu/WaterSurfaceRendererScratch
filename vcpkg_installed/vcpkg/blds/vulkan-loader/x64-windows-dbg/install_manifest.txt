@@ -1,0 +1,6 @@
+D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/vulkan-loader_x64-windows/debug/lib/vulkan-1.lib
+D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/vulkan-loader_x64-windows/debug/bin/vulkan-1.dll
+D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/vulkan-loader_x64-windows/debug/lib/cmake/VulkanLoader/VulkanLoaderConfig.cmake
+D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/vulkan-loader_x64-windows/debug/lib/cmake/VulkanLoader/VulkanLoaderConfig-debug.cmake
+D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/vulkan-loader_x64-windows/debug/lib/cmake/VulkanLoader/VulkanLoaderConfigVersion.cmake
+D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/vulkan-loader_x64-windows/debug/lib/pkgconfig/vulkan.pc

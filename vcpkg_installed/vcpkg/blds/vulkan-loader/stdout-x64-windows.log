@@ -1,0 +1,36 @@
+Downloading https://github.com/KhronosGroup/Vulkan-Loader/archive/vulkan-sdk-1.4.350.1.tar.gz -> KhronosGroup-Vulkan-Loader-vulkan-sdk-1.4.350.1.tar.gz
+Successfully downloaded KhronosGroup-Vulkan-Loader-vulkan-sdk-1.4.350.1.tar.gz
+-- Extracting source C:/Users/xukeheng/AppData/Local/vcpkg/downloads/KhronosGroup-Vulkan-Loader-vulkan-sdk-1.4.350.1.tar.gz
+-- Applying patch link-directfb.patch
+-- Using source at D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/blds/vulkan-loader/src/-1.4.350.1-991c2641bc.clean
+Downloading https://www.python.org/ftp/python/3.14.2/python-3.14.2-embed-amd64.zip -> python-3.14.2-embed-amd64.zip
+Successfully downloaded python-3.14.2-embed-amd64.zip
+-- Using cached msys2-mingw-w64-x86_64-pkgconf-1~2.5.1-1-any.pkg.tar.zst
+-- Using cached msys2-msys2-runtime-3.6.5-1-x86_64.pkg.tar.zst
+-- Using msys root at C:/Users/xukeheng/AppData/Local/vcpkg/downloads/tools/msys2/3e71d1f8e22ab23f
+-- Configuring x64-windows
+CMake Warning at D:/WaterSurfaceRendererScratch/vcpkg_installed/x64-windows/share/vcpkg-cmake/vcpkg_cmake_configure.cmake:344 (message):
+  The following variables are not used in CMakeLists.txt:
+
+      BUILD_WSI_DIRECTFB_SUPPORT
+      BUILD_WSI_WAYLAND_SUPPORT
+      BUILD_WSI_XCB_SUPPORT
+      BUILD_WSI_XLIB_SUPPORT
+      Python3_EXECUTABLE
+
+  Please recheck them and remove the unnecessary options from the
+  `vcpkg_cmake_configure` call.
+
+  If these options should still be passed for whatever reason, please use the
+  `MAYBE_UNUSED_VARIABLES` argument.
+Call Stack (most recent call first):
+  C:/Users/xukeheng/AppData/Local/vcpkg/registries/git-trees/6f03ee4a417a8405f7ae886d0d8635ff7813a3fa/portfile.cmake:26 (vcpkg_cmake_configure)
+  scripts/ports.cmake:206 (include)
+
+
+-- Building x64-windows-dbg
+-- Building x64-windows-rel
+-- Fixing pkgconfig file: D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/vulkan-loader_x64-windows/lib/pkgconfig/vulkan.pc
+-- Fixing pkgconfig file: D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/vulkan-loader_x64-windows/debug/lib/pkgconfig/vulkan.pc
+-- Installing: D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/vulkan-loader_x64-windows/share/vulkan-loader/copyright
+-- Performing post-build validation

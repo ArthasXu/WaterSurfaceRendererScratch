@@ -1,0 +1,11 @@
+# ninja log v7
+173	390	8071235769068945	CMakeFiles/spdlog.dir/version.rc.res	d28b4c1a8ebd3498
+93	762	8071235768274949	CMakeFiles/spdlog.dir/src/file_sinks.cpp.obj	3f050f5c36fddc66
+121	765	8071235768549888	CMakeFiles/spdlog.dir/src/async.cpp.obj	71d7589b01b87749
+147	787	8071235768803801	CMakeFiles/spdlog.dir/src/cfg.cpp.obj	ab6809118c78a9fd
+38	871	8071235767721459	CMakeFiles/spdlog.dir/src/stdout_sinks.cpp.obj	da3610cf5f946b0b
+63	884	8071235767970907	CMakeFiles/spdlog.dir/src/color_sinks.cpp.obj	d9c5fa3483722a01
+5	1442	8071235767389340	CMakeFiles/spdlog.dir/src/spdlog.cpp.obj	29f69766a311897b
+1443	2266	8071235789322526	spdlogd.dll	ca929e4bc467c3af
+1443	2266	8071235789322526	spdlogd.lib	ca929e4bc467c3af
+2267	2637	8071235790001661	CMakeFiles/install.util	ed8306b6b49f8e2c

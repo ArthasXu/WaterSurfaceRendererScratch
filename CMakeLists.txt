@@ -7,6 +7,16 @@ find_package(glfw3 CONFIG REQUIRED)
 find_package(glm CONFIG REQUIRED)
 find_package(spdlog CONFIG REQUIRED)
 find_package(FFTW3 CONFIG REQUIRED)
+find_package(imgui CONFIG REQUIRED)
+
+# 单一 shader 拷贝目标：所有 Debug/Release exe 共用 ${CMAKE_BINARY_DIR}/<CONFIG>/shaders，
+# 由这一个目标负责拷贝，避免多个 app 目标在 --parallel 下并发写同一目录导致的竞争
+add_custom_target(copy_shaders ALL
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+        "${CMAKE_SOURCE_DIR}/shaders"
+        "${CMAKE_BINARY_DIR}/$<CONFIG>/shaders"
+    COMMENT "Copying shaders to build output directory"
+)
 
 
 # stage0_env
@@ -867,14 +877,6 @@ add_executable(stage10_river_water
     src/main/stage10/Stage10RiverWaterApp.cpp
     src/gui/Gui.cpp
 
-    D:/WaterSurfaceRendering_h72/libs/imgui/imgui.cpp
-    D:/WaterSurfaceRendering_h72/libs/imgui/imgui_draw.cpp
-    D:/WaterSurfaceRendering_h72/libs/imgui/imgui_tables.cpp
-    D:/WaterSurfaceRendering_h72/libs/imgui/imgui_widgets.cpp
-    D:/WaterSurfaceRendering_h72/libs/imgui/imgui_demo.cpp
-    D:/WaterSurfaceRendering_h72/libs/imgui/backends/imgui_impl_glfw.cpp
-    D:/WaterSurfaceRendering_h72/libs/imgui/backends/imgui_impl_vulkan.cpp
-
     src/core/Application.cpp
     src/core/Window.cpp
     src/core/Timer.cpp
@@ -930,17 +932,11 @@ add_executable(stage10_river_water
     src/vulkan/Descriptors.cpp
 )
 
-add_custom_command(TARGET stage10_river_water POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy_directory
-        "${CMAKE_SOURCE_DIR}/shaders"
-        "$<TARGET_FILE_DIR:stage10_river_water>/shaders"
-)
+add_dependencies(stage10_river_water copy_shaders)
 
 target_include_directories(stage10_river_water
     PRIVATE
     ${CMAKE_SOURCE_DIR}/src
-    D:/WaterSurfaceRendering_h72/libs/imgui
-    D:/WaterSurfaceRendering_h72/libs/imgui/backends
 )
 
 target_compile_features(stage10_river_water
@@ -955,6 +951,7 @@ target_link_libraries(stage10_river_water
     glm::glm
     spdlog::spdlog
     FFTW3::fftw3
+    imgui::imgui
 )
 
 
@@ -963,14 +960,6 @@ add_executable(stage11-progress-bore
     src/main/stage11/stage11_main.cpp
     src/main/stage11/Stage11ProgressBoreApp.cpp
     src/gui/Gui.cpp
-
-    D:/WaterSurfaceRendering_h72/libs/imgui/imgui.cpp
-    D:/WaterSurfaceRendering_h72/libs/imgui/imgui_draw.cpp
-    D:/WaterSurfaceRendering_h72/libs/imgui/imgui_tables.cpp
-    D:/WaterSurfaceRendering_h72/libs/imgui/imgui_widgets.cpp
-    D:/WaterSurfaceRendering_h72/libs/imgui/imgui_demo.cpp
-    D:/WaterSurfaceRendering_h72/libs/imgui/backends/imgui_impl_glfw.cpp
-    D:/WaterSurfaceRendering_h72/libs/imgui/backends/imgui_impl_vulkan.cpp
 
     src/core/Application.cpp
     src/core/Window.cpp
@@ -1027,17 +1016,11 @@ add_executable(stage11-progress-bore
     src/vulkan/Descriptors.cpp
 )
 
-add_custom_command(TARGET stage11-progress-bore POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy_directory
-        "${CMAKE_SOURCE_DIR}/shaders"
-        "$<TARGET_FILE_DIR:stage11-progress-bore>/shaders"
-)
+add_dependencies(stage11-progress-bore copy_shaders)
 
 target_include_directories(stage11-progress-bore
     PRIVATE
     ${CMAKE_SOURCE_DIR}/src
-    D:/WaterSurfaceRendering_h72/libs/imgui
-    D:/WaterSurfaceRendering_h72/libs/imgui/backends
 )
 
 target_compile_features(stage11-progress-bore
@@ -1052,6 +1035,7 @@ target_link_libraries(stage11-progress-bore
     glm::glm
     spdlog::spdlog
     FFTW3::fftw3
+    imgui::imgui
 )
 
 # stage12-fluid-flux
@@ -1059,14 +1043,6 @@ add_executable(stage12-fluid-flux
     src/main/stage12/stage12_main.cpp
     src/main/stage12/Stage12FluidFluxApp.cpp
     src/gui/Gui.cpp
-
-    D:/WaterSurfaceRendering_h72/libs/imgui/imgui.cpp
-    D:/WaterSurfaceRendering_h72/libs/imgui/imgui_draw.cpp
-    D:/WaterSurfaceRendering_h72/libs/imgui/imgui_tables.cpp
-    D:/WaterSurfaceRendering_h72/libs/imgui/imgui_widgets.cpp
-    D:/WaterSurfaceRendering_h72/libs/imgui/imgui_demo.cpp
-    D:/WaterSurfaceRendering_h72/libs/imgui/backends/imgui_impl_glfw.cpp
-    D:/WaterSurfaceRendering_h72/libs/imgui/backends/imgui_impl_vulkan.cpp
 
     src/core/Application.cpp
     src/core/Window.cpp
@@ -1098,6 +1074,8 @@ add_executable(stage12-fluid-flux
     src/scene/water/river/ShoreFieldBaker.cpp
     src/scene/water/river/RiverFieldBundle.cpp
 
+    src/scene/water/terrain/Heightmap.cpp
+
     src/scene/water/bore/FrontParameterLUT.cpp
     src/scene/water/bore/BoreFrontField.cpp
     src/scene/water/bore/BoreWaveProfile.cpp
@@ -1125,17 +1103,11 @@ add_executable(stage12-fluid-flux
     src/vulkan/Descriptors.cpp
 )
 
-add_custom_command(TARGET stage12-fluid-flux POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy_directory
-        "${CMAKE_SOURCE_DIR}/shaders"
-        "$<TARGET_FILE_DIR:stage12-fluid-flux>/shaders"
-)
+add_dependencies(stage12-fluid-flux copy_shaders)
 
 target_include_directories(stage12-fluid-flux
     PRIVATE
     ${CMAKE_SOURCE_DIR}/src
-    D:/WaterSurfaceRendering_h72/libs/imgui
-    D:/WaterSurfaceRendering_h72/libs/imgui/backends
 )
 
 target_compile_features(stage12-fluid-flux
@@ -1150,6 +1122,7 @@ target_link_libraries(stage12-fluid-flux
     glm::glm
     spdlog::spdlog
     FFTW3::fftw3
+    imgui::imgui
 )
 
 # ===== river-field-baker：河流场烘焙工具（窗口 + Vulkan + ImGui 参数编辑）=====
@@ -1158,14 +1131,6 @@ add_executable(river-field-baker
     src/tools/river_field_baker/RiverFieldBakerApp.cpp
 
     src/gui/Gui.cpp
-
-    D:/WaterSurfaceRendering_h72/libs/imgui/imgui.cpp
-    D:/WaterSurfaceRendering_h72/libs/imgui/imgui_draw.cpp
-    D:/WaterSurfaceRendering_h72/libs/imgui/imgui_tables.cpp
-    D:/WaterSurfaceRendering_h72/libs/imgui/imgui_widgets.cpp
-    D:/WaterSurfaceRendering_h72/libs/imgui/imgui_demo.cpp
-    D:/WaterSurfaceRendering_h72/libs/imgui/backends/imgui_impl_glfw.cpp
-    D:/WaterSurfaceRendering_h72/libs/imgui/backends/imgui_impl_vulkan.cpp
 
     src/core/Application.cpp
     src/core/Window.cpp
@@ -1179,6 +1144,8 @@ add_executable(river-field-baker
     src/scene/water/river/ProgressFieldBaker.cpp
     src/scene/water/river/ShoreFieldBaker.cpp
     src/scene/water/river/RiverFieldBundle.cpp
+
+    src/scene/water/terrain/Heightmap.cpp
 
     src/vulkan/Instance.cpp
     src/vulkan/Surface.cpp
@@ -1198,8 +1165,6 @@ add_executable(river-field-baker
 target_include_directories(river-field-baker
     PRIVATE
     ${CMAKE_SOURCE_DIR}/src
-    D:/WaterSurfaceRendering_h72/libs/imgui
-    D:/WaterSurfaceRendering_h72/libs/imgui/backends
 )
 
 target_compile_features(river-field-baker
@@ -1220,4 +1185,5 @@ target_link_libraries(river-field-baker
     glfw
     glm::glm
     spdlog::spdlog
+    imgui::imgui
 )

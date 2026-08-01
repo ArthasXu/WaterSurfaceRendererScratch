@@ -1,0 +1,10 @@
+-- Note: imgui only supports static library linkage. Building static library.
+Downloading https://github.com/ocornut/imgui/archive/v1.92.8.tar.gz -> ocornut-imgui-v1.92.8.tar.gz
+Successfully downloaded ocornut-imgui-v1.92.8.tar.gz
+-- Extracting source C:/Users/xukeheng/AppData/Local/vcpkg/downloads/ocornut-imgui-v1.92.8.tar.gz
+-- Using source at D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/blds/imgui/src/v1.92.8-8e9c05eb59.clean
+-- Configuring x64-windows
+-- Building x64-windows-dbg
+-- Building x64-windows-rel
+-- Installing: D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/imgui_x64-windows/share/imgui/copyright
+-- Performing post-build validation

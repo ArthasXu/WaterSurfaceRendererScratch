@@ -66,6 +66,7 @@ void Init(
     ImGui_ImplGlfw_InitForVulkan(window, true);
 
     ImGui_ImplVulkan_InitInfo initInfo{};
+    initInfo.ApiVersion = VK_API_VERSION_1_0;
     initInfo.Instance = instance;
     initInfo.PhysicalDevice = physicalDevice;
     initInfo.Device = device;
@@ -73,45 +74,26 @@ void Init(
     initInfo.Queue = queue;
     initInfo.PipelineCache = VK_NULL_HANDLE;
     initInfo.DescriptorPool = descriptorPool;
-    initInfo.Subpass = 0;
     initInfo.MinImageCount = minImageCount;
     initInfo.ImageCount = imageCount;
-    initInfo.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
     initInfo.Allocator = nullptr;
     initInfo.CheckVkResultFn = CheckVkResult;
 
-    ImGui_ImplVulkan_Init(&initInfo, renderPass);
+    // 新版 imgui（2025/09 后）将渲染通道相关字段移入 PipelineInfoMain
+    initInfo.PipelineInfoMain.RenderPass = renderPass;
+    initInfo.PipelineInfoMain.Subpass = 0;
+    initInfo.PipelineInfoMain.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
+
+    ImGui_ImplVulkan_Init(&initInfo);
 }
 
 void UploadFonts(VkDevice device, VkQueue queue, VkCommandPool commandPool)
 {
-    VkCommandBufferAllocateInfo allocInfo{};
-    allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-    allocInfo.commandPool = commandPool;
-    allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-    allocInfo.commandBufferCount = 1;
-
-    VkCommandBuffer commandBuffer = VK_NULL_HANDLE;
-    CheckVkResult(vkAllocateCommandBuffers(device, &allocInfo, &commandBuffer));
-
-    VkCommandBufferBeginInfo beginInfo{};
-    beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-    beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-
-    CheckVkResult(vkBeginCommandBuffer(commandBuffer, &beginInfo));
-    ImGui_ImplVulkan_CreateFontsTexture(commandBuffer);
-    CheckVkResult(vkEndCommandBuffer(commandBuffer));
-
-    VkSubmitInfo submitInfo{};
-    submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-    submitInfo.commandBufferCount = 1;
-    submitInfo.pCommandBuffers = &commandBuffer;
-
-    CheckVkResult(vkQueueSubmit(queue, 1, &submitInfo, VK_NULL_HANDLE));
-    CheckVkResult(vkQueueWaitIdle(queue));
-
-    ImGui_ImplVulkan_DestroyFontUploadObjects();
-    vkFreeCommandBuffers(device, commandPool, 1, &commandBuffer);
+    // 新版 imgui Vulkan 后端在首帧 NewFrame 时自动创建并上传字体纹理，
+    // 无需手动调用；device / queue / commandPool 保留仅为兼容调用方
+    (void)device;
+    (void)queue;
+    (void)commandPool;
 }
 
 void Shutdown()

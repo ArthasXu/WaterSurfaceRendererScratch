@@ -14,6 +14,8 @@ struct ShoreFieldParams
     float sandWidth = 60.0f;      // 沙滩影响半径(米)，岸线两侧
     float beachSlope = 0.15f;     // 岸上地形坡度(占位地形用)
     float maxBeachHeight = 12.0f; // 岸上地形最大抬升(米)
+    float terrainHeightScale = 40.0f;  // heightmap [0,1] → 米
+    float riverBedDepth = 16.0f;       // 河道内河床相对水面下沉(米)
 };
 
 // 岸线场：R=到岸有符号距离(米) G=wetnessBase B=sand A=terrainHeight

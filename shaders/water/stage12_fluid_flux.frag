@@ -75,6 +75,8 @@ layout(set = 1, binding = 4) uniform WaterMaterialUBO
     vec4 opticalParams;
     vec4 lightParams;
     vec4 fogParams;
+    vec4 absorptionCoeff;
+    vec4 shallowParams;
 } material;
 
 // 片段着色器输出颜色
@@ -332,11 +334,28 @@ void main()
         // 混入泥沙颜色
         waterColor = mix(waterColor, material.sedimentColor.rgb, material.opticalParams.w);
 
+        // 水深 = 水面高度 - 河床高度(shore.a)
+        float bedHeight = fragShore.a;
+        float waterDepth = max(fragWorldPosition.y - bedHeight, 0.0);
+        waterDepth = min(waterDepth, material.shallowParams.y); // 限幅
+
+        // Beer-Lambert：光穿过水柱被吸收，红光最快 → 深水偏青绿
+        vec3 transmittance = exp(-waterDepth * material.absorptionCoeff.rgb);
+
+        // 河床色（复用地形沙色，按 sand 通道），随深度被吸收变暗偏色
+        vec3 bedAlbedo = mix(vec3(0.24,0.34,0.18), vec3(0.76,0.70,0.50),
+                            clamp(fragShore.b, 0.0, 1.0)) * material.shallowParams.x;
+        vec3 bedSeen = bedAlbedo * transmittance;
+
+        // 浅→见底，深→水体固有色
+        vec3 bodyColor = mix(bedSeen, waterColor, 1.0 - transmittance);
+        waterColor = bodyColor;   // 用透射合成后的水体色替换原基础色
+
         // ===== 4. 菲涅尔反射 =====
         // 使用自定义的 WaterFresnel 函数，power 控制反射随角度变化的锐度
         float fresnel = WaterFresnel(NdotV, material.opticalParams.x);
         // 采样天空颜色作为反射来源
-        vec3 reflectedSky = SimpleSkyColor(R);
+        vec3 reflectedSky = SkyColor(R, L);
 
         // ===== 5. 漫反射 =====
         // 环境光 30% + 太阳漫反射 70%
@@ -370,7 +389,7 @@ void main()
         float distanceToCamera = length(camera.cameraWorldPosition.xyz - fragWorldPosition);
         litColor = ApplyDistanceFog(
             litColor, distanceToCamera,
-            vec3(0.50, 0.58, 0.62),   // 雾色
+            vec3(0.75, 0.85, 0.92),    // 雾色
             material.fogParams.x,      // 雾开始距离
             material.fogParams.y       // 雾完全覆盖距离
         );

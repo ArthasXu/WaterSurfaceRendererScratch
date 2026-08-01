@@ -1,0 +1,13 @@
+D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/imgui_x64-windows/lib/imgui.lib
+D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/imgui_x64-windows/include/imgui.h
+D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/imgui_x64-windows/include/imconfig.h
+D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/imgui_x64-windows/include/imgui_internal.h
+D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/imgui_x64-windows/include/imstb_textedit.h
+D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/imgui_x64-windows/include/imstb_rectpack.h
+D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/imgui_x64-windows/include/imstb_truetype.h
+D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/imgui_x64-windows/include/imgui_stdlib.h
+D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/imgui_x64-windows/include/imgui_impl_glfw.h
+D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/imgui_x64-windows/include/imgui_impl_vulkan.h
+D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/imgui_x64-windows/share/imgui/imgui-config.cmake
+D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/imgui_x64-windows/share/imgui/imgui-targets.cmake
+D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/imgui_x64-windows/share/imgui/imgui-targets-release.cmake

@@ -1,0 +1,21 @@
+Downloading https://github.com/gabime/spdlog/commit/1685e694c5cd8328280c48f8b94b1281c17c6fee.patch?full_index=1 -> spdlog-backport-3541.patch
+Successfully downloaded spdlog-backport-3541.patch
+Downloading https://github.com/gabime/spdlog/commit/d5af52d903ed69f96c7350155e94aeff248b31eb.patch?full_index=1 -> spdlog-backport-3543.patch
+Successfully downloaded spdlog-backport-3543.patch
+Downloading https://github.com/gabime/spdlog/archive/v1.17.0.tar.gz -> gabime-spdlog-v1.17.0.tar.gz
+Successfully downloaded gabime-spdlog-v1.17.0.tar.gz
+-- Extracting source C:/Users/xukeheng/AppData/Local/vcpkg/downloads/gabime-spdlog-v1.17.0.tar.gz
+-- Applying patch C:/Users/xukeheng/AppData/Local/vcpkg/downloads/spdlog-backport-3541.patch
+-- Applying patch C:/Users/xukeheng/AppData/Local/vcpkg/downloads/spdlog-backport-3543.patch
+-- Using source at D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/blds/spdlog/src/v1.17.0-8a1a388e84.clean
+-- Configuring x64-windows
+-- Building x64-windows-dbg
+-- Building x64-windows-rel
+-- Fixing pkgconfig file: D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/spdlog_x64-windows/lib/pkgconfig/spdlog.pc
+-- Using cached msys2-mingw-w64-x86_64-pkgconf-1~2.5.1-1-any.pkg.tar.zst
+-- Using cached msys2-msys2-runtime-3.6.5-1-x86_64.pkg.tar.zst
+-- Using msys root at C:/Users/xukeheng/AppData/Local/vcpkg/downloads/tools/msys2/3e71d1f8e22ab23f
+-- Fixing pkgconfig file: D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/spdlog_x64-windows/debug/lib/pkgconfig/spdlog.pc
+-- Installing: D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/spdlog_x64-windows/share/spdlog/usage
+-- Installing: D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/spdlog_x64-windows/share/spdlog/copyright
+-- Performing post-build validation

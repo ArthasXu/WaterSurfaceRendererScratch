@@ -1,0 +1,26 @@
+# ninja log v7
+558	853	8071235157734137	src/CMakeFiles/glfw.dir/glfw.rc.res	4d3ca17f5917cd06
+346	1090	8071235155613898	src/CMakeFiles/glfw.dir/win32_module.c.obj	b7e64c83bc91a9ef
+371	1098	8071235155867851	src/CMakeFiles/glfw.dir/win32_time.c.obj	7dc93f44d701686a
+214	1100	8071235154290255	src/CMakeFiles/glfw.dir/osmesa_context.c.obj	d9c118ea89cbb5ca
+320	1102	8071235155350264	src/CMakeFiles/glfw.dir/null_joystick.c.obj	23c26f90d9ebffe0
+398	1104	8071235156127048	src/CMakeFiles/glfw.dir/win32_thread.c.obj	13afc862bb747eb5
+239	1107	8071235154544135	src/CMakeFiles/glfw.dir/null_init.c.obj	5c1d7c5e6a9a5b72
+108	1108	8071235153234318	src/CMakeFiles/glfw.dir/platform.c.obj	9ba3723ee925d9b7
+293	1110	8071235155086607	src/CMakeFiles/glfw.dir/null_window.c.obj	403b2bf15e04f6eb
+425	1112	8071235156400434	src/CMakeFiles/glfw.dir/win32_init.c.obj	5ace34cac6b73ccc
+264	1114	8071235154788294	src/CMakeFiles/glfw.dir/null_monitor.c.obj	709f4a08f16410c0
+5	1116	8071235152200999	src/CMakeFiles/glfw.dir/context.c.obj	445f67cfbb58368f
+188	1118	8071235154036373	src/CMakeFiles/glfw.dir/egl_context.c.obj	74385161d82a7b22
+134	1119	8071235153489621	src/CMakeFiles/glfw.dir/vulkan.c.obj	5dd496bbf7de9e58
+160	1121	8071235153752837	src/CMakeFiles/glfw.dir/window.c.obj	b90ef2de4d54417a
+83	1122	8071235152988858	src/CMakeFiles/glfw.dir/monitor.c.obj	82d92a9d9a57d69d
+534	1124	8071235157490012	src/CMakeFiles/glfw.dir/wgl_context.c.obj	6a3afdae61088c5d
+451	1126	8071235156664089	src/CMakeFiles/glfw.dir/win32_joystick.c.obj	a9309be5c1f5306d
+509	1128	8071235157241603	src/CMakeFiles/glfw.dir/win32_window.c.obj	ecf2b33107a8a9d5
+35	1129	8071235152493958	src/CMakeFiles/glfw.dir/init.c.obj	f6da42ee57277676
+59	1131	8071235152738093	src/CMakeFiles/glfw.dir/input.c.obj	781432d35cdef6d9
+478	1141	8071235156931230	src/CMakeFiles/glfw.dir/win32_monitor.c.obj	fa0eaa71e8b7b34
+1141	1931	8071235170762915	src/glfw3.dll	6cc908501c4aa1c4
+1141	1931	8071235170762915	src/glfw3dll.lib	6cc908501c4aa1c4
+1931	2063	8071235171461638	CMakeFiles/install.util	bdbc19c7de11e345

@@ -1,0 +1,117 @@
+Change Dir: 'D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/blds/spdlog/x64-windows-dbg'
+
+Run Build Command(s): "D:/Microsoft Visual Studio/18/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/Ninja/ninja.exe" -v -v -j25 install
+[1/9] D:/Microsoft Visual Studio/18/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/cmcldeps.exe RC D:\WaterSurfaceRendererScratch\vcpkg_installed\vcpkg\blds\spdlog\x64-windows-dbg\version.rc CMakeFiles\spdlog.dir\version.rc.res.d CMakeFiles\spdlog.dir\version.rc.res "注意: 包含文件:  " "D:/Microsoft Visual Studio/18/Community/VC/Tools/MSVC/14.51.36231/bin/Hostx64/x64/cl.exe" C:\PROGRA~2\WI3CF2~1\10\bin\100261~1.0\x64\rc.exe -DFMT_SHARED -DSPDLOG_COMPILED_LIB -DSPDLOG_FMT_EXTERNAL -DSPDLOG_FWRITE_UNLOCKED -DSPDLOG_SHARED_LIB -Dspdlog_EXPORTS -I D:\WaterSurfaceRendererScratch\vcpkg_installed\vcpkg\blds\spdlog\src\v1.17.0-8a1a388e84.clean\include -I D:\WaterSurfaceRendererScratch\vcpkg_installed\x64-windows\include -c65001 /DWIN32 -D_DEBUG /fo CMakeFiles\spdlog.dir\version.rc.res D:\WaterSurfaceRendererScratch\vcpkg_installed\vcpkg\blds\spdlog\x64-windows-dbg\version.rc
+[2/9] "D:\Microsoft Visual Studio\18\Community\VC\Tools\MSVC\14.51.36231\bin\Hostx64\x64\cl.exe"   /TP -DFMT_SHARED -DSPDLOG_COMPILED_LIB -DSPDLOG_FMT_EXTERNAL -DSPDLOG_FWRITE_UNLOCKED -DSPDLOG_SHARED_LIB -Dspdlog_EXPORTS -ID:\WaterSurfaceRendererScratch\vcpkg_installed\vcpkg\blds\spdlog\src\v1.17.0-8a1a388e84.clean\include -external:ID:\WaterSurfaceRendererScratch\vcpkg_installed\x64-windows\include -external:W0 /nologo /DWIN32 /D_WINDOWS /utf-8 /GR /EHsc /MP  /MDd /Z7 /Ob0 /Od /RTC1  -MDd /wd4251 /wd4275 /Zc:__cplusplus /utf-8 /showIncludes /FoCMakeFiles\spdlog.dir\src\file_sinks.cpp.obj /FdCMakeFiles\spdlog.dir\ /FS -c D:\WaterSurfaceRendererScratch\vcpkg_installed\vcpkg\blds\spdlog\src\v1.17.0-8a1a388e84.clean\src\file_sinks.cpp
+[3/9] "D:\Microsoft Visual Studio\18\Community\VC\Tools\MSVC\14.51.36231\bin\Hostx64\x64\cl.exe"   /TP -DFMT_SHARED -DSPDLOG_COMPILED_LIB -DSPDLOG_FMT_EXTERNAL -DSPDLOG_FWRITE_UNLOCKED -DSPDLOG_SHARED_LIB -Dspdlog_EXPORTS -ID:\WaterSurfaceRendererScratch\vcpkg_installed\vcpkg\blds\spdlog\src\v1.17.0-8a1a388e84.clean\include -external:ID:\WaterSurfaceRendererScratch\vcpkg_installed\x64-windows\include -external:W0 /nologo /DWIN32 /D_WINDOWS /utf-8 /GR /EHsc /MP  /MDd /Z7 /Ob0 /Od /RTC1  -MDd /wd4251 /wd4275 /Zc:__cplusplus /utf-8 /showIncludes /FoCMakeFiles\spdlog.dir\src\async.cpp.obj /FdCMakeFiles\spdlog.dir\ /FS -c D:\WaterSurfaceRendererScratch\vcpkg_installed\vcpkg\blds\spdlog\src\v1.17.0-8a1a388e84.clean\src\async.cpp
+[4/9] "D:\Microsoft Visual Studio\18\Community\VC\Tools\MSVC\14.51.36231\bin\Hostx64\x64\cl.exe"   /TP -DFMT_SHARED -DSPDLOG_COMPILED_LIB -DSPDLOG_FMT_EXTERNAL -DSPDLOG_FWRITE_UNLOCKED -DSPDLOG_SHARED_LIB -Dspdlog_EXPORTS -ID:\WaterSurfaceRendererScratch\vcpkg_installed\vcpkg\blds\spdlog\src\v1.17.0-8a1a388e84.clean\include -external:ID:\WaterSurfaceRendererScratch\vcpkg_installed\x64-windows\include -external:W0 /nologo /DWIN32 /D_WINDOWS /utf-8 /GR /EHsc /MP  /MDd /Z7 /Ob0 /Od /RTC1  -MDd /wd4251 /wd4275 /Zc:__cplusplus /utf-8 /showIncludes /FoCMakeFiles\spdlog.dir\src\cfg.cpp.obj /FdCMakeFiles\spdlog.dir\ /FS -c D:\WaterSurfaceRendererScratch\vcpkg_installed\vcpkg\blds\spdlog\src\v1.17.0-8a1a388e84.clean\src\cfg.cpp
+[5/9] "D:\Microsoft Visual Studio\18\Community\VC\Tools\MSVC\14.51.36231\bin\Hostx64\x64\cl.exe"   /TP -DFMT_SHARED -DSPDLOG_COMPILED_LIB -DSPDLOG_FMT_EXTERNAL -DSPDLOG_FWRITE_UNLOCKED -DSPDLOG_SHARED_LIB -Dspdlog_EXPORTS -ID:\WaterSurfaceRendererScratch\vcpkg_installed\vcpkg\blds\spdlog\src\v1.17.0-8a1a388e84.clean\include -external:ID:\WaterSurfaceRendererScratch\vcpkg_installed\x64-windows\include -external:W0 /nologo /DWIN32 /D_WINDOWS /utf-8 /GR /EHsc /MP  /MDd /Z7 /Ob0 /Od /RTC1  -MDd /wd4251 /wd4275 /Zc:__cplusplus /utf-8 /showIncludes /FoCMakeFiles\spdlog.dir\src\stdout_sinks.cpp.obj /FdCMakeFiles\spdlog.dir\ /FS -c D:\WaterSurfaceRendererScratch\vcpkg_installed\vcpkg\blds\spdlog\src\v1.17.0-8a1a388e84.clean\src\stdout_sinks.cpp
+[6/9] "D:\Microsoft Visual Studio\18\Community\VC\Tools\MSVC\14.51.36231\bin\Hostx64\x64\cl.exe"   /TP -DFMT_SHARED -DSPDLOG_COMPILED_LIB -DSPDLOG_FMT_EXTERNAL -DSPDLOG_FWRITE_UNLOCKED -DSPDLOG_SHARED_LIB -Dspdlog_EXPORTS -ID:\WaterSurfaceRendererScratch\vcpkg_installed\vcpkg\blds\spdlog\src\v1.17.0-8a1a388e84.clean\include -external:ID:\WaterSurfaceRendererScratch\vcpkg_installed\x64-windows\include -external:W0 /nologo /DWIN32 /D_WINDOWS /utf-8 /GR /EHsc /MP  /MDd /Z7 /Ob0 /Od /RTC1  -MDd /wd4251 /wd4275 /Zc:__cplusplus /utf-8 /showIncludes /FoCMakeFiles\spdlog.dir\src\color_sinks.cpp.obj /FdCMakeFiles\spdlog.dir\ /FS -c D:\WaterSurfaceRendererScratch\vcpkg_installed\vcpkg\blds\spdlog\src\v1.17.0-8a1a388e84.clean\src\color_sinks.cpp
+[7/9] "D:\Microsoft Visual Studio\18\Community\VC\Tools\MSVC\14.51.36231\bin\Hostx64\x64\cl.exe"   /TP -DFMT_SHARED -DSPDLOG_COMPILED_LIB -DSPDLOG_FMT_EXTERNAL -DSPDLOG_FWRITE_UNLOCKED -DSPDLOG_SHARED_LIB -Dspdlog_EXPORTS -ID:\WaterSurfaceRendererScratch\vcpkg_installed\vcpkg\blds\spdlog\src\v1.17.0-8a1a388e84.clean\include -external:ID:\WaterSurfaceRendererScratch\vcpkg_installed\x64-windows\include -external:W0 /nologo /DWIN32 /D_WINDOWS /utf-8 /GR /EHsc /MP  /MDd /Z7 /Ob0 /Od /RTC1  -MDd /wd4251 /wd4275 /Zc:__cplusplus /utf-8 /showIncludes /FoCMakeFiles\spdlog.dir\src\spdlog.cpp.obj /FdCMakeFiles\spdlog.dir\ /FS -c D:\WaterSurfaceRendererScratch\vcpkg_installed\vcpkg\blds\spdlog\src\v1.17.0-8a1a388e84.clean\src\spdlog.cpp
+[8/9] C:\windows\system32\cmd.exe /C "cd . && "D:\Microsoft Visual Studio\18\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -E vs_link_dll --msvc-ver=1951 --intdir=CMakeFiles\spdlog.dir --rc=C:\PROGRA~2\WI3CF2~1\10\bin\100261~1.0\x64\rc.exe --mt=C:\PROGRA~2\WI3CF2~1\10\bin\100261~1.0\x64\mt.exe --manifests  -- "D:\Microsoft Visual Studio\18\Community\VC\Tools\MSVC\14.51.36231\bin\Hostx64\x64\link.exe"  CMakeFiles\spdlog.dir\src\spdlog.cpp.obj CMakeFiles\spdlog.dir\src\stdout_sinks.cpp.obj CMakeFiles\spdlog.dir\src\color_sinks.cpp.obj CMakeFiles\spdlog.dir\src\file_sinks.cpp.obj CMakeFiles\spdlog.dir\src\async.cpp.obj CMakeFiles\spdlog.dir\src\cfg.cpp.obj CMakeFiles\spdlog.dir\version.rc.res  /out:spdlogd.dll /implib:spdlogd.lib /pdb:spdlogd.pdb /dll /version:1.17 /machine:x64 /nologo    /debug /INCREMENTAL  D:\WaterSurfaceRendererScratch\vcpkg_installed\x64-windows\debug\lib\fmtd.lib  kernel32.lib user32.lib gdi32.lib winspool.lib shell32.lib ole32.lib oleaut32.lib uuid.lib comdlg32.lib advapi32.lib && cd ."
+[8/9] C:\windows\system32\cmd.exe /C "cd /D D:\WaterSurfaceRendererScratch\vcpkg_installed\vcpkg\blds\spdlog\x64-windows-dbg && "D:\Microsoft Visual Studio\18\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -P cmake_install.cmake"
+-- Install configuration: "Debug"
+-- Installing: D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/spdlog_x64-windows/debug/include
+-- Installing: D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/spdlog_x64-windows/debug/include/spdlog
+-- Installing: D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/spdlog_x64-windows/debug/include/spdlog/async.h
+-- Installing: D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/spdlog_x64-windows/debug/include/spdlog/async_logger-inl.h
+-- Installing: D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/spdlog_x64-windows/debug/include/spdlog/async_logger.h
+-- Installing: D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/spdlog_x64-windows/debug/include/spdlog/cfg
+-- Installing: D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/spdlog_x64-windows/debug/include/spdlog/cfg/argv.h
+-- Installing: D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/spdlog_x64-windows/debug/include/spdlog/cfg/env.h
+-- Installing: D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/spdlog_x64-windows/debug/include/spdlog/cfg/helpers-inl.h
+-- Installing: D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/spdlog_x64-windows/debug/include/spdlog/cfg/helpers.h
+-- Installing: D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/spdlog_x64-windows/debug/include/spdlog/common-inl.h
+-- Installing: D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/spdlog_x64-windows/debug/include/spdlog/common.h
+-- Installing: D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/spdlog_x64-windows/debug/include/spdlog/details
+-- Installing: D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/spdlog_x64-windows/debug/include/spdlog/details/backtracer-inl.h
+-- Installing: D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/spdlog_x64-windows/debug/include/spdlog/details/backtracer.h
+-- Installing: D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/spdlog_x64-windows/debug/include/spdlog/details/circular_q.h
+-- Installing: D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/spdlog_x64-windows/debug/include/spdlog/details/console_globals.h
+-- Installing: D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/spdlog_x64-windows/debug/include/spdlog/details/file_helper-inl.h
+-- Installing: D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/spdlog_x64-windows/debug/include/spdlog/details/file_helper.h
+-- Installing: D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/spdlog_x64-windows/debug/include/spdlog/details/fmt_helper.h
+-- Installing: D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/spdlog_x64-windows/debug/include/spdlog/details/log_msg-inl.h
+-- Installing: D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/spdlog_x64-windows/debug/include/spdlog/details/log_msg.h
+-- Installing: D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/spdlog_x64-windows/debug/include/spdlog/details/log_msg_buffer-inl.h
+-- Installing: D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/spdlog_x64-windows/debug/include/spdlog/details/log_msg_buffer.h
+-- Installing: D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/spdlog_x64-windows/debug/include/spdlog/details/mpmc_blocking_q.h
+-- Installing: D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/spdlog_x64-windows/debug/include/spdlog/details/null_mutex.h
+-- Installing: D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/spdlog_x64-windows/debug/include/spdlog/details/os-inl.h
+-- Installing: D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/spdlog_x64-windows/debug/include/spdlog/details/os.h
+-- Installing: D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/spdlog_x64-windows/debug/include/spdlog/details/periodic_worker-inl.h
+-- Installing: D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/spdlog_x64-windows/debug/include/spdlog/details/periodic_worker.h
+-- Installing: D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/spdlog_x64-windows/debug/include/spdlog/details/registry-inl.h
+-- Installing: D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/spdlog_x64-windows/debug/include/spdlog/details/registry.h
+-- Installing: D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/spdlog_x64-windows/debug/include/spdlog/details/synchronous_factory.h
+-- Installing: D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/spdlog_x64-windows/debug/include/spdlog/details/tcp_client-windows.h
+-- Installing: D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/spdlog_x64-windows/debug/include/spdlog/details/tcp_client.h
+-- Installing: D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/spdlog_x64-windows/debug/include/spdlog/details/thread_pool-inl.h
+-- Installing: D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/spdlog_x64-windows/debug/include/spdlog/details/thread_pool.h
+-- Installing: D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/spdlog_x64-windows/debug/include/spdlog/details/udp_client-windows.h
+-- Installing: D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/spdlog_x64-windows/debug/include/spdlog/details/udp_client.h
+-- Installing: D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/spdlog_x64-windows/debug/include/spdlog/details/windows_include.h
+-- Installing: D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/spdlog_x64-windows/debug/include/spdlog/fmt
+-- Installing: D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/spdlog_x64-windows/debug/include/spdlog/fmt/bin_to_hex.h
+-- Installing: D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/spdlog_x64-windows/debug/include/spdlog/fmt/chrono.h
+-- Installing: D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/spdlog_x64-windows/debug/include/spdlog/fmt/compile.h
+-- Installing: D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/spdlog_x64-windows/debug/include/spdlog/fmt/fmt.h
+-- Installing: D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/spdlog_x64-windows/debug/include/spdlog/fmt/ostr.h
+-- Installing: D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/spdlog_x64-windows/debug/include/spdlog/fmt/ranges.h
+-- Installing: D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/spdlog_x64-windows/debug/include/spdlog/fmt/std.h
+-- Installing: D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/spdlog_x64-windows/debug/include/spdlog/fmt/xchar.h
+-- Installing: D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/spdlog_x64-windows/debug/include/spdlog/formatter.h
+-- Installing: D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/spdlog_x64-windows/debug/include/spdlog/fwd.h
+-- Installing: D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/spdlog_x64-windows/debug/include/spdlog/logger-inl.h
+-- Installing: D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/spdlog_x64-windows/debug/include/spdlog/logger.h
+-- Installing: D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/spdlog_x64-windows/debug/include/spdlog/mdc.h
+-- Installing: D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/spdlog_x64-windows/debug/include/spdlog/pattern_formatter-inl.h
+-- Installing: D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/spdlog_x64-windows/debug/include/spdlog/pattern_formatter.h
+-- Installing: D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/spdlog_x64-windows/debug/include/spdlog/sinks
+-- Installing: D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/spdlog_x64-windows/debug/include/spdlog/sinks/android_sink.h
+-- Installing: D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/spdlog_x64-windows/debug/include/spdlog/sinks/ansicolor_sink-inl.h
+-- Installing: D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/spdlog_x64-windows/debug/include/spdlog/sinks/ansicolor_sink.h
+-- Installing: D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/spdlog_x64-windows/debug/include/spdlog/sinks/base_sink-inl.h
+-- Installing: D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/spdlog_x64-windows/debug/include/spdlog/sinks/base_sink.h
+-- Installing: D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/spdlog_x64-windows/debug/include/spdlog/sinks/basic_file_sink-inl.h
+-- Installing: D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/spdlog_x64-windows/debug/include/spdlog/sinks/basic_file_sink.h
+-- Installing: D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/spdlog_x64-windows/debug/include/spdlog/sinks/callback_sink.h
+-- Installing: D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/spdlog_x64-windows/debug/include/spdlog/sinks/daily_file_sink.h
+-- Installing: D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/spdlog_x64-windows/debug/include/spdlog/sinks/dist_sink.h
+-- Installing: D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/spdlog_x64-windows/debug/include/spdlog/sinks/dup_filter_sink.h
+-- Installing: D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/spdlog_x64-windows/debug/include/spdlog/sinks/hourly_file_sink.h
+-- Installing: D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/spdlog_x64-windows/debug/include/spdlog/sinks/kafka_sink.h
+-- Installing: D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/spdlog_x64-windows/debug/include/spdlog/sinks/mongo_sink.h
+-- Installing: D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/spdlog_x64-windows/debug/include/spdlog/sinks/msvc_sink.h
+-- Installing: D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/spdlog_x64-windows/debug/include/spdlog/sinks/null_sink.h
+-- Installing: D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/spdlog_x64-windows/debug/include/spdlog/sinks/ostream_sink.h
+-- Installing: D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/spdlog_x64-windows/debug/include/spdlog/sinks/qt_sinks.h
+-- Installing: D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/spdlog_x64-windows/debug/include/spdlog/sinks/ringbuffer_sink.h
+-- Installing: D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/spdlog_x64-windows/debug/include/spdlog/sinks/rotating_file_sink-inl.h
+-- Installing: D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/spdlog_x64-windows/debug/include/spdlog/sinks/rotating_file_sink.h
+-- Installing: D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/spdlog_x64-windows/debug/include/spdlog/sinks/sink-inl.h
+-- Installing: D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/spdlog_x64-windows/debug/include/spdlog/sinks/sink.h
+-- Installing: D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/spdlog_x64-windows/debug/include/spdlog/sinks/stdout_color_sinks-inl.h
+-- Installing: D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/spdlog_x64-windows/debug/include/spdlog/sinks/stdout_color_sinks.h
+-- Installing: D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/spdlog_x64-windows/debug/include/spdlog/sinks/stdout_sinks-inl.h
+-- Installing: D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/spdlog_x64-windows/debug/include/spdlog/sinks/stdout_sinks.h
+-- Installing: D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/spdlog_x64-windows/debug/include/spdlog/sinks/syslog_sink.h
+-- Installing: D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/spdlog_x64-windows/debug/include/spdlog/sinks/systemd_sink.h
+-- Installing: D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/spdlog_x64-windows/debug/include/spdlog/sinks/tcp_sink.h
+-- Installing: D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/spdlog_x64-windows/debug/include/spdlog/sinks/udp_sink.h
+-- Installing: D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/spdlog_x64-windows/debug/include/spdlog/sinks/wincolor_sink-inl.h
+-- Installing: D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/spdlog_x64-windows/debug/include/spdlog/sinks/wincolor_sink.h
+-- Installing: D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/spdlog_x64-windows/debug/include/spdlog/sinks/win_eventlog_sink.h
+-- Installing: D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/spdlog_x64-windows/debug/include/spdlog/spdlog-inl.h
+-- Installing: D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/spdlog_x64-windows/debug/include/spdlog/spdlog.h
+-- Installing: D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/spdlog_x64-windows/debug/include/spdlog/stopwatch.h
+-- Installing: D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/spdlog_x64-windows/debug/include/spdlog/tweakme.h
+-- Installing: D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/spdlog_x64-windows/debug/include/spdlog/version.h
+-- Installing: D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/spdlog_x64-windows/debug/lib/spdlogd.lib
+-- Installing: D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/spdlog_x64-windows/debug/bin/spdlogd.dll
+-- Installing: D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/spdlog_x64-windows/debug/lib/pkgconfig/spdlog.pc
+-- Installing: D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/spdlog_x64-windows/debug/lib/cmake/spdlog/spdlogConfigTargets.cmake
+-- Installing: D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/spdlog_x64-windows/debug/lib/cmake/spdlog/spdlogConfigTargets-debug.cmake
+-- Installing: D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/spdlog_x64-windows/debug/lib/cmake/spdlog/spdlogConfig.cmake
+-- Installing: D:/WaterSurfaceRendererScratch/vcpkg_installed/vcpkg/pkgs/spdlog_x64-windows/debug/lib/cmake/spdlog/spdlogConfigVersion.cmake
+

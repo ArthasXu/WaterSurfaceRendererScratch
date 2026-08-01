@@ -1,0 +1,7 @@
+Package: vulkan-loader
+Version: 1.4.350.1
+Depends: vcpkg-cmake, vcpkg-cmake-config, vulkan-headers
+Architecture: x64-windows
+Multi-Arch: same
+Abi: 44bf4404288c75fe044e6a52720b9db3118f63612f2c4306fbd2447143dc08e1
+Description: Vulkan Development Tools
