@@ -104,8 +104,8 @@ private:
         float riseWidth = 8.0f;
         float fixedPhase = 0.60f;
         float profileWidthScale = 0.0f;
-        float globalAmplitude = 1.55f;
-        float forwardScale = 3.0f;
+        float globalAmplitude = 0.6f;
+        float forwardScale = 5.0f;
         float upwardScale = 1.6f;
         float activeRegionMask = 1.0f;
         glm::vec4 suppression{0.20f, 0.35f, 0.80f, 0.0f};
@@ -130,16 +130,39 @@ private:
 
     struct WaterMaterialGuiParams
     {
-        glm::vec4 shallowColor{0.10f, 0.32f, 0.34f, 1.0f};
-        glm::vec4 deepColor{0.01f, 0.08f, 0.13f, 1.0f};
-        glm::vec4 sedimentColor{0.42f, 0.30f, 0.16f, 1.0f};
-        glm::vec4 opticalParams{0.0204f, 0.35f, 0.45f, 0.35f};
-        glm::vec3 sunDirection{-0.35f, 0.85f, 0.25f};
-        float specularStrength = 1.2f;
-        glm::vec4 fogParams{120.0f, 700.0f, 0.4f, 0.0f};
-        glm::vec3 absorption{0.35f,0.06f,0.03f}; 
-        float bedAlbedo=0.85f; 
-        float maxVisibleDepth=6.0f;
+        // 水体颜色
+        glm::vec4 shallowColor{0.38f, 0.62f, 0.72f, 1.0f};   // 浅水：浅青白
+        glm::vec4 deepColor{0.02f, 0.12f, 0.28f, 1.0f};      // 深水：深青蓝
+        glm::vec4 sedimentColor{0.42f, 0.30f, 0.16f, 1.0f};  // 泥沙颜色
+
+        // 光学参数: x=F0基础反射率, y=反射强度, z=GGX粗糙度, w=泥沙混合量
+        glm::vec4 opticalParams{0.02f, 0.35f, 0.06f, 0.0f};  // 默认接近水物理值
+
+        // 太阳方向（与天空太阳一致）
+        glm::vec3 sunDirection{0.3f, 0.6f, 0.4f};
+        float specularStrength = 6.0f;                       // 太阳高光强度（5~10）
+
+        glm::vec4 fogParams{120.0f, 700.0f, 0.4f, 0.0f};     // 雾效参数
+
+        // 吸收系数（红、绿、蓝）
+        glm::vec3 absorption{0.35f, 0.06f, 0.03f};           // 红光衰减最快
+
+        float bedAlbedo = 0.85f;                             // 河床反照率
+        float maxVisibleDepth = 8.0f;                        // 最大可见深度（米）
+
+        float shallowBlend = 0.004f;                         // FF _WaterShallowBlend：每米水深增加多少不透明度
+        float depthUpwardBlend = 1.0f;                       // FF _WaterDepthUpwardBlend：俯视时等效光程加成
+    
+        // ===== FF 岸线两档（MF_WaterTransition）=====
+        glm::vec3 absorptionShore{0.163f, 0.092f, 0.084f};   // 岸线档吸收(1/m)，比深水档更清澈
+        glm::vec3 scatteringDeep{0.006f, 0.009f, 0.012f};    // 深水档散射(1/m)
+        glm::vec3 scatteringShore{0.020f, 0.020f, 0.020f};   // 岸线档散射(1/m)，无色更强=乳白浅滩
+        float scatterGain = 8.0f;                            // 散射增益（等效 HDR 入射光强）
+        float foamScatterScale = 4.0f;                       // FF _FoamScatteringScale
+        float shoreDepthNorm = 17.0f;                        // 深度归一化尺度(米)
+        float shoreDistNorm = 200.0f;                        // 离岸距离归一化尺度(米)
+        glm::vec3 colorBehind{0.63f, 0.54f, 0.45f};          // 水下背景色调
+        float waterLevel = 0.0f;                             // 水面基准高度(米)
     };
 
     struct QuadtreeGuiParams
@@ -159,8 +182,8 @@ private:
     {
         bool enabled = true;
         int seed = 1337;
-        float minSpawnInterval = 5.0f;
-        float maxSpawnInterval = 10.0f;
+        float minSpawnInterval = 15.0f;
+        float maxSpawnInterval = 30.0f;
         float retryMinInterval = 0.5f;
         float retryMaxInterval = 1.0f;
         float baseSpeed = 8.0f;
@@ -184,8 +207,8 @@ private:
         float detailWeight = 0.35f;      // 大/细占比 [0,1]
         float amplitudeMin = 0.5f;       // 振幅下限
         float amplitudeMax = 1.5f;       // 振幅上限
-        float wobbleStrength = 0.35f;    // 浪脊顶抖强度
-        float wobbleFrequency = 3.0f;    // 浪脊顶抖频率
+        float wobbleStrength = 0.12f;    // 浪脊顶抖强度
+        float wobbleFrequency = 1.0f;    // 浪脊顶抖频率
     };
 
 private:

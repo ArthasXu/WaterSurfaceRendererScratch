@@ -311,8 +311,9 @@ void Stage12FluidFluxApp::CreatePipelines()
     };
 
     config.depthTestEnable = true;
-    config.depthWriteEnable = true;
+    config.depthWriteEnable = false;   // 半透明水体不写深度，避免自遮挡
     config.depthCompareOp = VK_COMPARE_OP_LESS;
+    config.blendEnable = true;         // 开 alpha 混合：浅水透出水下地形
 
     config.cullMode = VK_CULL_MODE_NONE;
     config.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
@@ -342,7 +343,9 @@ void Stage12FluidFluxApp::CreatePipelines()
 
     // 水面地形管线
     vkp::PipelineConfig terrainConfig{};
-    terrainConfig.descriptorSetLayouts = { *m_DescriptorSetLayout };
+    terrainConfig.descriptorSetLayouts = {
+        *m_DescriptorSetLayout,
+        *m_AppearanceDescriptorSetLayout };
     auto terrainBinding = water::WaterVertex::GetBindingDescription();
     auto terrainAttrs = water::WaterVertex::GetAttributeDescriptions();
     terrainConfig.bindingDescriptions = { terrainBinding };
@@ -2478,10 +2481,11 @@ void Stage12FluidFluxApp::UpdateWaterMaterialUniformBuffer(uint32_t frameIndex)
     // ===== 吸收参数 =====
     // 吸收参数：RGB 每米吸收系数 + 填充 0
     ubo.absorptionCoeff = glm::vec4(m_WaterMaterialGui.absorption, 0.0f);
-    // 浅水参数：x=河床反照率, y=最大可见水深
+    // 浅水参数：x=河床反照率, y=最大可见水深, z=每米不透明度斜率, w=俯视光程加成
     ubo.shallowParams = glm::vec4(m_WaterMaterialGui.bedAlbedo, 
                               m_WaterMaterialGui.maxVisibleDepth, 
-                              0.0f, 0.0f);
+                              m_WaterMaterialGui.shallowBlend,
+                              m_WaterMaterialGui.depthUpwardBlend);
     
     // 将数据写入当前帧对应的 Uniform Buffer（持久映射，直接拷贝）
     m_WaterMaterialUniformBuffers[frameIndex]->CopyToMapped(
@@ -2855,6 +2859,17 @@ void Stage12FluidFluxApp::Render(VkCommandBuffer commandBuffer, uint32_t imageIn
         vkCmdDraw(commandBuffer, 3, 1, 0, 0);
     }
 
+    // 地形是不透明的，必须先画：半透明水体做 alpha 混合时需要它已在 framebuffer 中
+    if(m_TerrainPipeline && m_TerrainGrid){
+        vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+            *m_TerrainPipeline);
+        vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+            m_TerrainPipeline->GetLayout(), 0, 1,
+            &m_DescriptorSets[currentFrame], 0, nullptr);
+        m_TerrainGrid->Bind(commandBuffer);
+        m_TerrainGrid->Draw(commandBuffer);
+    }
+
     vkp::Pipeline* pipeline = m_SolidPipeline.get();
 
     if(m_UseWireframe && m_WireframePipeline){
@@ -2893,17 +2908,6 @@ void Stage12FluidFluxApp::Render(VkCommandBuffer commandBuffer, uint32_t imageIn
     // 注意：DrawQuadtreeTiles 依赖上面绑定的 m_SolidPipeline，不自绑管线，
     // 因此地形绘制（会切换到 m_TerrainPipeline）必须放在水体 tile 之后。
     DrawQuadtreeTiles(commandBuffer);
-
-    if(m_TerrainPipeline && m_TerrainGrid){
-        vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
-            *m_TerrainPipeline);
-        vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
-            m_TerrainPipeline->GetLayout(), 0, 1,
-            &m_DescriptorSets[currentFrame], 0, nullptr);
-        m_TerrainGrid->Bind(commandBuffer);
-        m_TerrainGrid->Draw(commandBuffer);
-    }
-
 
     if(m_GuiEnabled){
         DrawGui();
@@ -3084,7 +3088,7 @@ void Stage12FluidFluxApp::DrawGui()
         ImGui::DragFloat("Water Rise - 潮后整体水位抬升高度 m", &m_BoreProfileGui.waterRiseHeight, 0.1f, 0.0f, 20.0f);
         ImGui::DragFloat("Rise Width - 水位抬升过渡宽度 m", &m_BoreProfileGui.riseWidth, 0.1f, 0.1f, 80.0f);
         ImGui::DragFloat("Global Amplitude - 潮头整体振幅倍数", &m_BoreProfileGui.globalAmplitude, 0.05f, 0.0f, 5.0f);
-        ImGui::DragFloat("Forward Scale - 水平前向推挤强度", &m_BoreProfileGui.forwardScale, 0.05f, 0.0f, 3.0f);
+        ImGui::DragFloat("Forward Scale - 水平前向推挤强度", &m_BoreProfileGui.forwardScale, 0.05f, 0.0f, 10.0f);
         ImGui::DragFloat("Upward Scale - 垂直抬升/浪高强度", &m_BoreProfileGui.upwardScale, 0.1f, 0.0f, 20.0f);
         ImGui::SliderFloat("Active Region - 潮头区域总开关掩码", &m_BoreProfileGui.activeRegionMask, 0.0f, 1.0f);
         ImGui::DragFloat3("FFT Suppression - 潮头处短/中/长波抑制", glm::value_ptr(m_BoreProfileGui.suppression), 0.01f, 0.0f, 1.0f);
@@ -3118,6 +3122,8 @@ void Stage12FluidFluxApp::DrawGui()
         ImGui::SliderFloat3("Absorption - RGB 每米吸收", &m_WaterMaterialGui.absorption.x, 0.0f, 1.0f);
         ImGui::SliderFloat("Bed Albedo - 河床反照率强度", &m_WaterMaterialGui.bedAlbedo, 0.0f, 2.0f);
         ImGui::SliderFloat("Max Visible Depth - 最大可见水深(米)", &m_WaterMaterialGui.maxVisibleDepth, 0.5f, 30.0f);
+        ImGui::SliderFloat("Shallow Blend - 每米水深→不透明度", &m_WaterMaterialGui.shallowBlend, 0.0f, 0.1f);
+        ImGui::SliderFloat("Depth Upward Blend - 俯视光程加成", &m_WaterMaterialGui.depthUpwardBlend, 0.0f, 4.0f);
     }
 
     if(ImGui::CollapsingHeader("Quadtree LOD - 四叉树细分：控制水面覆盖范围、最细层级和屏幕误差阈值")){
@@ -3149,6 +3155,7 @@ void Stage12FluidFluxApp::DrawGui()
         ImGui::SliderFloat("Max Beach Height - 岸上地形最大抬升(米)", &m_ShoreParams.maxBeachHeight, 0.0f, 60.0f);
         ImGui::SliderFloat("Terrain Height Scale - heightmap[0,1]→米", &m_ShoreParams.terrainHeightScale, 0.0f, 80.0f);
         ImGui::SliderFloat("River Bed Depth - 河床相对水面下沉(米)", &m_ShoreParams.riverBedDepth, 0.0f, 40.0f);
+        ImGui::SliderFloat("River Bed Fade - 河床下沉过渡宽度(米)", &m_ShoreParams.riverBedFade, 1.0f, 400.0f);
         if(ImGui::Button("Rebake Shore Field - 重新烘焙岸线场")){
             m_ShoreRebakePending = true;
         }

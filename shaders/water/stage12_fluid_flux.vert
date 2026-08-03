@@ -795,6 +795,8 @@ void main(){
                      eventProgress * multiBore.crestNoiseA.w + progressMeters * multiBore.crestNoiseA.z)
                 + event.appearance.z;
 
+            crestUV = fract(crestUV * 0.01) * 100.0;
+
             float crestBig    = FBM(crestUV);                              // 大尺度起伏
             float crestDetail = FBM(crestUV * multiBore.crestNoiseB.x);    // 细小复杂波动
             float crestField  = mix(crestBig, crestDetail, multiBore.crestNoiseB.y);
@@ -822,13 +824,17 @@ void main(){
 
             // 浪脊顶边参差：高频噪声[-1,1]只叠在波峰(eventProfile.a)附近，
             // 让"墙顶"变成起伏的浪脊，只改高度不动 signedDistance，避免撕裂
-            float crestTopWobble = (FBM(crestUV * multiBore.crestNoiseC.y) - 0.5) * 2.0;
+            // 顶抖抗走样：粗 LOD tile（大三角）顶点间距大，高频噪声必然走样 → 直接淡出
+            float wobbleLodFade = 1.0 - smoothstep(64.0, 256.0, tile.originSize.z);
+            // 单层 ValueNoise：最高频就等于 crestNoiseC.y，不会像 FBM 那样再翻 16 倍
+            float crestTopWobble = (ValueNoise(crestUV * multiBore.crestNoiseC.y) - 0.5) * 2.0;
             eventLocalVertical +=
                 crestTopWobble *
                 eventProfile.a *
                 upwardScale *
                 eventStrength *
-                multiBore.crestNoiseC.x;
+                multiBore.crestNoiseC.x *
+                wobbleLodFade;
 
             float eventBackMask =
                 1.0 - smoothstep(-riseWidth, riseWidth, eventSignedDistance);

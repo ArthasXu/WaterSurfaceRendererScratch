@@ -69,7 +69,7 @@ ShoreFieldData BakeShoreField(
             // 河道内把河床压到水面下，保证水深为正（供 C 的吸收计算）
             if(bankDistance > 0.0f){
                 terrainHeight -= params.riverBedDepth *
-                    SmoothStep(0.0f, config.bankFade, bankDistance);
+                    SmoothStep(0.0f, params.riverBedFade, bankDistance);
             }
 
             data.field[index] = glm::vec4(
