@@ -21,6 +21,7 @@ struct PipelineConfig
     VkPolygonMode polygonMode = VK_POLYGON_MODE_FILL;         // 多边形模式，填充
     VkCullModeFlags cullMode = VK_CULL_MODE_BACK_BIT;         // 剔除模式， GPU 自动剔除背面三角形
     VkFrontFace frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;  // 正面朝向，定义了哪个方向是“正面”
+    bool blendEnable = false;                                 // 是否开启 alpha 混合（半透明水体用）
 };
 class Pipeline
 {

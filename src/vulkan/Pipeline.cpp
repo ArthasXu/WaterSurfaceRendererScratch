@@ -151,7 +151,13 @@ void Pipeline::createGraphicsPipeline(
         VK_COLOR_COMPONENT_G_BIT | 
         VK_COLOR_COMPONENT_B_BIT | 
         VK_COLOR_COMPONENT_A_BIT; // 颜色写入掩码, RGBA
-    colorBlendAttachment.blendEnable = VK_FALSE; // 混合启用, 禁用
+    colorBlendAttachment.blendEnable = config.blendEnable ? VK_TRUE : VK_FALSE; // 混合启用
+    colorBlendAttachment.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+    colorBlendAttachment.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+    colorBlendAttachment.colorBlendOp = VK_BLEND_OP_ADD;
+    colorBlendAttachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+    colorBlendAttachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+    colorBlendAttachment.alphaBlendOp = VK_BLEND_OP_ADD;
 
     VkPipelineDepthStencilStateCreateInfo depthStencil{}; // 深度模板信息
     depthStencil.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO; // 结构体类型

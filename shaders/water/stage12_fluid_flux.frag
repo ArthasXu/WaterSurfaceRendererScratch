@@ -327,74 +327,68 @@ void main()
         // NdotL：光源与法线的夹角余弦，用于漫反射
         float NdotL = clamp(dot(normal, L), 0.0, 1.0);
 
-        // ===== 3. 水体颜色计算 =====
-        // 高度混合因子：根据世界 Y 坐标混合深浅水色
-        float heightFactor = clamp(fragWorldPosition.y * 0.04 + 0.5, 0.0, 1.0);
-        vec3 waterColor = mix(material.deepColor.rgb, material.shallowColor.rgb, heightFactor);
-        // 混入泥沙颜色
-        waterColor = mix(waterColor, material.sedimentColor.rgb, material.opticalParams.w);
-
-        // 水深 = 水面高度 - 河床高度(shore.a)
-        float bedHeight = fragShore.a;
+        // ===== 3. 解析水深与透明（水面 y 到河床 shore.a）=====
+        float bedHeight  = fragShore.a;
         float waterDepth = max(fragWorldPosition.y - bedHeight, 0.0);
-        waterDepth = min(waterDepth, material.shallowParams.y); // 限幅
+        float maxDepth   = max(material.shallowParams.y, 0.001);
+        float depth01    = clamp(waterDepth / maxDepth, 0.0, 1.0);
 
-        // Beer-Lambert：光穿过水柱被吸收，红光最快 → 深水偏青绿
+        // Beer-Lambert：红光先衰减 → 深处偏青蓝
         vec3 transmittance = exp(-waterDepth * material.absorptionCoeff.rgb);
 
-        // 河床色（复用地形沙色，按 sand 通道），随深度被吸收变暗偏色
-        vec3 bedAlbedo = mix(vec3(0.24,0.34,0.18), vec3(0.76,0.70,0.50),
-                            clamp(fragShore.b, 0.0, 1.0)) * material.shallowParams.x;
-        vec3 bedSeen = bedAlbedo * transmittance;
+        // 河床不再由水体伪造：真实地形已画在下面，靠 alpha 混合透出
+        // 水固有色：浅→深
+        vec3 waterColor = mix(material.shallowColor.rgb, material.deepColor.rgb, depth01);
+        waterColor *= transmittance * 0.5 + 0.5;
+        // 泥沙（保留可调项）
+        waterColor = mix(waterColor, material.sedimentColor.rgb, material.opticalParams.w);
 
-        // 浅→见底，深→水体固有色
-        vec3 bodyColor = mix(bedSeen, waterColor, 1.0 - transmittance);
-        waterColor = bodyColor;   // 用透射合成后的水体色替换原基础色
+        // ===== 4. 菲涅尔 + 天空反射（含太阳）=====
+        float NdotVs       = clamp(dot(normal, V), 0.0, 1.0);
+        float fresnel      = WaterFresnel(NdotVs, material.opticalParams.x);
+        vec3  reflectedSky = SkyColor(R, L);
 
-        // ===== 4. 菲涅尔反射 =====
-        // 使用自定义的 WaterFresnel 函数，power 控制反射随角度变化的锐度
-        float fresnel = WaterFresnel(NdotV, material.opticalParams.x);
-        // 采样天空颜色作为反射来源
-        vec3 reflectedSky = SkyColor(R, L);
+        // ===== 5. GGX 太阳高光（直接用 FFT 法线，避免贴图平铺出十字纹）=====
+        float roughness = clamp(mix(material.opticalParams.z, 0.5, finalFoam), 0.02, 1.0);
+        vec3  Hs   = normalize(L + V);
+        float NoH  = clamp(dot(normal, Hs), 0.0, 1.0);
+        float NoLs = clamp(dot(normal, L), 0.0, 1.0);
+        float Dv   = D_GGX(NoH, roughness);
+        float Vis  = V_SmithGGX(NdotVs, NoLs, roughness);
+        vec3  sunColor = vec3(1.0, 0.96, 0.86);
+        vec3  specular = sunColor * (Dv * Vis * NoLs * material.lightParams.w);
 
-        // ===== 5. 漫反射 =====
-        // 环境光 30% + 太阳漫反射 70%
-        vec3 diffuse = waterColor * (0.30 + 0.70 * NdotL);
-
-        // ===== 6. 粗糙度与高光 =====
-        // 粗糙度混合：水面基础粗糙度 vs 泡沫粗糙度（0.85）
-        // 泡沫区域更粗糙，高光更发散
-        float roughness = mix(material.opticalParams.z, 0.85, finalFoam);
-
-        // 高光指数随粗糙度变化：光滑水面用高指数（128），粗糙泡沫用低指数（18）
-        float specularPower = mix(128.0, 18.0, roughness);
-
-        // 高光强度：Blinn-Phong 模型，并乘以 (1 - finalFoam * 0.65) 抑制泡沫区域的高光
-        float specular = pow(clamp(dot(normal, H), 0.0, 1.0), specularPower)
-                        * material.lightParams.w
-                        * (1.0 - finalFoam * 0.65);
-
-        // ===== 7. 颜色合成 =====
-        // 菲涅尔混合：漫反射与天空反射
+        // ===== 6. 漫反射 + 菲涅尔合成 =====
+        // 用 waterColor 替代原来的 bodyColor，不再混合河床反照率
+        vec3 diffuse  = waterColor * (0.35 + 0.65 * NdotL);
         vec3 litColor = mix(diffuse, reflectedSky, fresnel * material.opticalParams.y);
-        // 叠加暖色太阳高光
-        litColor += vec3(1.0, 0.88, 0.62) * specular;
+        litColor += specular;
 
-        // 泡沫颜色（偏冷白）
-        vec3 foamColor = vec3(0.92, 0.96, 0.92);
-        // 将水色与泡沫混合
-        litColor = mix(litColor, foamColor, finalFoam);
+        // 泡沫覆盖
+        litColor = mix(litColor, vec3(0.95, 0.97, 0.96), finalFoam);
 
-        // ===== 8. 距离雾效 =====
+        // ===== 7. 上岸渐隐已不再需要（真实地形通过 alpha 透出）=====
+
+        // ===== 8. 距离雾融入天空（按视线方向取天空色，远处无缝接天）=====
         float distanceToCamera = length(camera.cameraWorldPosition.xyz - fragWorldPosition);
-        litColor = ApplyDistanceFog(
-            litColor, distanceToCamera,
-            vec3(0.75, 0.85, 0.92),    // 雾色
-            material.fogParams.x,      // 雾开始距离
-            material.fogParams.y       // 雾完全覆盖距离
-        );
+        vec3  viewDirWS = normalize(fragWorldPosition - camera.cameraWorldPosition.xyz);
+        vec3  fogColor  = SkyColor(viewDirWS, L);
+        litColor = ApplyDistanceFog(litColor, distanceToCamera,
+            fogColor, material.fogParams.x, material.fogParams.y);
 
-        outColor = vec4(litColor, 1.0);
+        // ===== 9. 深度驱动不透明度（MF_FluidWaterLayer 的 Translucent）=====
+        // 俯视时穿过水柱的等效光程更长 → 更不透明；掠射时更薄 → 更透
+        float depthUpward = abs(V.y) * material.shallowParams.w + 1.0;
+        float waterAlpha  = clamp(waterDepth * depthUpward * material.shallowParams.z, 0.0, 1.0);
+
+        // 反射掉的能量不可能同时从水底透上来：不透明度至少等于反射比例。
+        // 这让浅水在掠射角呈现镜面天空反射（图二的湿沙水膜），而不是半透明糊。
+        waterAlpha = max(waterAlpha, fresnel * material.opticalParams.y);
+
+        // 泡沫是不透明白沫，不能让河床透过来
+        waterAlpha = max(waterAlpha, finalFoam);
+
+        outColor = vec4(litColor, waterAlpha);
         return;
     }
 
