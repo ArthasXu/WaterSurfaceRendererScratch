@@ -763,7 +763,9 @@ void main(){
     float multiProfileFoam = 0.0;
     float multiBreakingFoam = 0.0;
 
-    if(multiBore.metadata.z != 0 && multiBore.metadata.x > 0){
+    // 统一走多潮头路径（单潮头分支已移除）。
+    // 无活跃事件时下面的 for 循环不执行，各潮头分量保持为 0，等价于"没有潮"，行为正确。
+    // if(multiBore.metadata.z != 0 && multiBore.metadata.x > 0){
         boreHorizontal = vec2(0.0);
         boreVertical = 0.0;
         boreSlope = vec2(0.0);
@@ -808,7 +810,7 @@ void main(){
             // event.appearance.z：每个潮头独立种子，彼此不同
             vec2 crestUV =
                 vec2(lateral * multiBore.crestNoiseA.x + progressMeters * multiBore.crestNoiseA.y,
-                     eventProgress * multiBore.crestNoiseA.w + progressMeters * multiBore.crestNoiseA.z)
+                        eventProgress * multiBore.crestNoiseA.w + progressMeters * multiBore.crestNoiseA.z)
                 + event.appearance.z;
 
             crestUV = fract(crestUV * 0.01) * 100.0;
@@ -823,7 +825,7 @@ void main(){
 
             float eventCommonMask = commonBoreMask;
             float eventStrength = eventCommonMask * eventAmplitude * globalAmplitude;
-            float eventRiseStrength = eventCommonMask * eventAmplitudeBase;
+
             float eventCrestMask = eventProfile.a * eventCommonMask;
 
             vec2 eventHorizontal =
@@ -852,29 +854,11 @@ void main(){
                 multiBore.crestNoiseC.x *
                 wobbleLodFade;
 
-            float eventBackMask =
-                // 抬升在浪脊峰值处为 0（不淹浪脊），紧接其后平滑升到满值。
-                // 乘 (1 - eventProfile.a) 让抬升自动避开浪脊本体，过渡尺度随剖面自适应；
-                // 用固定 halfWidth 硬偏移会在浪后留出一大段未抬升的平地再突然出现台阶。
-                (1.0 - smoothstep(-riseWidth, 0.0, eventSignedDistance)) *
-                (1.0 - eventProfile.a);
-
-            waterRiseMask = max(waterRiseMask, eventBackMask * eventRiseStrength);
-
             float eventDUpwardDs =
                 eventDerivative.g *
                 upwardScale *
                 eventStrength;
-
-            float eventDBackMaskDs =
-                -SmoothStepDerivative(-riseWidth, 0.0, eventSignedDistance) *
-                (1.0 - eventProfile.a);
-
-            float eventDWaterRiseDs =
-                profileConfig.domain.y *
-                eventDBackMaskDs *
-                eventRiseStrength;
-
+                
             float eventDForwardDs =
                 clamp(
                     eventDerivative.r *
@@ -884,10 +868,10 @@ void main(){
                     -0.65,
                     0.65
                 );
-
+            
             float eventDenominator = max(1.0 + eventDForwardDs, 0.2);
             float eventEffectiveSlope =
-                clamp((eventDUpwardDs + eventDWaterRiseDs) / eventDenominator, -2.5, 2.5);
+                clamp(eventDUpwardDs / eventDenominator, -2.5, 2.5);
 
             boreHorizontal += eventHorizontal;
             boreVertical += eventLocalVertical;
@@ -906,10 +890,10 @@ void main(){
                 1.0 - smoothstep(eventHalfWidth * 0.85, eventHalfWidth, abs(eventSignedDistance));
 
             float eventProfileFoam = eventProfile.b * eventAmplitude * eventCommonMask * event.appearance.x
-                                      * eventFrontFoamWindow;
+                                        * eventFrontFoamWindow;
             float eventBreakingFoam = eventDerivative.a * eventAmplitude * eventCommonMask * event.appearance.x
-                                      * mix(0.6, 1.4, crestField)
-                                      * eventFrontFoamWindow;
+                                        * mix(0.6, 1.4, crestField)
+                                        * eventFrontFoamWindow;
             
             multiProfileFoam = 1.0 - (1.0 - multiProfileFoam) * (1.0 - eventProfileFoam);
             multiBreakingFoam = 1.0 - (1.0 - multiBreakingFoam) * (1.0 - eventBreakingFoam);
@@ -917,20 +901,39 @@ void main(){
             float eventFoamSource = max(eventProfileFoam, eventBreakingFoam);
             multiFoamVelocity += localFrontNormal * eventDerivative.b * eventFoamSource;
             multiFoamSourceWeight += eventFoamSource;
-        }
 
-        // 永久台阶在潮头离开后会暴露出来，必须用远大于 riseWidth 的过渡宽度，
-        // 否则是一道陡坎（顶点间距大于台阶宽度时表现为断续竖线）
-        float persistentWidth = max(riseWidth * 60.0, 1.0);
-        float persistentBack =
-            1.0 - smoothstep(-persistentWidth, 0.0,
-                             progressMeters - multiBore.persistent.x);
+            // ===== 潮后水位抬升：唯一来源是单调的历史高水位标记 =====
+            // 不再对活跃事件取 max()。事件的生成/回收会让 max() 的胜出者切换，
+            // 那是"每隔一段时间突然涨高一个 waterRise"的根源。
+            // persistent.x 由 CPU 单调维护(只增不减)，领头潮头存活期间即等于它的位置，
+            // 所以台阶仍跟着领头潮头推进，但与事件集合完全解耦。
+            float persistentWidth = riseWidth;
+            float persistentDistance = progressMeters - multiBore.persistent.x;
+
+            float persistentBack =
+                (1.0 - smoothstep(-persistentWidth, 0.0, persistentDistance)) *
+                (1.0 - crestMask);
+
+            waterRiseMask = persistentBack * commonBoreMask * boreAmplitude;
+        // }
+        // 统一走多潮头路径（单潮头分支已移除）。
+        // 无活跃事件时下面的 for 循环不执行，各潮头分量保持为 0，等价于"没有潮"，行为正确。
+
         waterRiseMask = max(waterRiseMask, persistentBack * commonBoreMask * boreAmplitude);
 
         float overlap = max(totalCrestWeight, 1.0);
         boreHorizontal /= overlap;
         boreVertical = boreVertical / overlap + profileConfig.domain.y * waterRiseMask;
         boreSlope /= overlap;
+
+        // 抬升坡度与上面的掩码同源，且不参与多事件叠加，故放在 overlap 归一之后
+        float dPersistentDs =
+            -SmoothStepDerivative(-persistentWidth, 0.0, persistentDistance) *
+            (1.0 - crestMask);
+
+        boreSlope += localFrontNormal *
+            (profileConfig.domain.y * dPersistentDs *
+             commonBoreMask * boreAmplitude);
 
         if(multiFoamSourceWeight > 1.0e-4){
             multiFoamVelocity /= multiFoamSourceWeight;
@@ -997,18 +1000,12 @@ void main(){
         water.simulation.z +        // 法线扰动强度
         boreSlope;                  // 涌潮坡度
 
-    // 单潮头回退路径的离波前窗口：与多潮头一致，超出剖面域时把泡沫淡到 0，
-    // 避免继承剖面边缘 rearFoam 造成下游整片铺泡沫。
-    float singleFrontFoamWindow =
-        1.0 - smoothstep(profileHalfWidth * 0.85, profileHalfWidth, abs(signedDistance));
+    // // 单潮头回退路径的离波前窗口：与多潮头一致，超出剖面域时把泡沫淡到 0，
+    // // 避免继承剖面边缘 rearFoam 造成下游整片铺泡沫。
+    // float singleFrontFoamWindow =
+    //     1.0 - smoothstep(profileHalfWidth * 0.85, profileHalfWidth, abs(signedDistance));
 
-    float profileFoam =
-        multiBore.metadata.z != 0 && multiBore.metadata.x > 0
-        ? multiProfileFoam
-        : boreProfile.b *
-            boreAmplitude *
-            commonBoreMask *
-            singleFrontFoamWindow;
+    float profileFoam = multiProfileFoam;
 
     float fftJacobianFoam =
         smoothstep(
@@ -1027,19 +1024,9 @@ void main(){
             slopeMagnitude
         );
 
-    float boreBreakingFoam =
-        multiBore.metadata.z != 0 && multiBore.metadata.x > 0
-        ? multiBreakingFoam
-        : boreDerivative.a *
-            boreAmplitude *
-            commonBoreMask *
-            singleFrontFoamWindow;
+    float boreBreakingFoam = multiBreakingFoam;
 
-    vec2 boreFlowVelocity =
-        multiBore.metadata.z != 0 && multiBore.metadata.x > 0
-        ? multiFoamVelocity
-        : localFrontNormal *
-            boreDerivative.b;
+    vec2 boreFlowVelocity = multiFoamVelocity;
     
     // 从坡度重建世界空间法线：原法线为 (0, 1, 0)，经坡度扰动后归一化
     vec3 worldNormal =

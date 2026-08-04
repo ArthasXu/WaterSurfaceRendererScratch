@@ -100,8 +100,8 @@ private:
 
     struct BoreProfileGuiParams
     {
-        float waterRiseHeight = 8.0f;
-        float riseWidth = 0.0f;
+        float waterRiseHeight = 2.0f;
+        float riseWidth = 32.0f;
         float fixedPhase = 0.60f;
         float profileWidthScale = 0.0f;
         float globalAmplitude = 0.6f;
