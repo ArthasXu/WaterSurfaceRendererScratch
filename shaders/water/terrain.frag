@@ -23,6 +23,11 @@ layout(set = 1, binding = 4) uniform WaterMaterialUBO {
     vec4 fogParams;     // x=雾起点 y=雾终点
     vec4 absorptionCoeff;
     vec4 shallowParams;
+    vec4 absorptionShore;
+    vec4 scatteringDeep;
+    vec4 scatteringShore;
+    vec4 shoreBlend;
+    vec4 colorBehind;
 } material;
 
 void main(){
@@ -34,6 +39,24 @@ void main(){
     vec3 sand  = vec3(0.76, 0.70, 0.50);
     vec3 grass = vec3(0.24, 0.34, 0.18);
     vec3 albedo = mix(grass, sand, clamp(fragShore.b, 0.0, 1.0)); // B = sand
+
+    // ===== FF ColorBehind + 水下逐通道吸收色偏 =====
+    float underDepth = max(material.shoreBlend.w - fragWorldPos.y, 0.0);
+    if(underDepth > 0.0){
+        float bankDist = max(fragShore.r, 0.0);
+        float sH = clamp(underDepth / max(material.shoreBlend.x, 0.001), 0.0, 1.0);
+        float sD = clamp(bankDist   / max(material.shoreBlend.y, 0.001), 0.0, 1.0);
+        float shoreline = 1.0 - max(sH, sD);
+
+        vec3 absorption = mix(material.absorptionCoeff.rgb, material.absorptionShore.rgb, shoreline);
+        absorption *= max(material.shallowParams.z, 0.0);
+
+        vec3  T    = exp(-underDepth * absorption);
+        float lumT = max(dot(T, vec3(0.2126, 0.7152, 0.0722)), 1.0e-4);
+
+        // 水下沙底染上 ColorBehind 暖调；只取 T 的色相，亮度衰减由水体 alpha 负责，避免双重衰减
+        albedo *= material.colorBehind.rgb * (T / lumT);
+    }
 
     vec3 sunDir = normalize(material.lightParams.xyz);
     float ndl = max(dot(n, sunDir), 0.0);

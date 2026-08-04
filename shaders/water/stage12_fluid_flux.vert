@@ -264,6 +264,22 @@ float FBM(vec2 p){
     return sum / norm;
 }
 
+// 低频 FBM：只叠 2 层，最高频约为基频的 2 倍。
+// 用于振幅/水位这类必须平滑的量——5 层倍频会把最细层推到亚米级，
+// 在数米顶点间距的水面网格上必然走样成细纹。
+float FBM2(vec2 p){
+    float sum = 0.0;
+    float amp = 0.5;
+    float norm = 0.0;
+    for(int i = 0; i < 2; ++i){
+        sum += amp * ValueNoise(p);
+        norm += amp;
+        p *= 2.02;
+        amp *= 0.5;
+    }
+    return sum / norm;
+}
+
 void main(){
     // 将顶点从模型空间变换到世界空间，得到未变形的水面基础位置
     // Patch 局部坐标映射到 Tile 世界坐标
@@ -786,6 +802,12 @@ void main(){
 
             float eventAmplitude = boreAmplitude * event.shape.x;
 
+            // 未被浪脊噪声调制的基础振幅：潮后水位抬升必须用它。
+            // crestField 是高频且随 eventProgress 快速滚动的 FBM，而 eventBackMask
+            // 在潮后恒为 1，一旦让它进入水位就会把高频噪声铺满整片过潮水面，
+            // 表现为高速移动的细波浪线。噪声只应作用于浪脊本身。
+            float eventAmplitudeBase = eventAmplitude;
+
             // ===== 浪脊坐标系噪声：打破"一堵墙" =====
             // x 轴：横向 lateral 铺开(控制沿河宽度方向的团块数) + 顶点沿河位置 progressMeters 提供二维细节
             // y 轴：eventProgress 让整块噪声随潮头推进而流动(动画，不再冻在世界里)
@@ -797,8 +819,8 @@ void main(){
 
             crestUV = fract(crestUV * 0.01) * 100.0;
 
-            float crestBig    = FBM(crestUV);                              // 大尺度起伏
-            float crestDetail = FBM(crestUV * multiBore.crestNoiseB.x);    // 细小复杂波动
+            float crestBig    = FBM2(crestUV);                              // 大尺度起伏
+            float crestDetail = FBM2(crestUV * multiBore.crestNoiseB.x);    // 细小复杂波动
             float crestField  = mix(crestBig, crestDetail, multiBore.crestNoiseB.y);
 
             // 幅度调制：[振幅下限, 振幅上限]，高低差
@@ -807,7 +829,7 @@ void main(){
 
             float eventCommonMask = commonBoreMask;
             float eventStrength = eventCommonMask * eventAmplitude * globalAmplitude;
-            float eventRiseStrength = eventCommonMask * eventAmplitude;
+            float eventRiseStrength = eventCommonMask * eventAmplitudeBase;
             float eventCrestMask = eventProfile.a * eventCommonMask;
 
             vec2 eventHorizontal =
@@ -907,6 +929,30 @@ void main(){
             multiFoamVelocity /= multiFoamSourceWeight;
         }
     }
+
+    // ===== 修复：让 Multi-bore 的 FFT 抑制真正作用到几何 =====
+    // 上面第五步(613-626)在 multi-bore 循环之前就合成了 fftDisplacement/fftSlope，
+    // 而循环会把 shortWeight/midWeight/longWeight 重置为 1 再按各事件 min()，
+    // 所以必须在循环结束后重新合成一次。否则多潮头的 suppression 只体现在
+    // debug 输出里，潮头浪面依然铺满未被抑制的 FFT 短波。
+    // 单潮头路径下权重未被改动，此处重算结果与 613-626 完全相同，故无需分支。
+    fftDisplacement =
+        (
+            shortWave.displacement * shortWeight +
+            midWave.displacement   * midWeight   +
+            longWave.displacement  * longWeight
+        ) * fftEnabled;
+
+    fftSlope =
+        (
+            shortWave.slope * shortWeight +
+            midWave.slope   * midWeight   +
+            longWave.slope  * longWeight
+        ) * fftEnabled;
+
+    // 打包向量同步更新，否则 fragDisplacement（调试模式 1/2/4 及片元里的 heightFactor）
+    // 与真实几何不一致
+    displacement.xyz = fftDisplacement;
 
     // ===== 第五步：合成最终世界坐标（FFT + Bore） =====
     // 水平位移：FFT 水平位移（缩放后）+ 涌潮水平位移

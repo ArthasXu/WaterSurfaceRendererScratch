@@ -345,7 +345,8 @@ void Stage12FluidFluxApp::CreatePipelines()
     vkp::PipelineConfig terrainConfig{};
     terrainConfig.descriptorSetLayouts = {
         *m_DescriptorSetLayout,
-        *m_AppearanceDescriptorSetLayout };
+        *m_AppearanceDescriptorSetLayout
+    };
     auto terrainBinding = water::WaterVertex::GetBindingDescription();
     auto terrainAttrs = water::WaterVertex::GetAttributeDescriptions();
     terrainConfig.bindingDescriptions = { terrainBinding };
@@ -2487,6 +2488,40 @@ void Stage12FluidFluxApp::UpdateWaterMaterialUniformBuffer(uint32_t frameIndex)
                               m_WaterMaterialGui.shallowBlend,
                               m_WaterMaterialGui.depthUpwardBlend);
     
+    // ===== FF MF_WaterTransition / MF_SingleLayerWater =====
+    ubo.absorptionShore  = glm::vec4(m_WaterMaterialGui.absorptionShore, 0.0f);
+    ubo.scatteringDeep   = glm::vec4(m_WaterMaterialGui.scatteringDeep,
+                                     m_WaterMaterialGui.scatterGain);
+    ubo.scatteringShore  = glm::vec4(m_WaterMaterialGui.scatteringShore,
+                                     m_WaterMaterialGui.foamScatterScale);
+
+    // FF: PhaseG = lerp(_PhaseGDeepSunLow, _PhaseGDeepSunHigh, saturate(sunDir.y))
+    glm::vec3 sunDirN = glm::normalize(m_WaterMaterialGui.sunDirection);
+    float phaseG = glm::mix(-0.7f, 0.5f, glm::clamp(sunDirN.y, 0.0f, 1.0f));
+
+    ubo.shoreBlend = glm::vec4(m_WaterMaterialGui.shoreDepthNorm,
+                               m_WaterMaterialGui.shoreDistNorm,
+                               phaseG,
+                               m_WaterMaterialGui.waterLevel);
+    ubo.colorBehind = glm::vec4(m_WaterMaterialGui.colorBehind, 1.0f);
+
+    // ===== FF MF_FluidWaterLayer：高光 / 粗糙度 =====
+    ubo.waterSpecular = glm::vec4(
+        m_WaterMaterialGui.specBias,
+        m_WaterMaterialGui.specScale,
+        m_WaterMaterialGui.specPower,
+        m_WaterMaterialGui.specHorizonFloor);
+    ubo.specularHorizon = glm::vec4(
+        m_WaterMaterialGui.specHorizonDistance,
+        m_WaterMaterialGui.specHorizonOffset,
+        m_WaterMaterialGui.roughFromFresnel,
+        m_WaterMaterialGui.roughMin);
+    ubo.cheapScatter = glm::vec4(
+        m_WaterMaterialGui.scatterDetails,
+        m_WaterMaterialGui.scatterPower,
+        m_WaterMaterialGui.scatterScale,
+        m_WaterMaterialGui.normalFixStrength);
+    
     // 将数据写入当前帧对应的 Uniform Buffer（持久映射，直接拷贝）
     m_WaterMaterialUniformBuffers[frameIndex]->CopyToMapped(
         &ubo,
@@ -2866,6 +2901,9 @@ void Stage12FluidFluxApp::Render(VkCommandBuffer commandBuffer, uint32_t imageIn
         vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
             m_TerrainPipeline->GetLayout(), 0, 1,
             &m_DescriptorSets[currentFrame], 0, nullptr);
+        vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+            m_TerrainPipeline->GetLayout(), 1, 1,
+            &m_AppearanceDescriptorSets[currentFrame], 0, nullptr);
         m_TerrainGrid->Bind(commandBuffer);
         m_TerrainGrid->Draw(commandBuffer);
     }
@@ -3065,14 +3103,14 @@ void Stage12FluidFluxApp::DrawGui()
 
     if(ImGui::CollapsingHeader("Crest Noise - 浪脊噪声：打破一堵墙，控制大起伏/细碎波动/顶边参差")){
         ImGui::TextWrapped("整体振幅调制(改高度+泡沫)");
-        ImGui::SliderFloat("Lateral Freq - 横向(河宽)团块数", &m_CrestNoiseGui.lateralFrequency, 0.0f, 12.0f);
+        ImGui::SliderFloat("Lateral Freq - 横向(河宽)团块数", &m_CrestNoiseGui.lateralFrequency, 0.0f, 24.0f);
         ImGui::SliderFloat("Along Freq X - 沿河频率X", &m_CrestNoiseGui.alongFrequencyX, 0.0f, 0.2f, "%.4f");
         ImGui::SliderFloat("Along Freq Y - 沿河频率Y", &m_CrestNoiseGui.alongFrequencyY, 0.0f, 0.2f, "%.4f");
         ImGui::SliderFloat("Anim Speed - 随潮头流动速度", &m_CrestNoiseGui.animationSpeed, 0.0f, 0.5f, "%.4f");
-        ImGui::SliderFloat("Detail Freq - 细碎波动频率", &m_CrestNoiseGui.detailFrequency, 1.0f, 16.0f);
+        ImGui::SliderFloat("Detail Freq - 细碎波动频率", &m_CrestNoiseGui.detailFrequency, 0.0f, 32.0f);
         ImGui::SliderFloat("Detail Weight - 大/细占比", &m_CrestNoiseGui.detailWeight, 0.0f, 1.0f);
         ImGui::SliderFloat("Amplitude Min - 振幅下限", &m_CrestNoiseGui.amplitudeMin, 0.0f, 1.0f);
-        ImGui::SliderFloat("Amplitude Max - 振幅上限", &m_CrestNoiseGui.amplitudeMax, 1.0f, 3.0f);
+        ImGui::SliderFloat("Amplitude Max - 振幅上限", &m_CrestNoiseGui.amplitudeMax, 1.0f, 5.0f);
         ImGui::Separator();
         ImGui::TextWrapped("浪脊顶边参差(只改高度)");
         ImGui::SliderFloat("Wobble Strength - 顶抖强度", &m_CrestNoiseGui.wobbleStrength, 0.0f, 1.5f);
@@ -3122,8 +3160,33 @@ void Stage12FluidFluxApp::DrawGui()
         ImGui::SliderFloat3("Absorption - RGB 每米吸收", &m_WaterMaterialGui.absorption.x, 0.0f, 1.0f);
         ImGui::SliderFloat("Bed Albedo - 河床反照率强度", &m_WaterMaterialGui.bedAlbedo, 0.0f, 2.0f);
         ImGui::SliderFloat("Max Visible Depth - 最大可见水深(米)", &m_WaterMaterialGui.maxVisibleDepth, 0.5f, 30.0f);
-        ImGui::SliderFloat("Shallow Blend - 每米水深→不透明度", &m_WaterMaterialGui.shallowBlend, 0.0f, 0.1f);
+        ImGui::SliderFloat("Shallow Blend - 吸收总倍率（越大越快变不透明）", &m_WaterMaterialGui.shallowBlend, 0.0f, 2.0f);
         ImGui::SliderFloat("Depth Upward Blend - 俯视光程加成", &m_WaterMaterialGui.depthUpwardBlend, 0.0f, 4.0f);
+        
+        ImGui::SeparatorText("FF Shoreline - 岸线两档（MF_WaterTransition）");
+        ImGui::SliderFloat3("Absorb Shore - 岸线档吸收/米", &m_WaterMaterialGui.absorptionShore.x, 0.0f, 1.0f);
+        ImGui::SliderFloat3("Scatter Deep - 深水档散射/米", &m_WaterMaterialGui.scatteringDeep.x, 0.0f, 0.1f, "%.4f");
+        ImGui::SliderFloat3("Scatter Shore - 岸线档散射/米", &m_WaterMaterialGui.scatteringShore.x, 0.0f, 0.1f, "%.4f");
+        ImGui::SliderFloat("Scatter Gain - 散射增益", &m_WaterMaterialGui.scatterGain, 0.0f, 30.0f);
+        ImGui::SliderFloat("Foam Scatter Scale - 泡沫散射倍数", &m_WaterMaterialGui.foamScatterScale, 0.0f, 12.0f);
+        ImGui::SliderFloat("Shore Depth Norm - 深度归一(米)", &m_WaterMaterialGui.shoreDepthNorm, 1.0f, 60.0f);
+        ImGui::SliderFloat("Shore Dist Norm - 离岸归一(米)", &m_WaterMaterialGui.shoreDistNorm, 10.0f, 600.0f);
+        ImGui::ColorEdit3("Color Behind - 水下背景色调", glm::value_ptr(m_WaterMaterialGui.colorBehind));
+        ImGui::DragFloat("Water Level - 水面基准高度", &m_WaterMaterialGui.waterLevel, 0.1f);
+    
+        ImGui::SeparatorText("FF Specular - 高光/粗糙度（MF_FluidWaterLayer）");
+        ImGui::SliderFloat("Spec Bias - Fresnel 偏置", &m_WaterMaterialGui.specBias, 0.0f, 0.3f, "%.3f");
+        ImGui::SliderFloat("Spec Scale - Fresnel 幅度", &m_WaterMaterialGui.specScale, 0.0f, 3.0f);
+        ImGui::SliderFloat("Spec Power - Fresnel 指数", &m_WaterMaterialGui.specPower, 1.0f, 16.0f);
+        ImGui::SliderFloat("Horizon Floor - 远景高光底噪", &m_WaterMaterialGui.specHorizonFloor, 0.0f, 1.0f);
+        ImGui::SliderFloat("Horizon Distance - 地平线距离(米)", &m_WaterMaterialGui.specHorizonDistance, 1.0f, 200.0f);
+        ImGui::SliderFloat("Horizon Offset - 相机高度系数", &m_WaterMaterialGui.specHorizonOffset, 0.0f, 30.0f);
+        ImGui::SliderFloat("Rough From Fresnel - 掠射粗糙度", &m_WaterMaterialGui.roughFromFresnel, 0.0f, 1.0f);
+        ImGui::SliderFloat("Rough Min - 最小粗糙度", &m_WaterMaterialGui.roughMin, 0.01f, 0.5f, "%.3f");
+        ImGui::SliderFloat("Scatter Details - 散射细节权重", &m_WaterMaterialGui.scatterDetails, 0.0f, 1.0f);
+        ImGui::SliderFloat("Scatter Power - 散射指数", &m_WaterMaterialGui.scatterPower, 0.5f, 8.0f);
+        ImGui::SliderFloat("Scatter Scale - 散射强度", &m_WaterMaterialGui.scatterScale, 0.0f, 8.0f);
+        ImGui::SliderFloat("Normal Fix - 不可能法线修正强度", &m_WaterMaterialGui.normalFixStrength, 0.0f, 1.0f);
     }
 
     if(ImGui::CollapsingHeader("Quadtree LOD - 四叉树细分：控制水面覆盖范围、最细层级和屏幕误差阈值")){

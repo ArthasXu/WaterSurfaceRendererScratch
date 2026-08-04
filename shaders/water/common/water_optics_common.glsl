@@ -110,3 +110,69 @@ float V_SmithGGX(float NoV, float NoL, float roughness)
     // 返回可见性，分母防止除零
     return 0.5 / max(gv + gl, 1e-5);
 }
+
+// ===== FF MF_ImposibleNormalFix（平滑版）=====
+// V = 从像素指向相机。R.y<0 表示反射射向水面以下（几何不可能，背朝相机的浪面）。
+// 注意：原式用 clamp(-R.y) 在 R.y=0 处一阶不连续，而 R.y 的零值集在起伏水面上
+// 是一族沿波形的曲线，会被渲染成移动的亮白细线。改用 smoothstep 平滑起始。
+vec3 ImpossibleNormalFix(vec3 N, vec3 V, float strength)
+{
+    vec3  R = reflect(-V, N);
+    const float softness = 0.35;                     // 过渡带宽度，越大越平滑
+    float impossible = smoothstep(0.0, softness, -R.y);
+    return normalize(N + impossible * strength * V);
+}
+
+// ===== FF MF_Fresnel =====
+// saturate(bias + scale * pow(1 - dot(V,N), power))
+// 与 Schlick 的区别：power 可调。FF 默认 9.0，把反射集中在接近水平的视角，
+// 俯视时水面清澈，只有远处/掠射处强反射。
+float FluxFresnel(float bias, float scale, float power, vec3 N, vec3 V)
+{
+    float f = 1.0 - dot(V, N);
+    f = pow(max(f, 0.0), power);
+    return clamp(bias + f * scale, 0.0, 1.0);
+}
+
+// ===== FF MF_FluidWaterLayer 的 Specular_B_Y：地平线高光衰减 =====
+// 有效高光距离 ≈ horizonDistance + 相机相对水面高度 × horizonOffset。
+// 超出后只保留 horizonFloor 的底噪。这是远景水面不糊成白片的关键。
+float FluxSpecularHorizon(
+    vec3 posWS, vec3 camPosWS,
+    float horizonDistance, float horizonOffset, float horizonFloor
+){
+    vec3  toCam = posWS - camPosWS;
+    float d = horizonDistance - toCam.y * horizonOffset;
+    float f = (d - length(toCam)) / max(d * 0.9, 1.0e-4);
+    f = clamp(f, 0.0, 1.0);
+    f = f * f;
+    return clamp(f + horizonFloor, 0.0, 1.0);
+}
+
+// ===== FF MF_FluidWaterLayer 的 Roughness =====
+// 1) NoH≈1 处加极小粗糙度，柔化太阳光斑硬边
+// 2) 掠射角按 (1-NoV)^5 加粗糙度 → 远处高光变宽变暗
+// 3) 下限保证正常视角是锐利镜面
+float FluxWaterRoughness(float NoH, float NoV, float roughFromFresnel, float roughMin)
+{
+    const float div = 0.997;
+    float r = clamp((NoH - div) / (1.0 - div), 0.0, 1.0) * 0.007;
+    r += roughFromFresnel * pow(clamp(1.0 - NoV, 0.0, 1.0), 5.0);
+    return max(r, roughMin);
+}
+
+// ===== FF MF_FluidScattering（Cheap 版）=====
+// 视线越贴近水面、越偏离天顶 → 浪面越"透光发亮"。
+// 输出喂给 MF_SingleLayerWater 的 WaveScattering：削弱吸收、增强散射。
+float FluxCheapScattering(
+    vec3 vertexNormal, vec3 pixelNormal, vec3 V,
+    float details, float power, float scale
+){
+    float vertexNoV = dot(vertexNormal, V);
+    float pixelNoV  = dot(pixelNormal, V);
+    float s = mix(vertexNoV, abs(pixelNoV), details);
+    s -= V.y;                       // FF: -= CameraDir.g
+    s = clamp(s, 0.0, 1.0);
+    s = pow(s, power);
+    return clamp(s * scale, 0.0, 1.0);
+}

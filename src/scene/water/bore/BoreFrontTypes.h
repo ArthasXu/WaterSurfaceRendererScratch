@@ -12,7 +12,7 @@ struct BoreFrontParams
 
     glm::vec2 direction{1.0f, 0.0f}; // 波前线的推进方向（单位向量）。与波前线垂直，指向波浪传播的方向。
 
-    float speed = 8.0f; // 	波前线沿 direction 方向前进的速度（米/秒）。
+    float speed = 32.0f; // 	波前线沿 direction 方向前进的速度（米/秒）。
     float frontLength = 1000.0f; // 波前线的总长度（米）。即潮头在水平面上的延伸长度（例如 1000m）。
 
     float initialOffset = -100.0f; // 初始时刻波前线相对于 origin 在 direction 方向上的偏移量（米）。用于控制涌潮的初始位置。负值表示开始时潮头还未来到原点。
