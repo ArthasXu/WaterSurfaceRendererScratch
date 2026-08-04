@@ -2260,11 +2260,12 @@ void Stage12FluidFluxApp::UpdateMultiBoreBuffers(uint32_t frameIndex)
         ++activeCount;
     }
 
+    // 单潮头路径已移除，恒定启用多潮头。
     water::MultiBoreUBO ubo{};
     ubo.metadata = glm::ivec4(
         static_cast<int>(activeCount),
         static_cast<int>(water::kMaxBoreEvents),
-        m_MultiBoreGui.enabled ? 1 : 0,
+        1,                            // z = 恒定启用多潮头
         m_BoreFieldMode == BoreFieldMode::ProgressField ? 1 : 0   // ← 新
     );
 
@@ -3109,7 +3110,7 @@ void Stage12FluidFluxApp::DrawGui()
         ImGui::RadioButton("Progress Field (新单贴图)", &fieldMode, 1);
         m_BoreFieldMode = static_cast<BoreFieldMode>(fieldMode);
         
-        ImGui::Checkbox("Multi Bore Enabled - 启用多潮头事件系统", &m_MultiBoreGui.enabled);
+        // ImGui::Checkbox("Multi Bore Enabled - 启用多潮头事件系统", &m_MultiBoreGui.enabled);
         ImGui::Text("Active events - 当前活跃潮头: %u / %u", m_BoreEventManager.GetActiveCount(), water::kMaxBoreEvents);
         ImGui::Text("Next spawn - 下次生成倒计时: %.2f s", m_BoreEventManager.GetSpawnCountdown());
         ImGui::DragInt("Random Seed - 随机种子", &m_MultiBoreGui.seed, 1.0f, 1, 999999);
@@ -3168,7 +3169,7 @@ void Stage12FluidFluxApp::DrawGui()
         ImGui::DragFloat("Duration - 剖面完整动画时长 s", &m_BoreProfileConfig.duration, 0.1f, 0.1f, 120.0f);
         ImGui::SliderFloat("Fixed Phase - 固定采样相位 0~1", &m_BoreProfileGui.fixedPhase, 0.0f, 1.0f);
         ImGui::DragFloat("Water Rise - 潮后整体水位抬升高度 m", &m_BoreProfileGui.waterRiseHeight, 0.1f, 0.0f, 20.0f);
-        ImGui::DragFloat("Rise Width - 水位抬升过渡宽度 m", &m_BoreProfileGui.riseWidth, 0.1f, 0.0f, 80.0f);
+        ImGui::DragFloat("Rise Width - 水位抬升过渡宽度 m", &m_BoreProfileGui.riseWidth, 0.1f, 0.0f, 160.0f);
         ImGui::DragFloat("Global Amplitude - 潮头整体振幅倍数", &m_BoreProfileGui.globalAmplitude, 0.05f, 0.0f, 5.0f);
         ImGui::DragFloat("Forward Scale - 水平前向推挤强度", &m_BoreProfileGui.forwardScale, 0.05f, 0.0f, 10.0f);
         ImGui::DragFloat("Upward Scale - 垂直抬升/浪高强度", &m_BoreProfileGui.upwardScale, 0.1f, 0.0f, 20.0f);
