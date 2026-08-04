@@ -858,7 +858,7 @@ void main(){
                 eventDerivative.g *
                 upwardScale *
                 eventStrength;
-                
+
             float eventDForwardDs =
                 clamp(
                     eventDerivative.r *
@@ -901,26 +901,22 @@ void main(){
             float eventFoamSource = max(eventProfileFoam, eventBreakingFoam);
             multiFoamVelocity += localFrontNormal * eventDerivative.b * eventFoamSource;
             multiFoamSourceWeight += eventFoamSource;
+        }
 
-            // ===== 潮后水位抬升：唯一来源是单调的历史高水位标记 =====
-            // 不再对活跃事件取 max()。事件的生成/回收会让 max() 的胜出者切换，
-            // 那是"每隔一段时间突然涨高一个 waterRise"的根源。
-            // persistent.x 由 CPU 单调维护(只增不减)，领头潮头存活期间即等于它的位置，
-            // 所以台阶仍跟着领头潮头推进，但与事件集合完全解耦。
-            float persistentWidth = riseWidth;
-            float persistentDistance = progressMeters - multiBore.persistent.x;
+        // ===== 潮后水位抬升：唯一来源是单调的历史高水位标记 =====
+        // 不再对活跃事件取 max()。事件的生成/回收会让 max() 的胜出者切换，
+        // 那是"每隔一段时间突然涨高一个 waterRise"的根源。
+        // persistent.x 由 CPU 单调维护(只增不减)，领头潮头存活期间即等于它的位置，
+        // 所以台阶仍跟着领头潮头推进，但与事件集合完全解耦。
+        float persistentWidth = riseWidth;
+        float persistentDistance = progressMeters - multiBore.persistent.x;
 
-            float persistentBack =
-                (1.0 - smoothstep(-persistentWidth, 0.0, persistentDistance)) *
-                (1.0 - crestMask);
+        float persistentBack =
+            (1.0 - smoothstep(-persistentWidth, 0.0, persistentDistance)) *
+            (1.0 - crestMask);
 
-            waterRiseMask = persistentBack * commonBoreMask * boreAmplitude;
-        // }
-        // 统一走多潮头路径（单潮头分支已移除）。
-        // 无活跃事件时下面的 for 循环不执行，各潮头分量保持为 0，等价于"没有潮"，行为正确。
-
-        waterRiseMask = max(waterRiseMask, persistentBack * commonBoreMask * boreAmplitude);
-
+        waterRiseMask = persistentBack * commonBoreMask * boreAmplitude;
+        
         float overlap = max(totalCrestWeight, 1.0);
         boreHorizontal /= overlap;
         boreVertical = boreVertical / overlap + profileConfig.domain.y * waterRiseMask;
@@ -938,7 +934,9 @@ void main(){
         if(multiFoamSourceWeight > 1.0e-4){
             multiFoamVelocity /= multiFoamSourceWeight;
         }
-    }
+    // 统一走多潮头路径（单潮头分支已移除）。
+    // 无活跃事件时下面的 for 循环不执行，各潮头分量保持为 0，等价于"没有潮"，行为正确。
+    // }
 
     // ===== 修复：让 Multi-bore 的 FFT 抑制真正作用到几何 =====
     // 上面第五步(613-626)在 multi-bore 循环之前就合成了 fftDisplacement/fftSlope，
