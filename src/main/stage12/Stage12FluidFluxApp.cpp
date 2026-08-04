@@ -311,7 +311,10 @@ void Stage12FluidFluxApp::CreatePipelines()
     };
 
     config.depthTestEnable = true;
-    config.depthWriteEnable = false;   // 半透明水体不写深度，避免自遮挡
+    config.depthWriteEnable = true;    // 水面是单值高度场，每像素只该有一个可见片元，
+                                       // 必须写深度。关闭时水体片元之间没有任何深度仲裁，
+                                       // 后画的 tile 会无条件盖住先画的，表现为块状水面
+                                       // 糊住潮头浪墙与白沫。
     config.depthCompareOp = VK_COMPARE_OP_LESS;
     config.blendEnable = true;         // 开 alpha 混合：浅水透出水下地形
 
@@ -1885,6 +1888,14 @@ void Stage12FluidFluxApp::Update(core::Timestep timestep)
             m_BoreProfileConfig.profileHalfWidth,
             BuildBoreEventManagerConfig()
         );
+
+        // 历史高水位标记：只增不减，事件被移除后水位不回落
+        for(const water::BoreEvent& boreEvent : m_BoreEventManager.GetActiveEvents()){
+        if(boreEvent.active){
+            m_MaxBorePassedProgress =
+                std::max(m_MaxBorePassedProgress, boreEvent.progressMeters);
+        }
+    }
     }
 
     UpdateWindowTitle();
@@ -2283,6 +2294,8 @@ void Stage12FluidFluxApp::UpdateMultiBoreBuffers(uint32_t frameIndex)
         0.0f
     );
 
+    ubo.persistent = glm::vec4(m_MaxBorePassedProgress, 0.0f, 0.0f, 0.0f);
+
     m_MultiBoreUniformBuffers[frameIndex]->CopyToMapped(
         &ubo,
         sizeof(ubo)
@@ -2342,6 +2355,7 @@ float Stage12FluidFluxApp::ComputeProfilePhaseForProgress(
 void Stage12FluidFluxApp::ResetMultiBoreEvents()
 {
     m_BoreEventManager.Reset(static_cast<uint32_t>(m_MultiBoreGui.seed));
+    m_MaxBorePassedProgress = -1.0e9f;
 }
 
 void Stage12FluidFluxApp::UpdateFoamParamsUniformBuffer(uint32_t frameIndex)
@@ -2386,6 +2400,17 @@ void Stage12FluidFluxApp::UpdateFoamParamsUniformBuffer(uint32_t frameIndex)
     );
 
     ubo.domain = m_FoamGui.domain;
+
+    ubo.foamShallow = glm::vec4(
+        m_FoamGui.foamShallowOffset,
+        m_FoamGui.foamShallowScale,
+        m_FoamGui.foamHardnessIntensity,
+        m_FoamGui.foamHardnessWidth);
+    ubo.foamSoft = glm::vec4(
+        m_FoamGui.foamSoftVelocity,
+        m_FoamGui.foamSoftBase,
+        m_FoamGui.foamSoftMax,
+        m_FoamGui.foamAlpha);
 
     m_FoamParamsUniformBuffers[frameIndex]->CopyToMapped(
         &ubo,
@@ -2734,6 +2759,25 @@ void Stage12FluidFluxApp::UpdateQuadtree()
 
     m_VisibleWaterTiles =
         m_WaterQuadtree->GetVisibleTiles();
+
+    // 水体写深度后，绘制顺序决定每像素被混合几次。
+    // 近→远排序：近处片元先写入深度，被浪墙遮挡的远处水面直接深度测试失败，
+    // 保证每像素只混合一次，避免重叠处颜色被叠暗。
+    const glm::vec2 cameraXZ(
+        m_Camera.GetPosition().x,
+        m_Camera.GetPosition().z);
+
+    std::sort(
+        m_VisibleWaterTiles.begin(),
+        m_VisibleWaterTiles.end(),
+        [cameraXZ](const water::WaterTile& a, const water::WaterTile& b){
+            glm::vec2 da =
+                a.worldMin + glm::vec2(a.worldSize * 0.5f) - cameraXZ;
+            glm::vec2 db =
+                b.worldMin + glm::vec2(b.worldSize * 0.5f) - cameraXZ;
+            return glm::dot(da, da) < glm::dot(db, db);
+        }
+    );
 }
 
 void Stage12FluidFluxApp::UpdateTileInstanceBuffer(
@@ -3025,7 +3069,7 @@ void Stage12FluidFluxApp::DrawGui()
     ImGui::Text("Frame %.3f ms (%.1f FPS)", 1000.0f / io.Framerate, io.Framerate);
     ImGui::Text("Tiles: %u", m_CurrentVisibleWaterTileCount);
 
-    if(ImGui::CollapsingHeader("Debug - 调试开关：控制暂停、线框、功能开关和 shader 可视化模式", ImGuiTreeNodeFlags_DefaultOpen)){
+    if(ImGui::CollapsingHeader("Debug - 调试开关：控制暂停、线框、功能开关和 shader 可视化模式")){
         ImGui::Checkbox("Wireframe - 线框显示水面网格密度", &m_UseWireframe);
         ImGui::Checkbox("Pause All - 暂停整体时间推进", &m_Paused);
         ImGui::SameLine();
@@ -3058,7 +3102,7 @@ void Stage12FluidFluxApp::DrawGui()
         ImGui::Text("Resolution/random seed require FFT resource rebuild.");
     }
 
-    if(ImGui::CollapsingHeader("Bore Front - 一线潮波前：控制潮头沿河推进的速度、位置和开关", ImGuiTreeNodeFlags_DefaultOpen)){
+    if(ImGui::CollapsingHeader("Bore Front - 一线潮波前：控制潮头沿河推进的速度、位置和开关")){
         int fieldMode = static_cast<int>(m_BoreFieldMode);
         ImGui::Text("Bore Field Mode - 潮头场计算方式");
         ImGui::RadioButton("SDF + FlowMap (旧双贴图)", &fieldMode, 0);
@@ -3086,14 +3130,14 @@ void Stage12FluidFluxApp::DrawGui()
 
         ImGui::Separator();
         ImGui::Checkbox("Bore Paused - 暂停潮头推进时间", &m_BorePaused);
-        ImGui::Checkbox("（已弃用）Use Front LUT - 使用旧 LUT 横向波前扰动", &m_BoreUseLUT);
+        // ImGui::Checkbox("（已弃用）Use Front LUT - 使用旧 LUT 横向波前扰动", &m_BoreUseLUT);
         ImGui::Checkbox("Debug Ridge - 启用调试浪脊增强", &m_BoreDebugRidgeEnabled);
-        ImGui::DragFloat2("（已弃用）Origin - 旧直线潮头世界起点 XZ", glm::value_ptr(m_BoreFrontParams.origin), 1.0f);
-        ImGui::DragFloat2("（已弃用）Direction - 旧直线潮头推进方向 XZ", glm::value_ptr(m_BoreFrontParams.direction), 0.01f, -1.0f, 1.0f);
+        // ImGui::DragFloat2("（已弃用）Origin - 旧直线潮头世界起点 XZ", glm::value_ptr(m_BoreFrontParams.origin), 1.0f);
+        // ImGui::DragFloat2("（已弃用）Direction - 旧直线潮头推进方向 XZ", glm::value_ptr(m_BoreFrontParams.direction), 0.01f, -1.0f, 1.0f);
         ImGui::DragFloat("Speed - 潮头沿河推进速度 m/s", &m_BoreFrontParams.speed, 1.0f, 0.0f, 300.0f);
         ImGui::DragFloat("Initial Offset - 初始沿河进度偏移 m", &m_BoreFrontParams.initialOffset, 1.0f, -500.0f, 5000.0f);
-        ImGui::DragFloat("（已弃用）Front Length - 旧 LUT 波前横向长度 m", &m_BoreFrontParams.frontLength, 10.0f, 1.0f, 5000.0f);
-        ImGui::SliderFloat("（已弃用）Edge Fade - 旧 LUT 波前两端淡出比例", &m_BoreFrontParams.edgeFadeFraction, 0.0f, 0.5f);
+        // ImGui::DragFloat("（已弃用）Front Length - 旧 LUT 波前横向长度 m", &m_BoreFrontParams.frontLength, 10.0f, 1.0f, 5000.0f);
+        // ImGui::SliderFloat("（已弃用）Edge Fade - 旧 LUT 波前两端淡出比例", &m_BoreFrontParams.edgeFadeFraction, 0.0f, 0.5f);
         ImGui::DragFloat("Bore Time - 当前潮头累计时间 s", &m_BoreTime, 0.1f, 0.0f, 200.0f);
 
         if(ImGui::Button("Reset Bore - 重置潮头和泡沫状态")){
@@ -3117,14 +3161,14 @@ void Stage12FluidFluxApp::DrawGui()
         ImGui::SliderFloat("Wobble Freq - 顶抖频率", &m_CrestNoiseGui.wobbleFrequency, 0.5f, 12.0f);
     }
 
-    if(ImGui::CollapsingHeader("Bore Profile - 潮头剖面：控制 Wave Profile 的宽度、高度、前向推挤和水位抬升", ImGuiTreeNodeFlags_DefaultOpen)){
+    if(ImGui::CollapsingHeader("Bore Profile - 潮头剖面：控制 Wave Profile 的宽度、高度、前向推挤和水位抬升")){
         ImGui::Checkbox("Profile Paused - 固定剖面动画相位", &m_ProfilePaused);
         ImGui::Checkbox("Auto Repeat - 自动重复触发潮头事件", &m_AutoRepeatEvent);
         ImGui::DragFloat("Profile Half Width - 剖面半宽/潮头影响距离 m", &m_BoreProfileConfig.profileHalfWidth, 0.5f, 1.0f, 200.0f);
         ImGui::DragFloat("Duration - 剖面完整动画时长 s", &m_BoreProfileConfig.duration, 0.1f, 0.1f, 120.0f);
         ImGui::SliderFloat("Fixed Phase - 固定采样相位 0~1", &m_BoreProfileGui.fixedPhase, 0.0f, 1.0f);
         ImGui::DragFloat("Water Rise - 潮后整体水位抬升高度 m", &m_BoreProfileGui.waterRiseHeight, 0.1f, 0.0f, 20.0f);
-        ImGui::DragFloat("Rise Width - 水位抬升过渡宽度 m", &m_BoreProfileGui.riseWidth, 0.1f, 0.1f, 80.0f);
+        ImGui::DragFloat("Rise Width - 水位抬升过渡宽度 m", &m_BoreProfileGui.riseWidth, 0.1f, 0.0f, 80.0f);
         ImGui::DragFloat("Global Amplitude - 潮头整体振幅倍数", &m_BoreProfileGui.globalAmplitude, 0.05f, 0.0f, 5.0f);
         ImGui::DragFloat("Forward Scale - 水平前向推挤强度", &m_BoreProfileGui.forwardScale, 0.05f, 0.0f, 10.0f);
         ImGui::DragFloat("Upward Scale - 垂直抬升/浪高强度", &m_BoreProfileGui.upwardScale, 0.1f, 0.0f, 20.0f);
@@ -3147,6 +3191,16 @@ void Stage12FluidFluxApp::DrawGui()
         ImGui::TextWrapped("FFT 全局海洋泡沫距离淡出(压掉潮外远处的网格泡沫)。想彻底关掉海洋泡沫可把 Source Strength 的 Slope/Jacobian 两项调 0。");
         ImGui::DragFloat("Ocean Foam Fade Near - 开始淡出距离 m", &m_FoamGui.oceanFoamFadeNear, 1.0f, 0.0f, 2000.0f);
         ImGui::DragFloat("Ocean Foam Fade Far - 完全消失距离 m", &m_FoamGui.oceanFoamFadeFar, 1.0f, 0.0f, 4000.0f);
+    
+        ImGui::SeparatorText("FF Foam - 双层泡沫（MF_FluidFoam）");
+        ImGui::SliderFloat("Shallow Offset - 浅水偏置", &m_FoamGui.foamShallowOffset, -0.5f, 1.0f);
+        ImGui::SliderFloat("Shallow Scale - 浅水淡出(1/米)", &m_FoamGui.foamShallowScale, 0.05f, 10.0f);
+        ImGui::SliderFloat("Hardness Intensity - 硬核强度", &m_FoamGui.foamHardnessIntensity, -1.0f, 1.0f);
+        ImGui::SliderFloat("Hardness Width - 硬核宽度", &m_FoamGui.foamHardnessWidth, 0.02f, 0.95f);
+        ImGui::SliderFloat("Soft Velocity - 软晕随流速", &m_FoamGui.foamSoftVelocity, 0.0f, 3.0f);
+        ImGui::SliderFloat("Soft Base - 软晕基底", &m_FoamGui.foamSoftBase, 0.0f, 2.0f);
+        ImGui::SliderFloat("Soft Max - 软晕上限", &m_FoamGui.foamSoftMax, 0.0f, 3.0f);
+        ImGui::SliderFloat("Foam Alpha - 泡沫总不透明度", &m_FoamGui.foamAlpha, 0.0f, 1.0f);
     }
 
     if(ImGui::CollapsingHeader("Water Material - 水体材质：控制颜色、反射、高光、泥沙和远景雾")){
@@ -3191,7 +3245,7 @@ void Stage12FluidFluxApp::DrawGui()
 
     if(ImGui::CollapsingHeader("Quadtree LOD - 四叉树细分：控制水面覆盖范围、最细层级和屏幕误差阈值")){
         ImGui::DragFloat2("Root Center - 四叉树根节点中心 XZ", glm::value_ptr(m_QuadtreeGui.rootCenter), 1.0f);
-        ImGui::DragFloat("Root Size - 四叉树根节点边长 m", &m_QuadtreeGui.rootSize, 16.0f, 128.0f, 8192.0f);
+        ImGui::DragFloat("Root Size - 四叉树根节点边长 m", &m_QuadtreeGui.rootSize, 16.0f, 128.0f, 32768.0f);
         ImGui::SliderInt("Max Level - 最大细分层级", &m_QuadtreeGui.maxLevel, 1, 9);
         ImGui::SliderInt("Patch Cells - WaterPatchMesh的网格数", &m_QuadtreeGui.patchCellCount, 8, 128);
         ImGui::DragFloat("FOV Y - 垂直视场角", &m_QuadtreeGui.fovYDegrees, 1.0f, 10.0f, 120.0f);

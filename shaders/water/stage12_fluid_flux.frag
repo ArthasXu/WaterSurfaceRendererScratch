@@ -60,6 +60,8 @@ layout(set = 1, binding = 0) uniform FoamParamsUBO
     vec4 state;
     vec4 runtime;
     vec4 domain;
+    vec4 foamShallow;
+    vec4 foamSoft;
 } foam;
 
 layout(set = 1, binding = 1) uniform sampler2D foamDetailTexture;
@@ -247,46 +249,43 @@ void main()
         detail1.breakup * w1 +
         detail2.breakup * w2;
 
-    float patternedSource =
-        foamSource *
-        mix(
-            0.55,
-            1.45,
-            detailCoverage
-        );
-
-    patternedSource *=
-        mix(
-            0.7,
-            1.0,
-            breakup
-        );
-
-    float foamCoverage =
-        smoothstep(
-            foam.appearance.x,
-            foam.appearance.x +
-                foam.appearance.y,
-            patternedSource
-        );
-
+    // ===== FF MF_FluidFoam：双层不透明度（硬核 + 软晕）=====
+    // 泡沫总量 = 瞬时源（潮头/海浪）∪ 状态场（潮后残留，由 compute 平流）
     vec2 stateUV =
-        (
-            fragWorldPosition.xz -
-            foam.domain.xy
-        ) /
-        foam.domain.zw;
+        (fragWorldPosition.xz - foam.domain.xy) / foam.domain.zw;
 
     float stateFoam =
         foam.runtime.x < 0.5
         ? texture(foamState0, stateUV).r
         : texture(foamState1, stateUV).r;
 
-    float finalFoam =
-        SoftUnion(
-            foamCoverage,
-            stateFoam * foam.appearance.w
-        );
+    float foamAmount =
+        clamp(SoftUnion(foamSource, stateFoam * foam.appearance.w), 0.0, 1.0);
+
+    // FF MF_FluidFoamShallow：水膜极薄处（刚上岸的湿沙）淡出泡沫
+    float foamWaterDepth = max(fragWorldPosition.y - fragShore.a, 0.0);
+    float shallowFactor = FluxFoamShallow(
+        detailCoverage, foamWaterDepth,
+        foam.foamShallow.x, foam.foamShallow.y);
+    float shallowResult = foamAmount * shallowFactor;
+
+    // 硬核：泡沫贴图高度超过动态阈值的部分 → 不透明白沫 + 法线扰动
+    float opacityTop = FluxFoamHardness(
+        shallowResult, foam.foamShallow.z, foam.foamShallow.w);
+    float hardFoam = clamp(detailCoverage - opacityTop, 0.0, 1.0);
+
+    // 软晕：随流速变宽的弥散薄沫（FF Opacity_Bottom × Advect_Soft）
+    float softWidth = min(
+        foam.foamSoft.z,
+        length(foamVelocity) * foam.foamSoft.x + foam.foamSoft.y);
+    float softFoam = softWidth * (foamAmount + 1.0) * shallowResult * breakup;
+
+    // FF: pow(·, 0.45) 抬升低值 → 软边大幅变宽，这就是"上岸渐渐散开"
+    float finalFoam = clamp(foam.foamSoft.w * max(hardFoam, softFoam), 0.0, 1.0);
+    finalFoam = pow(finalFoam, 0.45);
+
+    // FF OpacityMask：只有硬核参与法线/粗糙度，软晕不弄毛水面
+    float foamNormalMask = clamp(hardFoam * 3.0, 0.0, 1.0);
 
     // 模式 0：完整水体着色（光照 + 反射 + 高光 + 泡沫 + 雾）
     if(mode == 0){
@@ -314,7 +313,7 @@ void main()
 
         // 根据泡沫覆盖率 finalFoam 在平滑水面法线和粗糙泡沫法线之间插值
         // 泡沫越浓，法线越粗糙（越偏离平滑方向）
-        vec3 normal = normalize(mix(baseNormal, foamPerturbedNormal, finalFoam));
+        vec3 normal = normalize(mix(baseNormal, foamPerturbedNormal, foamNormalMask));
 
         // ===== 2. 光照向量初始化 =====
         // 视线方向 V：从片段指向摄像机（世界空间）
@@ -424,7 +423,7 @@ void main()
             NoH, NdotV,
             material.specularHorizon.z,
             material.specularHorizon.w);
-        roughness = clamp(mix(roughness, 0.5, finalFoam), 0.02, 1.0);  // 泡沫区更粗糙
+        roughness = clamp(mix(roughness, 0.3, foamNormalMask), 0.02, 1.0);
 
         float Dv  = D_GGX(NoH, roughness);
         float Vis = V_SmithGGX(NdotV, NoLs, roughness);
@@ -439,7 +438,13 @@ void main()
         litColor += specular;
 
         // 泡沫覆盖
-        litColor = mix(litColor, vec3(0.95, 0.97, 0.96), finalFoam);
+        // FF: lerp(FoamWetColor, _FoamColorBase, saturate(Foam * _FoamSoftIntensity))
+        vec3 foamBase = vec3(0.40, 0.42, 0.43);           // FF _FoamColorBase
+        vec3 foamWet  = material.sedimentColor.rgb;        // 复用为 FoamWetColor：湿沙泡沫色
+        vec3 foamColor = mix(foamWet, foamBase, clamp(foamAmount * 1.5, 0.0, 1.0));
+        // 硬核处叠加贴图细节（FF _FoamColorDetail）
+        foamColor = mix(foamColor, foamBase * (0.5 + 0.5 * detailCoverage), foamNormalMask);
+        litColor = mix(litColor, foamColor, finalFoam);
 
         // ===== 7. 上岸渐隐已不再需要（真实地形通过 alpha 透出）=====
 
@@ -806,7 +811,7 @@ void main()
     // 模式 36：泡沫覆盖率可视化（foamCoverage）
     // 灰阶 = 经过细节纹理调制和阈值处理后的视觉泡沫强度
     if(mode == 36){
-        outColor = vec4(vec3(foamCoverage), 1.0);
+        // outColor = vec4(vec3(foamCoverage), 1.0);
         return;
     }
 

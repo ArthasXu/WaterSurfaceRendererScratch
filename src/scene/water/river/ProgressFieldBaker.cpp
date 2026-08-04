@@ -1,6 +1,7 @@
 #include "scene/water/river/ProgressFieldBaker.h"
 
 #include <algorithm>
+#include <vector>
 
 namespace water
 {
@@ -130,6 +131,34 @@ ProgressFieldData BakeProgressField(
             );
 
         }
+    }
+
+    // 弯道内侧存在最近点投影的中轴接缝，progress 场在此阶跃，
+    // 会让波前穿过接缝时瞬间跳位。做几次 3x3 均值模糊把阶跃摊成缓坡。
+    const int blurPasses = 6;
+    const uint32_t res = config.resolution;
+    std::vector<glm::vec4> temp(data.field.size());
+    for(int pass = 0; pass < blurPasses; ++pass){
+        for(uint32_t y = 0; y < res; ++y){
+            for(uint32_t x = 0; x < res; ++x){
+                glm::vec4 sum(0.0f);
+                float weight = 0.0f;
+                for(int dy = -1; dy <= 1; ++dy){
+                    for(int dx = -1; dx <= 1; ++dx){
+                        int sx = static_cast<int>(x) + dx;
+                        int sy = static_cast<int>(y) + dy;
+                        if(sx < 0 || sy < 0 ||
+                           sx >= static_cast<int>(res) || sy >= static_cast<int>(res)){
+                            continue;
+                        }
+                        sum += data.field[static_cast<uint32_t>(sy) * res + static_cast<uint32_t>(sx)];
+                        weight += 1.0f;
+                    }
+                }
+                temp[y * res + x] = sum / weight;
+            }
+        }
+        data.field.swap(temp);
     }
 
     return data;
