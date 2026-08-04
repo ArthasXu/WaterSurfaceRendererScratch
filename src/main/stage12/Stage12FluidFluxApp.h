@@ -101,12 +101,12 @@ private:
     struct BoreProfileGuiParams
     {
         float waterRiseHeight = 8.0f;
-        float riseWidth = 16.0f;
+        float riseWidth = 0.0f;
         float fixedPhase = 0.60f;
         float profileWidthScale = 0.0f;
         float globalAmplitude = 0.6f;
-        float forwardScale = 6.0f;
-        float upwardScale = 1.3f;
+        float forwardScale = 2.0f;
+        float upwardScale = 1.1f;
         float activeRegionMask = 1.0f;
         glm::vec4 suppression{0.20f, 0.35f, 0.80f, 0.0f};
     };
@@ -126,6 +126,15 @@ private:
         bool solverEnabled = true;
         float oceanFoamFadeNear = 150.0f;  // FFT 全局泡沫开始淡出的相机距离
         float oceanFoamFadeFar = 600.0f;   // FFT 全局泡沫完全消失的相机距离
+
+        float foamShallowOffset = 0.3f;     // FF _FoamShallowOffset
+        float foamShallowScale = 1.0f;      // 浅水淡出尺度(1/米)，越大淡出带越窄
+        float foamHardnessIntensity = 0.5f; // FF _FoamHardnessIntensity
+        float foamHardnessWidth = 0.2f;     // FF _FoamHardnessWidth
+        float foamSoftVelocity = 0.5f;      // 软晕随流速加宽
+        float foamSoftBase = 0.5f;          // 软晕基底宽度
+        float foamSoftMax = 1.0f;           // 软晕上限
+        float foamAlpha = 0.6f;             // FF _FoamColorBase.a：泡沫总不透明度
     };
 
     struct WaterMaterialGuiParams
@@ -347,6 +356,8 @@ private:
     bool m_BoreEnabled = true;
     bool m_BoreUseLUT = false;
     bool m_BoreDebugRidgeEnabled = false;
+
+    float m_MaxBorePassedProgress = -1.0e9f;   // 历史最远潮头推进距离(米)，单调不减
 
     water::BoreFrontParams m_BoreFrontParams{};
     water::FrontLUTData m_FrontLUT{};

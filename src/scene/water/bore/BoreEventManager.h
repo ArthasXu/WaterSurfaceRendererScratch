@@ -47,6 +47,8 @@ struct alignas(16) MultiBoreUBO
     glm::vec4 crestNoiseA{3.0f, 0.03f, 0.02f, 0.06f}; // x=横向频率 y=沿河频率X z=沿河频率Y w=动画速度
     glm::vec4 crestNoiseB{5.0f, 0.35f, 0.5f, 1.5f};   // x=细节频率 y=细节权重 z=振幅下限 w=振幅上限
     glm::vec4 crestNoiseC{0.35f, 3.0f, 0.0f, 0.0f};   // x=顶抖强度 y=顶抖频率
+    // x = 历史最远潮头推进距离(米)，单调不减；用于潮后水位永久保持
+    glm::vec4 persistent{-1.0e9f, 0.0f, 0.0f, 0.0f};
 };
 
 struct BoreEventManagerConfig

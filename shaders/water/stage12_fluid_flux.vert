@@ -96,6 +96,7 @@ layout(set = 0, binding = 18) uniform MultiBoreUBO
     vec4 crestNoiseA;   // x=横向频率 y=沿河频率X z=沿河频率Y w=动画速度
     vec4 crestNoiseB;   // x=细节频率 y=细节权重 z=振幅下限 w=振幅上限
     vec4 crestNoiseC;   // x=顶抖强度 y=顶抖频率
+    vec4 persistent;    // x = 历史最远潮头推进距离(米)
 } multiBore;
 
 layout(std430, set = 0, binding = 19) readonly buffer BoreEventBuffer
@@ -689,12 +690,8 @@ void main(){
 
     // 潮后掩码：波前后方（signedDistance < 0）为 1，前方为 0，过渡区平滑
     float backMask =
-        1.0 -
-        smoothstep(
-            -riseWidth,             // 开始过渡的位置（波前后方）
-            riseWidth,              // 结束过渡的位置（波前前方）
-            signedDistance          // 当前顶点到波前线的带符号距离
-        );
+        (1.0 - smoothstep(-riseWidth, 0.0, signedDistance)) *
+        (1.0 - boreProfile.a);
 
     // 潮后整体水位抬升：涌潮经过后，水面整体上升一定高度，模拟涨潮
     float waterRise =
@@ -717,11 +714,8 @@ void main(){
 
     // 潮后水位抬升掩码的导数（smoothstep 的解析导数）
     float dBackMaskDs =
-        -SmoothStepDerivative(      // 负号：因为 backMask = 1 - smoothstep
-            -riseWidth,             // 过渡区起点
-            riseWidth,              // 过渡区终点
-            signedDistance          // 当前距离
-        );
+        -SmoothStepDerivative(-riseWidth, 0.0, signedDistance) *
+        (1.0 - boreProfile.a);
 
     // 水位抬升的坡度
     float dWaterRiseDs =
@@ -859,7 +853,11 @@ void main(){
                 wobbleLodFade;
 
             float eventBackMask =
-                1.0 - smoothstep(-riseWidth, riseWidth, eventSignedDistance);
+                // 抬升在浪脊峰值处为 0（不淹浪脊），紧接其后平滑升到满值。
+                // 乘 (1 - eventProfile.a) 让抬升自动避开浪脊本体，过渡尺度随剖面自适应；
+                // 用固定 halfWidth 硬偏移会在浪后留出一大段未抬升的平地再突然出现台阶。
+                (1.0 - smoothstep(-riseWidth, 0.0, eventSignedDistance)) *
+                (1.0 - eventProfile.a);
 
             waterRiseMask = max(waterRiseMask, eventBackMask * eventRiseStrength);
 
@@ -869,7 +867,8 @@ void main(){
                 eventStrength;
 
             float eventDBackMaskDs =
-                -SmoothStepDerivative(-riseWidth, riseWidth, eventSignedDistance);
+                -SmoothStepDerivative(-riseWidth, 0.0, eventSignedDistance) *
+                (1.0 - eventProfile.a);
 
             float eventDWaterRiseDs =
                 profileConfig.domain.y *
@@ -919,6 +918,14 @@ void main(){
             multiFoamVelocity += localFrontNormal * eventDerivative.b * eventFoamSource;
             multiFoamSourceWeight += eventFoamSource;
         }
+
+        // 永久台阶在潮头离开后会暴露出来，必须用远大于 riseWidth 的过渡宽度，
+        // 否则是一道陡坎（顶点间距大于台阶宽度时表现为断续竖线）
+        float persistentWidth = max(riseWidth * 60.0, 1.0);
+        float persistentBack =
+            1.0 - smoothstep(-persistentWidth, 0.0,
+                             progressMeters - multiBore.persistent.x);
+        waterRiseMask = max(waterRiseMask, persistentBack * commonBoreMask * boreAmplitude);
 
         float overlap = max(totalCrestWeight, 1.0);
         boreHorizontal /= overlap;

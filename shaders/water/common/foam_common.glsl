@@ -54,3 +54,17 @@ FoamDetail SampleFoamPhase(
 
     return result;
 }
+
+// FF MF_FluidFoamShallow：水膜极薄处淡出泡沫，避免湿沙上出现硬泡沫边
+float FluxFoamShallow(float height, float depth, float offset, float scale)
+{
+    return clamp((height + offset) * (depth * scale), 0.0, 1.0);
+}
+
+// FF MF_FluidFoam 的 Opacity_Top：泡沫越多阈值越低 → 硬核范围越大
+// intensity=-0.05, width=0.2 时等价于 saturate(0.95 - 1.1875 * shallowResult)
+float FluxFoamHardness(float shallowResult, float intensity, float width)
+{
+    float k = (intensity + 1.0) / (width - 1.0);
+    return clamp(k * ((width - 1.0) + shallowResult), 0.0, 1.0);
+}
