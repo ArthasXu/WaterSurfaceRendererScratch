@@ -33,5 +33,10 @@ struct alignas(16) WaterMaterialUBO
     glm::vec4 scatteringShore{0.020f, 0.020f, 0.020f, 4.0f};  // xyz=岸线档散射(1/m), w=FoamScatteringScale
     glm::vec4 shoreBlend{17.0f, 200.0f, 0.0f, 0.0f};          // x=深度归一(米) y=离岸归一(米) z=PhaseG w=水面基准高度
     glm::vec4 colorBehind{0.63f, 0.54f, 0.45f, 1.0f};         // FF ColorBehind：水下背景色调
+
+    // ===== FF MF_FluidWaterLayer：高光 / 粗糙度 =====
+    glm::vec4 waterSpecular{0.045f, 0.37f, 9.0f, 0.2f};   // bias, scale, power, horizonFloor
+    glm::vec4 specularHorizon{9.0f, 6.0f, 0.3f, 0.04f};   // 地平线距离(米), 相机高度系数, 掠射粗糙度, 最小粗糙度
+    glm::vec4 cheapScatter{0.5f, 2.0f, 3.0f, 0.0f};       // FF Cheap Scattering: details, power, scale
 };
 }

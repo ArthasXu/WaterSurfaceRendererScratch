@@ -101,12 +101,12 @@ private:
     struct BoreProfileGuiParams
     {
         float waterRiseHeight = 8.0f;
-        float riseWidth = 8.0f;
+        float riseWidth = 16.0f;
         float fixedPhase = 0.60f;
         float profileWidthScale = 0.0f;
         float globalAmplitude = 0.6f;
-        float forwardScale = 5.0f;
-        float upwardScale = 1.6f;
+        float forwardScale = 6.0f;
+        float upwardScale = 1.3f;
         float activeRegionMask = 1.0f;
         glm::vec4 suppression{0.20f, 0.35f, 0.80f, 0.0f};
     };
@@ -114,10 +114,10 @@ private:
     struct FoamGuiParams
     {
         float animationCycle = 4.0f;
-        float detailWorldScale = 0.08f;
+        float detailWorldScale = 0.2f;
         glm::vec4 sourceStrength{1.0f, 0.35f, 0.45f, 0.75f};
         glm::vec4 thresholds{0.28f, 0.70f, 0.04f, 0.30f};
-        glm::vec4 appearance{0.32f, 0.15f, 0.35f, 0.25f};
+        glm::vec4 appearance{0.60f, 0.15f, 0.35f, 0.25f};
         float stateGain = 1.8f;
         float stateDecay = 0.45f;
         float stateDiffusion = 0.02f;
@@ -150,7 +150,7 @@ private:
         float bedAlbedo = 0.85f;                             // 河床反照率
         float maxVisibleDepth = 8.0f;                        // 最大可见深度（米）
 
-        float shallowBlend = 0.004f;                         // FF _WaterShallowBlend：每米水深增加多少不透明度
+        float shallowBlend = 0.08f;                           // 吸收总倍率（越大越快变不透明）
         float depthUpwardBlend = 1.0f;                       // FF _WaterDepthUpwardBlend：俯视时等效光程加成
     
         // ===== FF 岸线两档（MF_WaterTransition）=====
@@ -162,7 +162,21 @@ private:
         float shoreDepthNorm = 17.0f;                        // 深度归一化尺度(米)
         float shoreDistNorm = 200.0f;                        // 离岸距离归一化尺度(米)
         glm::vec3 colorBehind{0.63f, 0.54f, 0.45f};          // 水下背景色调
-        float waterLevel = 0.0f;                             // 水面基准高度(米)
+        float waterLevel = 2.0f;                             // 水面基准高度(米)
+
+        // ===== FF 高光/粗糙度（MF_FluidWaterLayer）=====
+        float specBias = 0.045f;          // Fresnel 偏置：正上方俯视时的基础反射
+        float specScale = 1.0f;           // Fresnel 幅度
+        float specPower = 4.0f;           // Fresnel 指数：越大反射越集中在掠射角
+        float specHorizonFloor = 0.2f;    // 超出地平线距离后保留的高光底噪
+        float specHorizonDistance = 9.0f; // 地平线基准距离(米)
+        float specHorizonOffset = 6.0f;   // 相机高度对可见高光距离的放大系数
+        float roughFromFresnel = 0.3f;    // 掠射角额外粗糙度
+        float roughMin = 0.04f;           // 最小粗糙度（镜面锐度）
+        float scatterDetails = 0.5f;      // Cheap Scattering 细节权重
+        float scatterPower = 2.0f;        // Cheap Scattering 指数
+        float scatterScale = 3.0f;        // Cheap Scattering 强度
+        float normalFixStrength = 0.5f;   // 不可能法线修正强度（0=关闭，1=FF 原始强度）
     };
 
     struct QuadtreeGuiParams
@@ -183,10 +197,10 @@ private:
         bool enabled = true;
         int seed = 1337;
         float minSpawnInterval = 15.0f;
-        float maxSpawnInterval = 30.0f;
+        float maxSpawnInterval = 25.0f;
         float retryMinInterval = 0.5f;
         float retryMaxInterval = 1.0f;
-        float baseSpeed = 8.0f;
+        float baseSpeed = 32.0f;
         float removeMargin = 120.0f;
         float minimumSeparationPadding = 10.0f;
     };
@@ -199,14 +213,14 @@ private:
 
     struct CrestNoiseGuiParams
     {
-        float lateralFrequency = 3.0f;   // 横向(河宽)团块数
-        float alongFrequencyX = 0.03f;   // 沿河频率(x轴)
-        float alongFrequencyY = 0.02f;   // 沿河频率(y轴)
-        float animationSpeed = 0.06f;    // 随潮头推进的流动速度
-        float detailFrequency = 5.0f;    // 细碎波动频率
-        float detailWeight = 0.35f;      // 大/细占比 [0,1]
-        float amplitudeMin = 0.5f;       // 振幅下限
-        float amplitudeMax = 1.5f;       // 振幅上限
+        float lateralFrequency = 12.0f;  // 横向(河宽)团块数
+        float alongFrequencyX = 0.0f;    // 沿河频率(x轴)
+        float alongFrequencyY = 0.07f;   // 沿河频率(y轴)
+        float animationSpeed = 0.0f;     // 随潮头推进的流动速度
+        float detailFrequency = 16.0f;   // 细碎波动频率
+        float detailWeight = 0.0f;       // 大/细占比 [0,1]
+        float amplitudeMin = 1.0f;       // 振幅下限
+        float amplitudeMax = 2.5f;       // 振幅上限
         float wobbleStrength = 0.12f;    // 浪脊顶抖强度
         float wobbleFrequency = 1.0f;    // 浪脊顶抖频率
     };
@@ -308,7 +322,7 @@ private:
     QuadtreeGuiParams m_QuadtreeGui{};
     MultiBoreGuiParams m_MultiBoreGui{};
 
-    BoreFieldMode m_BoreFieldMode = BoreFieldMode::SDFFlowMap;
+    BoreFieldMode m_BoreFieldMode = BoreFieldMode::ProgressField;
     CrestNoiseGuiParams m_CrestNoiseGui{};
 
     // 岸线场烘焙参数（GUI 可调，改后点 Rebake 重烘焙）

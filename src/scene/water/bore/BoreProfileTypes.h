@@ -22,13 +22,13 @@ struct BoreWaveProfileConfig
     uint32_t phaseResolution = 128;      // 相位轴(V轴)的采样点数，决定动画的帧数/平滑度
 
     // ===== 空间范围 =====
-    float profileHalfWidth = 30.0f;      // 剖面覆盖的半宽度(米)，从波前峰向前后各延伸30米
-                                          // 决定了波前影响的总宽度范围
+    float profileHalfWidth = 200.0f;     // 剖面覆盖的半宽度(米)，从波前峰向前后各延伸30米
+                                         // 决定了波前影响的总宽度范围
 
     // ===== 潮头主体形状 =====
     float crestHeight = 4.0f;            // 波峰最大高度(米)，潮头最高点相对于水平面的垂直位移
     float forwardDisplacement = 2.5f;    // 最大前向水平位移(米)，潮头向前推进时的最大推拉量
-    float crestWidth = 6.0f;            // 波峰宽度(米)，控制潮头尖峰的横向范围
+    float crestWidth = 6.0f;             // 波峰宽度(米)，控制潮头尖峰的横向范围
     float rearTroughDepth = 0.6f;        // 后坡波谷深度(米)，潮头后方的水面下凹程度
 
     // ===== 尾迹波纹 =====

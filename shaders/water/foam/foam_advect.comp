@@ -72,7 +72,11 @@ void main() {
     float right = textureLod(previousFoam, rightUV, 0.0).r;
     float bottom = textureLod(previousFoam, bottomUV, 0.0).r;
     float top = textureLod(previousFoam, topUV, 0.0).r;
-    float laplacian = left + right + bottom + top - 4.0 * previous;
+    
+    // 拉普拉斯的中心必须与四邻居同处于当前 uv；previous 是回溯采样值，
+    // 用它当中心会让算子失效并沿流向产生细丝条纹伪影。
+    float center = textureLod(previousFoam, uv, 0.0).r;
+    float laplacian = left + right + bottom + top - 4.0 * center;
 
     // 泡沫更新：平流 + 源项注入 + 衰减 + 扩散
     float next = previous
