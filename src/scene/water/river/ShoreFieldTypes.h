@@ -15,8 +15,8 @@ struct ShoreFieldParams
     float beachSlope = 0.15f;     // 岸上地形坡度(占位地形用)
     float maxBeachHeight = 12.0f; // 岸上地形最大抬升(米)
     float terrainHeightScale = 40.0f;  // heightmap [0,1] → 米
-    float riverBedDepth = 28.0f;       // 河道内河床相对水面下沉(米)
-    float riverBedFade = 150.0f;       // 河床由岸边(0)下沉到最深所需的横向距离(米)
+    float riverBedDepth = 50.0f;       // 河道内河床相对水面下沉(米)
+    float riverBedFade = 1500.0f;      // 河床由岸边(0)下沉到最深所需的横向距离(米)
 };
 
 // 岸线场：R=到岸有符号距离(米) G=wetnessBase B=sand A=terrainHeight

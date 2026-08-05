@@ -44,11 +44,11 @@ struct alignas(16) MultiBoreUBO
     glm::ivec4 metadata;
     glm::vec4 river;
     // 浪脊噪声参数(仅顶点着色器读取；compute 着色器声明较短的块，不受影响)
-    glm::vec4 crestNoiseA{3.0f, 0.03f, 0.02f, 0.06f}; // x=横向频率 y=沿河频率X z=沿河频率Y w=动画速度
-    glm::vec4 crestNoiseB{5.0f, 0.35f, 0.5f, 1.5f};   // x=细节频率 y=细节权重 z=振幅下限 w=振幅上限
-    glm::vec4 crestNoiseC{0.35f, 3.0f, 0.0f, 0.0f};   // x=顶抖强度 y=顶抖频率
+    glm::vec4 crestNoiseA{2.0f, 0.01f, 0.008f, 0.06f}; // 横向频率 12→2：波长拉长到几百米
+    glm::vec4 crestNoiseB{5.0f, 0.0f, 0.75f, 1.25f};   // 细节权重→0；振幅范围收窄到 0.75~1.25
+    glm::vec4 crestNoiseC{0.15f, 0.3f, 0.0f, 0.0f};    // 顶抖强度 0.35→0.15，频率 3→0.3
     // x = 历史最远潮头推进距离(米)，单调不减；用于潮后水位永久保持
-    glm::vec4 persistent{-1.0e9f, 0.0f, 0.0f, 0.0f};
+    glm::vec4 persistent{-1.0e9f, 0.85f, 0.18f, 0.0f}; // x=历史最远推进(米) y=横向覆盖[0..1] z=两岸淡出[0..1]
 };
 
 struct BoreEventManagerConfig

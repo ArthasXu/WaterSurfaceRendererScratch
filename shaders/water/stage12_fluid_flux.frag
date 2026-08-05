@@ -262,6 +262,13 @@ void main()
     float foamAmount =
         clamp(SoftUnion(foamSource, stateFoam * foam.appearance.w), 0.0, 1.0);
 
+    // 远处泡沫细节纹理欠采样 → 摩尔纹。按相机距离把泡沫细节淡出，
+    // 远处只保留状态场的低频泡沫（本身平滑，不走样）。
+    float foamCamDist = length(fragWorldPosition - camera.cameraWorldPosition.xyz);
+    float foamDetailFade = 1.0 - smoothstep(300.0, 1200.0, foamCamDist);
+    detailCoverage *= foamDetailFade;
+    breakup = mix(1.0, breakup, foamDetailFade);
+
     // FF MF_FluidFoamShallow：水膜极薄处（刚上岸的湿沙）淡出泡沫
     float foamWaterDepth = max(fragWorldPosition.y - fragShore.a, 0.0);
     float shallowFactor = FluxFoamShallow(
@@ -279,6 +286,10 @@ void main()
         foam.foamSoft.z,
         length(foamVelocity) * foam.foamSoft.x + foam.foamSoft.y);
     float softFoam = softWidth * (foamAmount + 1.0) * shallowResult * breakup;
+
+    // 远处只保留最浓的泡沫（主潮线），稀薄泡沫淡出，避免远处一片杂音
+    hardFoam *= foamDetailFade;
+    softFoam *= foamDetailFade * foamDetailFade;   // 软晕衰减更快
 
     // FF: pow(·, 0.45) 抬升低值 → 软边大幅变宽，这就是"上岸渐渐散开"
     float finalFoam = clamp(foam.foamSoft.w * max(hardFoam, softFoam), 0.0, 1.0);
@@ -388,6 +399,16 @@ void main()
 
         vec3 waterColor = mediumColor;
 
+        // 钱塘江重泥沙：整体混入泥沙色，深水更浓（复用 opticalParams.w = 泥沙量）
+        float sedimentDepth01 = clamp(waterDepth / max(material.shallowParams.y, 0.001), 0.0, 1.0);
+        waterColor = mix(waterColor, material.sedimentColor.rgb,
+                         material.opticalParams.w * mix(0.35, 1.0, sedimentDepth01));
+        
+        // 潮头翻起河床泥沙：波前附近增浑（fragFoamSourceData.r=剖面泡沫, .a=破碎泡沫）
+        float churn = clamp(max(fragFoamSourceData.r, fragFoamSourceData.a), 0.0, 1.0);
+        waterColor = mix(waterColor, material.sedimentColor.rgb,
+                         churn * material.opticalParams.w * 1.2 * (1.0 - finalFoam));
+
         // ===== 4. FF Fresnel + 天空反射 =====
         // FF MF_Fresnel(bias, scale, power)：power=9 把反射集中到掠射角
         float fresnel = FluxFresnel(
@@ -439,12 +460,17 @@ void main()
 
         // 泡沫覆盖
         // FF: lerp(FoamWetColor, _FoamColorBase, saturate(Foam * _FoamSoftIntensity))
-        vec3 foamBase = vec3(0.40, 0.42, 0.43);           // FF _FoamColorBase
-        vec3 foamWet  = material.sedimentColor.rgb;        // 复用为 FoamWetColor：湿沙泡沫色
-        vec3 foamColor = mix(foamWet, foamBase, clamp(foamAmount * 1.5, 0.0, 1.0));
-        // 硬核处叠加贴图细节（FF _FoamColorDetail）
-        foamColor = mix(foamColor, foamBase * (0.5 + 0.5 * detailCoverage), foamNormalMask);
+        // 钱塘江泡沫：亮白略偏暖。不掺泥沙色（泥沙只染泡沫"周围的水"，不染泡沫本体）
+        vec3 foamBright = vec3(0.95, 0.95, 0.93);
+        // 薄沫略透出下面的浑水色，浓沫纯白
+        vec3 foamColor = mix(material.sedimentColor.rgb * 1.3 + 0.3,
+                             foamBright,
+                             clamp(foamAmount * 1.5, 0.0, 1.0));
+        // 硬核叠加贴图细节的高光颗粒感
+        foamColor = mix(foamColor, foamBright, foamNormalMask);
+        // 泡沫区不叠加水体泥沙暗化：泡沫浮在表面
         litColor = mix(litColor, foamColor, finalFoam);
+        // （若仍偏灰，把 e 的 churn 泥沙也按 (1-finalFoam) 抑制，见下）
 
         // ===== 7. 上岸渐隐已不再需要（真实地形通过 alpha 透出）=====
 

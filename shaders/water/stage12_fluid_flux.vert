@@ -96,7 +96,7 @@ layout(set = 0, binding = 18) uniform MultiBoreUBO
     vec4 crestNoiseA;   // x=横向频率 y=沿河频率X z=沿河频率Y w=动画速度
     vec4 crestNoiseB;   // x=细节频率 y=细节权重 z=振幅下限 w=振幅上限
     vec4 crestNoiseC;   // x=顶抖强度 y=顶抖频率
-    vec4 persistent;    // x = 历史最远潮头推进距离(米)
+    vec4 persistent;    // x=历史最远推进(米) y=横向覆盖[0..1] z=两岸淡出[0..1]
 } multiBore;
 
 layout(std430, set = 0, binding = 19) readonly buffer BoreEventBuffer
@@ -581,6 +581,12 @@ void main(){
         activeRegionMask *
         waterMask;
 
+    // 两岸留白：潮头不贴岸，按归一化横向坐标 |lateral| 在两侧平滑淡出
+    commonBoreMask *= 1.0 - smoothstep(
+        multiBore.persistent.y - multiBore.persistent.z,
+        multiBore.persistent.y,
+        abs(lateral));
+
     float boreStrength =
         commonBoreMask *
         boreAmplitude *
@@ -819,9 +825,9 @@ void main(){
             float crestDetail = FBM2(crestUV * multiBore.crestNoiseB.x);    // 细小复杂波动
             float crestField  = mix(crestBig, crestDetail, multiBore.crestNoiseB.y);
 
-            // 幅度调制：[振幅下限, 振幅上限]，高低差
+            // 只用大尺度起伏调制振幅，且频率必须远低于顶点密度，否则浪脊沿横向撕成锯齿三角
+            float crestField = crestBig;
             float amplitudeVariation = mix(multiBore.crestNoiseB.z, multiBore.crestNoiseB.w, crestField);
-            eventAmplitude *= amplitudeVariation;
 
             float eventCommonMask = commonBoreMask;
             float eventStrength = eventCommonMask * eventAmplitude * globalAmplitude;
@@ -843,9 +849,11 @@ void main(){
             // 浪脊顶边参差：高频噪声[-1,1]只叠在波峰(eventProfile.a)附近，
             // 让"墙顶"变成起伏的浪脊，只改高度不动 signedDistance，避免撕裂
             // 顶抖抗走样：粗 LOD tile（大三角）顶点间距大，高频噪声必然走样 → 直接淡出
-            float wobbleLodFade = 1.0 - smoothstep(64.0, 256.0, tile.originSize.z);
+            // 顶抖是米级高频，只有最细 tile（顶点间距 < ~8m）才扛得住。
+            // 域放大后绝大多数 tile 都比这粗，一律淡出，避免锯齿三角。
+            float wobbleLodFade = 1.0 - smoothstep(4.0, 16.0, tile.originSize.z);
             // 单层 ValueNoise：最高频就等于 crestNoiseC.y，不会像 FBM 那样再翻 16 倍
-            float crestTopWobble = (ValueNoise(crestUV * multiBore.crestNoiseC.y) - 0.5) * 2.0;
+            float crestTopWobble = (ValueNoise(crestUV * min(multiBore.crestNoiseC.y, 0.4)) - 0.5) * 2.0;
             eventLocalVertical +=
                 crestTopWobble *
                 eventProfile.a *
@@ -883,11 +891,15 @@ void main(){
             midWeight = min(midWeight, mix(1.0, event.suppression.y, eventCrestMask));
             longWeight = min(longWeight, mix(1.0, event.suppression.z, eventCrestMask));
 
-            // 离波前窗口：eventProfileU 在 |eventSignedDistance|>eventHalfWidth 时被 clamp 到 0/1，
-            // 会继承剖面纹理边缘的非零 rearFoam，导致潮头已过的整片下游铺满常量泡沫(网格/暗块 bug)。
-            // 超出剖面域即把泡沫淡到 0，只保留波前附近的真实泡沫。
+            // 拖尾长度沿浪脊用低频噪声调制 → 宽度渐变、边缘随机，更像泡沫团
+            float trailNoise = ValueNoise(
+                vec2(lateral * 6.0, eventProgress * 0.02) + event.appearance.z);
+            float trailLength = eventHalfWidth * mix(0.35, 1.5, trailNoise);
+            // 前沿(潮头前方)迅速截断，后方按 trailLength 渐隐
             float eventFrontFoamWindow =
-                1.0 - smoothstep(eventHalfWidth * 0.85, eventHalfWidth, abs(eventSignedDistance));
+                (1.0 - smoothstep(0.0, trailLength, -eventSignedDistance)) *
+                (1.0 - smoothstep(eventHalfWidth * 0.12, eventHalfWidth * 0.35,
+                                  eventSignedDistance));
 
             float eventProfileFoam = eventProfile.b * eventAmplitude * eventCommonMask * event.appearance.x
                                         * eventFrontFoamWindow;
