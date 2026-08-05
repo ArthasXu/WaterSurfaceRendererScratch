@@ -178,8 +178,8 @@ void Stage12FluidFluxApp::Start()
 
     static_assert(sizeof(glm::vec4) == 16);
 
-    m_Camera.SetPosition(glm::vec3(30.0f, 190.0f, 670.0f));
-    m_Camera.LookAt(glm::vec3(-730.0f, -230.0f, 880.0f));
+    m_Camera.SetPosition(glm::vec3(2150.0f, 32.0f, 4400.0f));
+    m_Camera.LookAt(glm::vec3(1500.0f, -230.0f, 5000.0f));
 
     CreateDescriptorSetLayout();
     CreateAppearanceDescriptorSetLayout();
@@ -617,23 +617,16 @@ void Stage12FluidFluxApp::CreateRiverResources()
     // 开放河道；入口在 root 外，避免端帽闭合
     std::vector<water::RiverControlPoint> controlPoints =
     {
-        {{-600.0f, 1200.0f}, 640.0f, 0.70f, 1.00f},
-        {{-600.0f,  960.0f}, 580.0f, 0.78f, 1.00f},
-
-        {{-610.0f,  760.0f}, 520.0f, 0.88f, 0.90f},
-        {{-615.0f,  560.0f}, 360.0f, 1.00f, 0.70f},
-        {{-620.0f,  340.0f}, 250.0f, 1.15f, 0.45f},
-
-        {{-610.0f,   20.0f}, 190.0f, 1.25f, 0.25f},
-        {{-540.0f, -260.0f}, 180.0f, 1.20f, 0.10f},
-        {{-350.0f, -500.0f}, 174.0f, 1.12f, 0.05f},
-        {{ -50.0f, -610.0f}, 170.0f, 1.05f, 0.00f},
-
-        {{ 260.0f, -560.0f}, 168.0f, 1.00f, 0.00f},
-        {{ 500.0f, -390.0f}, 170.0f, 0.98f, 0.00f},
-        {{ 650.0f, -140.0f}, 166.0f, 0.96f, 0.00f},
-        {{ 770.0f,  100.0f}, 162.0f, 0.94f, 0.00f},
-        {{ 930.0f,  220.0f}, 158.0f, 0.92f, 0.00f}
+        // {世界XZ}, halfWidth(米), boreAmplitude, curvatureWeight
+        {{ -200.0f,  7600.0f}, 6000.0f, 0.60f, 0.60f},  // 入海口：极宽
+        {{ -400.0f,  6000.0f}, 4000.0f, 0.80f, 0.45f},
+        {{-1400.0f,  2900.0f}, 3200.0f, 0.92f, 0.35f},
+        {{-1500.0f,  1400.0f}, 2600.0f, 1.05f, 0.25f},
+        {{-1200.0f,     0.0f}, 2200.0f, 1.15f, 0.15f},
+        {{ -400.0f, -1600.0f}, 1800.0f, 1.20f, 0.10f},
+        {{  700.0f, -3200.0f}, 1500.0f, 1.15f, 0.05f},
+        {{ 2200.0f, -4800.0f}, 1300.0f, 1.05f, 0.00f},
+        {{ 4000.0f, -6400.0f}, 1200.0f, 1.00f, 0.00f}
     };
 
     // 定义并构建河流曲线
@@ -643,9 +636,9 @@ void Stage12FluidFluxApp::CreateRiverResources()
     );
 
     water::RiverFieldConfig fieldConfig{};
-    fieldConfig.worldMin = glm::vec2(-1024.0f, -1024.0f);
-    fieldConfig.worldSize = 2048.0f;
-    fieldConfig.resolution = 1024;
+    fieldConfig.worldMin = glm::vec2(-8192.0f, -8192.0f);
+    fieldConfig.worldSize = 16384.0f;
+    fieldConfig.resolution = 8192;
     fieldConfig.bankFade = 4.0f;
     fieldConfig.bankFadeDistance = 16.0f;   
 
@@ -766,8 +759,8 @@ void Stage12FluidFluxApp::CreateRiverResources()
 void Stage12FluidFluxApp::CreateTerrainResources()
 {
     water::WaterGridConfig cfg{};
-    cfg.cellCountX = 256;
-    cfg.cellCountZ = 256;
+    cfg.cellCountX = 512;
+    cfg.cellCountZ = 512;
     cfg.sizeX = m_RiverFieldConfig.worldSize;
     cfg.sizeZ = m_RiverFieldConfig.worldSize;
     // WaterGrid 顶点用 (u-0.5)*size 自居中于 origin，
@@ -2295,7 +2288,11 @@ void Stage12FluidFluxApp::UpdateMultiBoreBuffers(uint32_t frameIndex)
         0.0f
     );
 
-    ubo.persistent = glm::vec4(m_MaxBorePassedProgress, 0.0f, 0.0f, 0.0f);
+    ubo.persistent = glm::vec4(
+        m_MaxBorePassedProgress,
+        m_MultiBoreGui.lateralExtent,
+        m_MultiBoreGui.lateralFade,
+        0.0f);
 
     m_MultiBoreUniformBuffers[frameIndex]->CopyToMapped(
         &ubo,
@@ -2678,9 +2675,11 @@ uint32_t Stage12FluidFluxApp::GetRiverRequiredLevel(
             std::max(requiredLevel, 5u);
     }
 
-    float highDetailMargin =
-        m_BoreProfileConfig.profileHalfWidth +
-        24.0f;
+    // 潮头前方留 profileHalfWidth，后方额外覆盖水位抬升过渡带(riseWidth)，
+    // 否则浪后抬升坡在低 LOD tile 上呈锯齿
+    float highDetailForward = m_BoreProfileConfig.profileHalfWidth + 24.0f;
+    float highDetailBack = m_BoreProfileConfig.profileHalfWidth
+                         + m_BoreProfileConfig.riseWidth + 64.0f;
 
     bool hasProgressRange =
         tile.maxRiverProgress >
@@ -2701,8 +2700,8 @@ uint32_t Stage12FluidFluxApp::GetRiverRequiredLevel(
 
             float boreProgress = event.progressMeters;
 
-            if(boreProgress + highDetailMargin >= tile.minRiverProgress &&
-               boreProgress - highDetailMargin <= tile.maxRiverProgress){
+            if(boreProgress + highDetailForward >= tile.minRiverProgress &&
+               boreProgress - highDetailBack   <= tile.maxRiverProgress){
                 intersectsBore = true;
                 break;
             }
@@ -3121,6 +3120,8 @@ void Stage12FluidFluxApp::DrawGui()
         ImGui::DragFloat("Base Speed - 新潮头基础速度 m/s", &m_MultiBoreGui.baseSpeed, 0.1f, 0.0f, 80.0f);
         ImGui::DragFloat("Remove Margin - 河尾回收余量 m", &m_MultiBoreGui.removeMargin, 1.0f, 0.0f, 500.0f);
         ImGui::DragFloat("Separation Padding - 最小间距额外 padding m", &m_MultiBoreGui.minimumSeparationPadding, 1.0f, 0.0f, 200.0f);
+        ImGui::SliderFloat("Bore Lateral Extent - 潮头横向覆盖", &m_MultiBoreGui.lateralExtent, 0.2f, 1.0f);
+        ImGui::SliderFloat("Bore Lateral Fade - 两岸淡出", &m_MultiBoreGui.lateralFade, 0.01f, 0.5f);
         if(ImGui::Button("Reset Multi Bore - 重置多潮头事件")){
             ResetMultiBoreEvents();
         }
@@ -3211,7 +3212,7 @@ void Stage12FluidFluxApp::DrawGui()
         ImGui::DragFloat4("Optical - F0/反射/粗糙或吸收/泥沙量", glm::value_ptr(m_WaterMaterialGui.opticalParams), 0.01f, 0.0f, 4.0f);
         ImGui::DragFloat3("Sun Direction - 太阳方向 xyz", glm::value_ptr(m_WaterMaterialGui.sunDirection), 0.01f, -1.0f, 1.0f);
         ImGui::DragFloat("Specular - 太阳高光强度", &m_WaterMaterialGui.specularStrength, 0.05f, 0.0f, 10.0f);
-        ImGui::DragFloat4("Fog - 雾起点/终点/地平线融合/保留", glm::value_ptr(m_WaterMaterialGui.fogParams), 1.0f, 0.0f, 5000.0f);
+        ImGui::DragFloat4("Fog - 雾起点/终点/地平线融合/保留", glm::value_ptr(m_WaterMaterialGui.fogParams), 1.0f, 0.0f, 8000.0f);
         ImGui::SliderFloat3("Absorption - RGB 每米吸收", &m_WaterMaterialGui.absorption.x, 0.0f, 1.0f);
         ImGui::SliderFloat("Bed Albedo - 河床反照率强度", &m_WaterMaterialGui.bedAlbedo, 0.0f, 2.0f);
         ImGui::SliderFloat("Max Visible Depth - 最大可见水深(米)", &m_WaterMaterialGui.maxVisibleDepth, 0.5f, 30.0f);
@@ -3273,7 +3274,7 @@ void Stage12FluidFluxApp::DrawGui()
         ImGui::SliderFloat("Max Beach Height - 岸上地形最大抬升(米)", &m_ShoreParams.maxBeachHeight, 0.0f, 60.0f);
         ImGui::SliderFloat("Terrain Height Scale - heightmap[0,1]→米", &m_ShoreParams.terrainHeightScale, 0.0f, 80.0f);
         ImGui::SliderFloat("River Bed Depth - 河床相对水面下沉(米)", &m_ShoreParams.riverBedDepth, 0.0f, 40.0f);
-        ImGui::SliderFloat("River Bed Fade - 河床下沉过渡宽度(米)", &m_ShoreParams.riverBedFade, 1.0f, 400.0f);
+        ImGui::SliderFloat("River Bed Fade - 河床下沉过渡宽度(米)", &m_ShoreParams.riverBedFade, 1.0f, 3000.0f);
         if(ImGui::Button("Rebake Shore Field - 重新烘焙岸线场")){
             m_ShoreRebakePending = true;
         }

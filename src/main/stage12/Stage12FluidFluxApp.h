@@ -100,13 +100,13 @@ private:
 
     struct BoreProfileGuiParams
     {
-        float waterRiseHeight = 2.0f;
+        float waterRiseHeight = 5.0f;
         float riseWidth = 32.0f;
         float fixedPhase = 0.60f;
         float profileWidthScale = 0.0f;
         float globalAmplitude = 0.6f;
         float forwardScale = 2.0f;
-        float upwardScale = 1.1f;
+        float upwardScale = 3.0f;
         float activeRegionMask = 1.0f;
         glm::vec4 suppression{0.20f, 0.35f, 0.80f, 0.0f};
     };
@@ -114,7 +114,7 @@ private:
     struct FoamGuiParams
     {
         float animationCycle = 4.0f;
-        float detailWorldScale = 0.2f;
+        float detailWorldScale = 1.0f;
         glm::vec4 sourceStrength{1.0f, 0.35f, 0.45f, 0.75f};
         glm::vec4 thresholds{0.28f, 0.70f, 0.04f, 0.30f};
         glm::vec4 appearance{0.60f, 0.15f, 0.35f, 0.25f};
@@ -132,9 +132,9 @@ private:
         float foamHardnessIntensity = 0.5f; // FF _FoamHardnessIntensity
         float foamHardnessWidth = 0.2f;     // FF _FoamHardnessWidth
         float foamSoftVelocity = 0.5f;      // 软晕随流速加宽
-        float foamSoftBase = 0.5f;          // 软晕基底宽度
+        float foamSoftBase = 0.0f;          // 软晕基底宽度
         float foamSoftMax = 1.0f;           // 软晕上限
-        float foamAlpha = 0.6f;             // FF _FoamColorBase.a：泡沫总不透明度
+        float foamAlpha = 0.7f;             // FF _FoamColorBase.a：泡沫总不透明度
     };
 
     struct WaterMaterialGuiParams
@@ -151,7 +151,7 @@ private:
         glm::vec3 sunDirection{0.3f, 0.6f, 0.4f};
         float specularStrength = 6.0f;                       // 太阳高光强度（5~10）
 
-        glm::vec4 fogParams{120.0f, 700.0f, 0.4f, 0.0f};     // 雾效参数
+        glm::vec4 fogParams{120.0f, 6000.0f, 0.4f, 0.0f};     // 雾效参数
 
         // 吸收系数（红、绿、蓝）
         glm::vec3 absorption{0.35f, 0.06f, 0.03f};           // 红光衰减最快
@@ -159,7 +159,7 @@ private:
         float bedAlbedo = 0.85f;                             // 河床反照率
         float maxVisibleDepth = 8.0f;                        // 最大可见深度（米）
 
-        float shallowBlend = 0.08f;                           // 吸收总倍率（越大越快变不透明）
+        float shallowBlend = 0.0f;                            // 吸收总倍率（越大越快变不透明）
         float depthUpwardBlend = 1.0f;                       // FF _WaterDepthUpwardBlend：俯视时等效光程加成
     
         // ===== FF 岸线两档（MF_WaterTransition）=====
@@ -170,7 +170,7 @@ private:
         float foamScatterScale = 4.0f;                       // FF _FoamScatteringScale
         float shoreDepthNorm = 17.0f;                        // 深度归一化尺度(米)
         float shoreDistNorm = 200.0f;                        // 离岸距离归一化尺度(米)
-        glm::vec3 colorBehind{0.63f, 0.54f, 0.45f};          // 水下背景色调
+        glm::vec3 colorBehind{0.63f, 0.30f, 0.05f};          // 水下背景色调
         float waterLevel = 2.0f;                             // 水面基准高度(米)
 
         // ===== FF 高光/粗糙度（MF_FluidWaterLayer）=====
@@ -191,8 +191,8 @@ private:
     struct QuadtreeGuiParams
     {
         glm::vec2 rootCenter{0.0f};
-        float rootSize = 2048.0f;
-        int maxLevel = 6;
+        float rootSize = 16384.0f;
+        int maxLevel = 10;
         int patchCellCount = 32;
         float fovYDegrees = 45.0f;
         float splitPixels = 9.0f;
@@ -205,13 +205,15 @@ private:
     {
         bool enabled = true;
         int seed = 1337;
-        float minSpawnInterval = 15.0f;
-        float maxSpawnInterval = 25.0f;
+        float minSpawnInterval = 20.0f;
+        float maxSpawnInterval = 60.0f;
         float retryMinInterval = 0.5f;
         float retryMaxInterval = 1.0f;
         float baseSpeed = 32.0f;
         float removeMargin = 120.0f;
         float minimumSeparationPadding = 10.0f;
+        float lateralExtent = 0.85f;   // 潮头横向覆盖到河宽的百分比
+        float lateralFade = 0.18f;     // 两岸淡出宽度
     };
 
     enum class BoreFieldMode

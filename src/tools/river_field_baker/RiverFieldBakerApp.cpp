@@ -64,26 +64,22 @@ void RiverFieldBakerApp::Start()
 {
     // 默认控制点：与旧 CLI baker / Stage12 CreateRiverResources 保持一致
     m_ControlPoints = {
-        {{-600.0f, 1200.0f}, 640.0f, 0.70f, 1.00f},
-        {{-600.0f,  960.0f}, 580.0f, 0.78f, 1.00f},
-        {{-610.0f,  760.0f}, 520.0f, 0.88f, 0.90f},
-        {{-615.0f,  560.0f}, 360.0f, 1.00f, 0.70f},
-        {{-620.0f,  340.0f}, 250.0f, 1.15f, 0.45f},
-        {{-610.0f,   20.0f}, 190.0f, 1.25f, 0.25f},
-        {{-540.0f, -260.0f}, 180.0f, 1.20f, 0.10f},
-        {{-350.0f, -500.0f}, 174.0f, 1.12f, 0.05f},
-        {{ -50.0f, -610.0f}, 170.0f, 1.05f, 0.00f},
-        {{ 260.0f, -560.0f}, 168.0f, 1.00f, 0.00f},
-        {{ 500.0f, -390.0f}, 170.0f, 0.98f, 0.00f},
-        {{ 650.0f, -140.0f}, 166.0f, 0.96f, 0.00f},
-        {{ 770.0f,  100.0f}, 162.0f, 0.94f, 0.00f},
-        {{ 930.0f,  220.0f}, 158.0f, 0.92f, 0.00f}
+        // {世界XZ}, halfWidth(米), boreAmplitude, curvatureWeight
+        {{ -200.0f,  7600.0f}, 6000.0f, 0.60f, 0.60f},  // 入海口：极宽
+        {{ -400.0f,  6000.0f}, 4000.0f, 0.80f, 0.45f},
+        {{-1400.0f,  2900.0f}, 3200.0f, 0.92f, 0.35f},
+        {{-1500.0f,  1400.0f}, 2600.0f, 1.05f, 0.25f},
+        {{-1200.0f,     0.0f}, 2200.0f, 1.15f, 0.15f},
+        {{ -400.0f, -1600.0f}, 1800.0f, 1.20f, 0.10f},
+        {{  700.0f, -3200.0f}, 1500.0f, 1.15f, 0.05f},
+        {{ 2200.0f, -4800.0f}, 1300.0f, 1.05f, 0.00f},
+        {{ 4000.0f, -6400.0f}, 1200.0f, 1.00f, 0.00f}
     };
 
     // 场配置默认值：与运行时一致
-    m_FieldConfig.worldMin = glm::vec2(-1024.0f, -1024.0f);
-    m_FieldConfig.worldSize = 2048.0f;
-    m_FieldConfig.resolution = 1024;
+    m_FieldConfig.worldMin = glm::vec2(-8192.0f, -8192.0f);
+    m_FieldConfig.worldSize = 16384.0f;
+    m_FieldConfig.resolution = 8192;
     m_FieldConfig.bankFade = 4.0f;
     m_FieldConfig.bankFadeDistance = 16.0f;
 
@@ -188,20 +184,20 @@ void RiverFieldBakerApp::DrawGui()
     ImGui::InputText("Output .bin - 输出烘焙文件路径", m_OutputPath, sizeof(m_OutputPath));
 
     // ===== 场配置 fieldConfig =====
-    if(ImGui::CollapsingHeader("Field Config - 场配置：世界范围/分辨率/河岸淡出", ImGuiTreeNodeFlags_DefaultOpen)){
+    if(ImGui::CollapsingHeader("Field Config - 场配置：世界范围/分辨率/河岸淡出")){
         ImGui::DragFloat2("World Min - 覆盖区左下角世界坐标(米)", &m_FieldConfig.worldMin.x, 8.0f);
         ImGui::DragFloat("World Size - 覆盖区边长(米,正方形)", &m_FieldConfig.worldSize, 8.0f, 128.0f, 8192.0f);
 
         // 分辨率：数据驱动，改后 shader 无需改，但越大烘焙越慢、显存越高
-        const int resolutions[] = {256, 512, 1024, 2048};
-        const char* resLabels[] = {"256", "512", "1024", "2048"};
+        const int resolutions[] = {256, 512, 1024, 2048, 4096, 8192};
+        const char* resLabels[] = {"256", "512", "1024", "2048", "4096", "8192"};
         int resIndex = 2;
-        for(int i = 0; i < 4; ++i){
+        for(int i = 0; i < 6; ++i){
             if(static_cast<int>(m_FieldConfig.resolution) == resolutions[i]){
                 resIndex = i;
             }
         }
-        if(ImGui::Combo("Resolution - 贴图分辨率(NxN)", &resIndex, resLabels, 4)){
+        if(ImGui::Combo("Resolution - 贴图分辨率(NxN)", &resIndex, resLabels, 6)){
             m_FieldConfig.resolution = static_cast<uint32_t>(resolutions[resIndex]);
         }
 
@@ -212,7 +208,7 @@ void RiverFieldBakerApp::DrawGui()
     }
 
     // ===== spline 平滑 =====
-    if(ImGui::CollapsingHeader("Spline - 样条平滑粒度", ImGuiTreeNodeFlags_DefaultOpen)){
+    if(ImGui::CollapsingHeader("Spline - 样条平滑粒度")){
         ImGui::SliderInt("Samples/Segment - 每段插值采样数", &m_SamplesPerSegment, 2, 128);
         ImGui::TextDisabled("越大曲线越平滑，烘焙耗时几乎不变（主要成本在逐像素投影）");
     }
@@ -224,13 +220,13 @@ void RiverFieldBakerApp::DrawGui()
         ImGui::SliderFloat("Beach Slope - 岸上地形坡度", &m_ShoreParams.beachSlope, 0.0f, 1.0f, "%.3f");
         ImGui::SliderFloat("Max Beach Height - 岸上地形最大抬升(米)", &m_ShoreParams.maxBeachHeight, 0.0f, 60.0f);
         ImGui::SliderFloat("Terrain Height Scale - heightmap[0,1]→米", &m_ShoreParams.terrainHeightScale, 0.0f, 80.0f);
-        ImGui::SliderFloat("River Bed Depth - 河床相对水面下沉(米)", &m_ShoreParams.riverBedDepth, 0.0f, 40.0f);
+        ImGui::SliderFloat("River Bed Depth - 河床相对水面下沉(米)", &m_ShoreParams.riverBedDepth, 0.0f, 60.0f);
     }
 
     // ===== 高度图参数 =====
-    if(ImGui::CollapsingHeader("Heightmap Generator - 程序化生成地形高度图")){
+    if(ImGui::CollapsingHeader("Heightmap Generator - 程序化生成地形高度图", ImGuiTreeNodeFlags_DefaultOpen)){
         ImGui::InputText("HM Path - 高度图输出路径", m_HeightmapPath, sizeof(m_HeightmapPath));
-        ImGui::SliderInt("HM Resolution - 高度图分辨率", &m_HeightmapResolution, 256, 4096);
+        ImGui::SliderInt("HM Resolution - 高度图分辨率", &m_HeightmapResolution, 256, 8192);
         ImGui::SliderFloat("Bank Runout - 岸上爬升距离(米)", &m_HmBankRunout, 50.0f, 1200.0f);
         ImGui::SliderFloat("Bank Level - 最远处归一化高度", &m_HmBankLevel, 0.0f, 1.0f);
         ImGui::SliderFloat("Noise Freq - 噪声频率(每米)", &m_HmNoiseFreq, 0.001f, 0.05f, "%.4f");
@@ -242,7 +238,7 @@ void RiverFieldBakerApp::DrawGui()
     }
 
     // ===== 控制点编辑 =====
-    if(ImGui::CollapsingHeader("Control Points - 河流中轴线控制点(增删改)", ImGuiTreeNodeFlags_DefaultOpen)){
+    if(ImGui::CollapsingHeader("Control Points - 河流中轴线控制点(增删改)")){
         ImGui::Text("点数: %d (至少需要 2 个)", static_cast<int>(m_ControlPoints.size()));
 
         int deleteIndex = -1;
