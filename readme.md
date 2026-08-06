@@ -112,6 +112,17 @@ cmake --build build --config Debug --parallel
 
 ---
 
+## 代码仓库
+
+- **GitHub**：`https://github.com/ArthasXu/WaterSurfaceRendererScratch`
+- 推送命令：
+  ```bash
+  git push origin stage12-visual-realism
+  git push -u gitlab stage12-visual-realism
+  ```
+
+---
+
 ## 许可证
 
 本项目仅供学习与研究使用。
