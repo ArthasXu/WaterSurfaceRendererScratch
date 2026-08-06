@@ -104,9 +104,9 @@ private:
         float riseWidth = 80.0f;
         float fixedPhase = 0.60f;
         float profileWidthScale = 0.0f;
-        float globalAmplitude = 1.0f;
-        float forwardScale = 0.35f;
-        float upwardScale = 1.2f;
+        float globalAmplitude = 2.75f;
+        float forwardScale = 10.0f;
+        float upwardScale = 2.9f;
         float activeRegionMask = 1.0f;
         glm::vec4 suppression{0.20f, 0.35f, 0.80f, 0.0f};
     };
@@ -212,15 +212,33 @@ private:
         float crestHeightOffset = 0.55f;    // 主脊额外高度
         float alpha = 0.92f;                // 主潮脊不透明度
         float edgeFade = 0.12f;             // 两岸淡出宽度（归一化横向）
+
+        float curveMeters = 32.0f;           // 主潮线基础弯曲(米)
+        float irregularCurveMeters = 0.0f;   // 主潮线不规则弯曲(米)
+        float curveFrequency = 1.35f;        // 横向弯曲频率
+        float heightVariation = 0.75f;       // 潮脊高度低频起伏(米)
+
+        float edgeJitterMeters = 18.0f;      // 片元级前沿抖动(米)
+        float wakePatchThreshold = 0.25f;    // 白水团阈值，越高越碎
+        float wakeFoamStrength = 2.0f;       // 白水团强度
+        float wakeHoleStrength = 0.56f;      // 孔洞强度
+
+        float hardCrestWidth = 12.0f;        // 主白线半宽(米)
+        float wakeStart = 8.0f;              // 从潮头后方多少米开始出现大片浮沫
+        float wakeEnd = 380.0f;              // 浮沫区结束距离(米)
+        float wakeFeather = 80.0f;           // 浮沫区淡入/淡出宽度(米)
     };
 
     struct CrestRibbonVertex
     {
         glm::vec4 positionAlpha; // xyz=world position, w=alpha
-        glm::vec4 param;         // x=lateral[-1,1], y=depth01, z=signedDistance, w=randomSeed
+        glm::vec4 param;   // x=lateral y=depth01 z=signedDistance w=randomSeed
+        glm::vec4 param2;  // x=edgeJitter y=wakePatchThreshold z=wakeFoamStrength w=wakeHoleStrength
+        glm::vec4 param3;  // x=time y=wakeWidth z=frontWidth w=reserved
+        glm::vec4 param4;  // x=hardCrestWidth y=wakeStart z=wakeEnd w=wakeFeather
 
         static VkVertexInputBindingDescription GetBindingDescription();
-        static std::array<VkVertexInputAttributeDescription, 2> GetAttributeDescriptions();
+        static std::array<VkVertexInputAttributeDescription, 5> GetAttributeDescriptions();
     };
 
     struct MultiBoreGuiParams

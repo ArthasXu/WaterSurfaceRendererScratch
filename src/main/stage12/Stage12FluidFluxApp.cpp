@@ -299,10 +299,10 @@ Stage12FluidFluxApp::CrestRibbonVertex::GetBindingDescription()
     return binding;
 }
 
-std::array<VkVertexInputAttributeDescription, 2>
+std::array<VkVertexInputAttributeDescription, 5>
 Stage12FluidFluxApp::CrestRibbonVertex::GetAttributeDescriptions()
 {
-    std::array<VkVertexInputAttributeDescription, 2> attributes{};
+    std::array<VkVertexInputAttributeDescription, 5> attributes{};
 
     attributes[0].binding = 0;
     attributes[0].location = 0;
@@ -313,6 +313,21 @@ Stage12FluidFluxApp::CrestRibbonVertex::GetAttributeDescriptions()
     attributes[1].location = 1;
     attributes[1].format = VK_FORMAT_R32G32B32A32_SFLOAT;
     attributes[1].offset = offsetof(CrestRibbonVertex, param);
+
+    attributes[2].binding = 0;
+    attributes[2].location = 2;
+    attributes[2].format = VK_FORMAT_R32G32B32A32_SFLOAT;
+    attributes[2].offset = offsetof(CrestRibbonVertex, param2);
+
+    attributes[3].binding = 0;
+    attributes[3].location = 3;
+    attributes[3].format = VK_FORMAT_R32G32B32A32_SFLOAT;
+    attributes[3].offset = offsetof(CrestRibbonVertex, param3);
+
+    attributes[4].binding = 0;
+    attributes[4].location = 4;
+    attributes[4].format = VK_FORMAT_R32G32B32A32_SFLOAT;
+    attributes[4].offset = offsetof(CrestRibbonVertex, param4);
 
     return attributes;
 }
@@ -388,12 +403,17 @@ void Stage12FluidFluxApp::CreatePipelines()
     crestRibbonConfig.bindingDescriptions = {crestBinding};
     crestRibbonConfig.attributeDescriptions = {
         crestAttributes[0],
-        crestAttributes[1]
+        crestAttributes[1],
+        crestAttributes[2],
+        crestAttributes[3],
+        crestAttributes[4]
     };
 
-    crestRibbonConfig.depthTestEnable = true;
+    // CrestRibbon 是表面泡沫 overlay，不参与真实水面深度仲裁。
+    // 水面已经先写 depth；如果这里开 depth test，第二/第三潮头在已抬高水面下会被挡掉。
+    crestRibbonConfig.depthTestEnable = false;
     crestRibbonConfig.depthWriteEnable = false;
-    crestRibbonConfig.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
+    crestRibbonConfig.depthCompareOp = VK_COMPARE_OP_ALWAYS;
     crestRibbonConfig.blendEnable = true;
     crestRibbonConfig.cullMode = VK_CULL_MODE_NONE;
     crestRibbonConfig.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
@@ -3049,9 +3069,13 @@ void Stage12FluidFluxApp::UpdateCrestRibbonBuffer(uint32_t frameIndex)
             float lateralNorm,
             float depth01) -> CrestRibbonVertex
         {
+            float ribbonBackExtent =
+                std::max(m_CrestRibbonGui.wakeWidth,
+                         m_CrestRibbonGui.wakeEnd + m_CrestRibbonGui.wakeFeather);
+                         
             float localS =
                 glm::mix(
-                    -m_CrestRibbonGui.wakeWidth,
+                    -ribbonBackExtent,
                     m_CrestRibbonGui.frontWidth,
                     depth01
                 );
@@ -3059,10 +3083,36 @@ void Stage12FluidFluxApp::UpdateCrestRibbonBuffer(uint32_t frameIndex)
             float normalizedLateral =
                 glm::clamp(lateralNorm, -1.0f, 1.0f);
 
+            // 潮线变成宏观弯曲 + 低频随机曲线，不再直线
+            float eventSeed =
+                static_cast<float>(event.seed) / 4294967295.0f;
+
+            float x =
+                normalizedLateral /
+                std::max(m_MultiBoreGui.lateralExtent, 0.001f);
+
+            water::RiverSamplePoint baseSample =
+                SampleRiverAtProgress(event.progressMeters + localS);
+
+            float baseCurve =
+                m_CrestRibbonGui.curveMeters *
+                (x * x - 0.20f);
+
+            float irregularCurve =
+                m_CrestRibbonGui.irregularCurveMeters *
+                (
+                    0.70f *
+                    std::sin(glm::pi<float>() * x * m_CrestRibbonGui.curveFrequency +
+                             eventSeed * glm::two_pi<float>()) +
+                    0.30f *
+                    std::sin(glm::two_pi<float>() * x +
+                             eventSeed * 11.7f)
+                );
+
             float curveOffset =
-                m_RiverBoreCurvatureMeters *
+                baseSample.curvatureWeight *
                 event.curvatureScale *
-                (normalizedLateral * normalizedLateral - 0.20f);
+                (baseCurve + irregularCurve);
 
             float progress =
                 event.progressMeters +
@@ -3119,11 +3169,52 @@ void Stage12FluidFluxApp::UpdateCrestRibbonBuffer(uint32_t frameIndex)
                     1.0f
                 );
 
+            // ribbon 永远在潮头水面上方；潮脊高度有缓慢明显变化
+            float heightNoise =
+                0.65f *
+                std::sin(glm::two_pi<float>() * (x * 1.35f + eventSeed)) +
+                0.35f *
+                std::sin(glm::two_pi<float>() * (x * 2.70f + eventSeed * 3.1f));
+
+
+            // 历史水位抬升：只要这个位置在历史最远潮头后方，就把 ribbon 放到抬升后的水面上方。
+            // 否则第二、第三个潮头会被已抬高的水面 depth 挡住。
+            float passedDistance =
+                progress - m_MaxBorePassedProgress;
+
+            float persistentWidth =
+                std::max(m_BoreProfileGui.riseWidth, m_BoreProfileConfig.profileHalfWidth) * 2.0f;
+
+            float persistentRise =
+                (1.0f - glm::smoothstep(-persistentWidth, 0.0f, passedDistance)) *
+                m_BoreProfileGui.waterRiseHeight *
+                sample.boreAmplitude;
+
+            float eventHeight =
+                m_BoreProfileConfig.crestHeight *
+                m_BoreProfileGui.upwardScale *
+                m_BoreProfileGui.globalAmplitude *
+                sample.boreAmplitude *
+                event.amplitudeScale;
+
+            float wakeLift =
+                (
+                    persistentRise +
+                    m_CrestRibbonGui.heightOffset +
+                    eventHeight * 0.45f
+                ) *
+                wakeShape;
+
             float y =
                 m_WaterMaterialGui.waterLevel +
-                m_BoreProfileGui.waterRiseHeight +
+                persistentRise +
                 m_CrestRibbonGui.heightOffset +
-                m_CrestRibbonGui.crestHeightOffset * crestShape;
+                wakeLift +
+                (
+                    m_CrestRibbonGui.crestHeightOffset +
+                    eventHeight * 1.05f +
+                    m_CrestRibbonGui.heightVariation * heightNoise
+                ) * crestShape;
 
             CrestRibbonVertex vertex{};
             vertex.positionAlpha =
@@ -3134,6 +3225,30 @@ void Stage12FluidFluxApp::UpdateCrestRibbonBuffer(uint32_t frameIndex)
                     depth01,
                     localS,
                     static_cast<float>(event.seed) / 4294967295.0f
+                );
+
+            vertex.param2 =
+                glm::vec4(
+                    m_CrestRibbonGui.edgeJitterMeters,
+                    m_CrestRibbonGui.wakePatchThreshold,
+                    m_CrestRibbonGui.wakeFoamStrength,
+                    m_CrestRibbonGui.wakeHoleStrength
+                );
+
+            vertex.param3 =
+                glm::vec4(
+                    m_Time,
+                    m_CrestRibbonGui.wakeWidth,
+                    m_CrestRibbonGui.frontWidth,
+                    0.0f
+                );
+
+            vertex.param4 =
+                glm::vec4(
+                    m_CrestRibbonGui.hardCrestWidth,
+                    m_CrestRibbonGui.wakeStart,
+                    m_CrestRibbonGui.wakeEnd,
+                    m_CrestRibbonGui.wakeFeather
                 );
 
             return vertex;
@@ -3606,8 +3721,8 @@ void Stage12FluidFluxApp::DrawGui()
         ImGui::SliderFloat("Fixed Phase - 固定采样相位 0~1", &m_BoreProfileGui.fixedPhase, 0.0f, 1.0f);
         ImGui::DragFloat("Water Rise - 潮后整体水位抬升高度 m", &m_BoreProfileGui.waterRiseHeight, 0.1f, 0.0f, 20.0f);
         ImGui::DragFloat("Rise Width - 水位抬升过渡宽度 m", &m_BoreProfileGui.riseWidth, 0.1f, 0.0f, 160.0f);
-        ImGui::DragFloat("Global Amplitude - 潮头整体振幅倍数", &m_BoreProfileGui.globalAmplitude, 0.05f, 0.0f, 5.0f);
-        ImGui::DragFloat("Forward Scale - 水平前向推挤强度", &m_BoreProfileGui.forwardScale, 0.05f, 0.0f, 10.0f);
+        ImGui::DragFloat("Global Amplitude - 潮头整体振幅倍数", &m_BoreProfileGui.globalAmplitude, 0.05f, 0.0f, 10.0f);
+        ImGui::DragFloat("Forward Scale - 水平前向推挤强度", &m_BoreProfileGui.forwardScale, 0.05f, 0.0f, 20.0f);
         ImGui::DragFloat("Upward Scale - 垂直抬升/浪高强度", &m_BoreProfileGui.upwardScale, 0.1f, 0.0f, 20.0f);
         ImGui::SliderFloat("Active Region - 潮头区域总开关掩码", &m_BoreProfileGui.activeRegionMask, 0.0f, 1.0f);
         ImGui::DragFloat3("FFT Suppression - 潮头处短/中/长波抑制", glm::value_ptr(m_BoreProfileGui.suppression), 0.01f, 0.0f, 1.0f);
@@ -3650,6 +3765,22 @@ void Stage12FluidFluxApp::DrawGui()
         ImGui::SliderFloat("Ribbon Crest Height Offset - 浪峰高度偏移", &m_CrestRibbonGui.crestHeightOffset, 0.0f, 3.0f);
         ImGui::SliderFloat("Ribbon Alpha - 透明度", &m_CrestRibbonGui.alpha, 0.0f, 1.0f);
         ImGui::SliderFloat("Ribbon Edge Fade - 边缘淡出", &m_CrestRibbonGui.edgeFade, 0.01f, 0.4f);
+
+        ImGui::SeparatorText("Ribbon Irregular Wake - 无规则白水");
+        ImGui::SliderFloat("Curve Meters - 主潮线基础弯曲", &m_CrestRibbonGui.curveMeters, 0.0f, 80.0f);
+        ImGui::SliderFloat("Irregular Curve - 不规则弯曲", &m_CrestRibbonGui.irregularCurveMeters, 0.0f, 40.0f);
+        ImGui::SliderFloat("Curve Frequency - 弯曲频率", &m_CrestRibbonGui.curveFrequency, 0.2f, 4.0f);
+        ImGui::SliderFloat("Height Variation - 高度起伏", &m_CrestRibbonGui.heightVariation, 0.0f, 2.0f);
+
+        ImGui::SliderFloat("Edge Jitter - 前沿抖动(米)", &m_CrestRibbonGui.edgeJitterMeters, 0.0f, 40.0f);
+        ImGui::SliderFloat("Wake Patch Threshold - 泡沫团阈值", &m_CrestRibbonGui.wakePatchThreshold, 0.25f, 0.85f);
+        ImGui::SliderFloat("Wake Foam Strength - 泡沫团强度", &m_CrestRibbonGui.wakeFoamStrength, 0.0f, 5.0f);
+        ImGui::SliderFloat("Wake Hole Strength - 孔洞强度", &m_CrestRibbonGui.wakeHoleStrength, 0.0f, 1.0f);
+    
+        ImGui::SliderFloat("Hard Crest Width - 主白线宽度(米)", &m_CrestRibbonGui.hardCrestWidth, 2.0f, 60.0f);
+        ImGui::SliderFloat("Wake Start - 浮沫开始距离(米)", &m_CrestRibbonGui.wakeStart, 0.0f, 120.0f);
+        ImGui::SliderFloat("Wake End - 浮沫结束距离(米)", &m_CrestRibbonGui.wakeEnd, 40.0f, 800.0f);
+        ImGui::SliderFloat("Wake Feather - 浮沫软边宽度(米)", &m_CrestRibbonGui.wakeFeather, 5.0f, 200.0f);
     }
 
     if(ImGui::CollapsingHeader("Water Material - 水体材质：控制颜色、反射、高光、泥沙和远景雾")){
