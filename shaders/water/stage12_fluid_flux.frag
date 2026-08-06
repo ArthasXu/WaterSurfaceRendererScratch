@@ -32,6 +32,8 @@ layout(location = 13) in vec4 fragFinalDisplacement;
 layout(location = 14) in vec4 fragRiverFlow;
 layout(location = 15) in vec4 fragRiverCoord;
 layout(location = 16) in vec4 fragShore;
+layout(location = 17) in vec4 fragBoreRibbon;
+layout(location = 18) in vec2 fragBaseWorldXZ;
 
 // 摄像机 UBO（绑定 set=0, binding=0）
 layout(set = 0, binding = 0) uniform CameraUBO {
@@ -49,6 +51,14 @@ layout(set = 0, binding = 1) uniform WaterParamsUBO {
     ivec4 metadata;         // 元数据（如Cascade层数）
     vec4 simulation;        // 模拟参数（x=时间，y=choppy强度，z=法线扰动强度，w=调试模式）
 } water;
+
+layout(set = 0, binding = 15) uniform RiverFieldUBO
+{
+    vec4 domain;
+    vec4 bore;
+} river;
+
+layout(set = 0, binding = 16) uniform sampler2D riverFlowTexture;
 
 // Foam参数 UBO（绑定 set=1, binding=0）
 layout(set = 1, binding = 0) uniform FoamParamsUBO
@@ -111,8 +121,17 @@ float SoftUnion(float a, float b)
 void main()
 {
     int mode = camera.debug.x;
-    // 矩形 Quadtree 视觉裁成 U 形河道
-    if(fragRiverFlow.a < 0.25){
+    // 用未位移的 baseWorldXZ 在片元重新采样水域 mask。
+    // 不用顶点插值 mask，避免低 LOD 大三角在岸边整块错误裁剪。
+    vec2 exactRiverUV =
+        clamp((fragBaseWorldXZ - river.domain.xy) / river.domain.z, vec2(0.0), vec2(1.0));
+    float exactWaterMask = textureLod(riverFlowTexture, exactRiverUV, 0.0).a;
+
+    float maskAA = max(fwidth(exactWaterMask) * 1.5, 0.002);
+    float waterCoverage =
+        smoothstep(0.01 - maskAA, 0.01 + maskAA, exactWaterMask);
+
+    if(waterCoverage < 0.001){
         discard;
     }
 
@@ -262,38 +281,68 @@ void main()
     float foamAmount =
         clamp(SoftUnion(foamSource, stateFoam * foam.appearance.w), 0.0, 1.0);
 
+    // 宏观泡沫覆盖：远处也要保留，不能被细节 fade 清零
+    float macroFoam = foamAmount;
+    
+    // 片元级潮头边缘抖动：只改变泡沫覆盖，不改变几何。
+    // 大尺度 jitter 做宏观参差，小尺度 jitter 切碎边缘。
+    float boreSd = fragBoreRibbon.x;
+    float boreLat = fragBoreRibbon.y;
+    float boreSeed = fragBoreRibbon.z;
+
+    float macroJitter =
+        (texture(foamDetailTexture, vec2(boreLat * 0.03 + boreSeed, 0.37)).r - 0.5) * 10.0;
+    float detailJitter =
+        (texture(foamDetailTexture, fragWorldPosition.xz * 0.035 + boreSeed).a - 0.5) * 3.0;
+
+    float jitteredSd = boreSd + macroJitter + detailJitter;
+    float edgeAA = max(fwidth(jitteredSd) * 1.5, 0.75);
+
+    float ribbonFoam =
+        1.0 - smoothstep(18.0, 18.0 + edgeAA, abs(jitteredSd));
+
+    foamAmount = clamp(SoftUnion(foamAmount, ribbonFoam * fragBoreRibbon.w), 0.0, 1.0);
+    macroFoam = foamAmount;
+
     // 远处泡沫细节纹理欠采样 → 摩尔纹。按相机距离把泡沫细节淡出，
     // 远处只保留状态场的低频泡沫（本身平滑，不走样）。
     float foamCamDist = length(fragWorldPosition - camera.cameraWorldPosition.xyz);
     float foamDetailFade = 1.0 - smoothstep(300.0, 1200.0, foamCamDist);
-    detailCoverage *= foamDetailFade;
-    breakup = mix(1.0, breakup, foamDetailFade);
+
+    // 远处只淡出孔洞/法线/破碎细节，不淡出宏观白色泡沫覆盖。
+    // fade=0 时 detailCoverage=1，表示远处不再挖孔，保留连续白色潮线。
+    float filteredDetailCoverage = mix(1.0, detailCoverage, foamDetailFade);
+    float filteredBreakup = mix(1.0, breakup, foamDetailFade);
 
     // FF MF_FluidFoamShallow：水膜极薄处（刚上岸的湿沙）淡出泡沫
     float foamWaterDepth = max(fragWorldPosition.y - fragShore.a, 0.0);
     float shallowFactor = FluxFoamShallow(
-        detailCoverage, foamWaterDepth,
+        filteredDetailCoverage, foamWaterDepth,
         foam.foamShallow.x, foam.foamShallow.y);
     float shallowResult = foamAmount * shallowFactor;
 
     // 硬核：泡沫贴图高度超过动态阈值的部分 → 不透明白沫 + 法线扰动
     float opacityTop = FluxFoamHardness(
         shallowResult, foam.foamShallow.z, foam.foamShallow.w);
-    float hardFoam = clamp(detailCoverage - opacityTop, 0.0, 1.0);
+    float hardFoam = clamp(filteredDetailCoverage - opacityTop, 0.0, 1.0);
 
     // 软晕：随流速变宽的弥散薄沫（FF Opacity_Bottom × Advect_Soft）
     float softWidth = min(
         foam.foamSoft.z,
         length(foamVelocity) * foam.foamSoft.x + foam.foamSoft.y);
-    float softFoam = softWidth * (foamAmount + 1.0) * shallowResult * breakup;
-
-    // 远处只保留最浓的泡沫（主潮线），稀薄泡沫淡出，避免远处一片杂音
-    hardFoam *= foamDetailFade;
-    softFoam *= foamDetailFade * foamDetailFade;   // 软晕衰减更快
+    float softFoam = softWidth * (foamAmount + 1.0) * shallowResult * filteredBreakup;
 
     // FF: pow(·, 0.45) 抬升低值 → 软边大幅变宽，这就是"上岸渐渐散开"
-    float finalFoam = clamp(foam.foamSoft.w * max(hardFoam, softFoam), 0.0, 1.0);
-    finalFoam = pow(finalFoam, 0.45);
+    // 不对含高频细节的最终泡沫做 pow(0.45)，否则 0.01→0.126，
+    // 会把欠采样噪声整体抬亮成大面积摩尔纹。
+    float farMacroFoam = smoothstep(0.08, 0.35, macroFoam);
+    float nearDetailedFoam = clamp(max(hardFoam, softFoam), 0.0, 1.0);
+
+    float finalFoam = clamp(
+        foam.foamSoft.w *
+        mix(farMacroFoam, max(farMacroFoam, nearDetailedFoam), foamDetailFade),
+        0.0,
+        1.0);
 
     // FF OpacityMask：只有硬核参与法线/粗糙度，软晕不弄毛水面
     float foamNormalMask = clamp(hardFoam * 3.0, 0.0, 1.0);
@@ -316,10 +365,13 @@ void main()
         // 利用泡沫细节纹理的法线信息，对基础法线进行微观扰动
         // detailNormal.xy 是泡沫细节纹理中的法线扰动向量（范围为 [-1, 1]）
         // foam.appearance.z 是法线扰动强度，控制凹凸的明显程度
+        // 法线扰动强度随距离衰减：远处泡沫纹理欠采样会产生编织状摩尔纹。
+        // 并整体压低，法线细节过强本身就是摩尔纹主因。
+        float normalStrength = foam.appearance.z * foamDetailFade * 0.5;
         vec3 foamPerturbedNormal = normalize(
             baseNormal +
-            tangent * detailNormal.x * foam.appearance.z +
-            bitangent * detailNormal.y * foam.appearance.z
+            tangent * detailNormal.x * normalStrength +
+            bitangent * detailNormal.y * normalStrength
         );
 
         // 根据泡沫覆盖率 finalFoam 在平滑水面法线和粗糙泡沫法线之间插值
@@ -461,16 +513,9 @@ void main()
         // 泡沫覆盖
         // FF: lerp(FoamWetColor, _FoamColorBase, saturate(Foam * _FoamSoftIntensity))
         // 钱塘江泡沫：亮白略偏暖。不掺泥沙色（泥沙只染泡沫"周围的水"，不染泡沫本体）
-        vec3 foamBright = vec3(0.95, 0.95, 0.93);
-        // 薄沫略透出下面的浑水色，浓沫纯白
-        vec3 foamColor = mix(material.sedimentColor.rgb * 1.3 + 0.3,
-                             foamBright,
-                             clamp(foamAmount * 1.5, 0.0, 1.0));
-        // 硬核叠加贴图细节的高光颗粒感
-        foamColor = mix(foamColor, foamBright, foamNormalMask);
-        // 泡沫区不叠加水体泥沙暗化：泡沫浮在表面
+        vec3 foamBright = vec3(0.96, 0.95, 0.92);
+        vec3 foamColor = foamBright;
         litColor = mix(litColor, foamColor, finalFoam);
-        // （若仍偏灰，把 e 的 churn 泥沙也按 (1-finalFoam) 抑制，见下）
 
         // ===== 7. 上岸渐隐已不再需要（真实地形通过 alpha 透出）=====
 
@@ -493,7 +538,7 @@ void main()
         // 泡沫是不透明白沫，不能让河床透过来
         waterAlpha = max(waterAlpha, finalFoam);
 
-        outColor = vec4(litColor, waterAlpha);
+        outColor = vec4(litColor, waterAlpha * waterCoverage);
         return;
     }
 

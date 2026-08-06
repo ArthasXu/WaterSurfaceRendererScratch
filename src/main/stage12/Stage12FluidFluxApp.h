@@ -100,13 +100,13 @@ private:
 
     struct BoreProfileGuiParams
     {
-        float waterRiseHeight = 5.0f;
-        float riseWidth = 32.0f;
+        float waterRiseHeight = 1.8f;
+        float riseWidth = 80.0f;
         float fixedPhase = 0.60f;
         float profileWidthScale = 0.0f;
-        float globalAmplitude = 0.6f;
-        float forwardScale = 2.0f;
-        float upwardScale = 3.0f;
+        float globalAmplitude = 1.0f;
+        float forwardScale = 0.35f;
+        float upwardScale = 1.2f;
         float activeRegionMask = 1.0f;
         glm::vec4 suppression{0.20f, 0.35f, 0.80f, 0.0f};
     };
@@ -114,10 +114,10 @@ private:
     struct FoamGuiParams
     {
         float animationCycle = 4.0f;
-        float detailWorldScale = 1.0f;
-        glm::vec4 sourceStrength{1.0f, 0.35f, 0.45f, 0.75f};
-        glm::vec4 thresholds{0.28f, 0.70f, 0.04f, 0.30f};
-        glm::vec4 appearance{0.60f, 0.15f, 0.35f, 0.25f};
+        float detailWorldScale = 0.025f; // 1/40m：泡沫细节每 40m 重复一次，避免厘米级纹理摩尔纹
+        glm::vec4 sourceStrength{1.4f, 0.15f, 0.20f, 1.2f};
+        glm::vec4 thresholds{0.20f, 0.58f, 0.08f, 0.35f};
+        glm::vec4 appearance{0.60f, 0.15f, 0.0f, 0.25f};
         float stateGain = 1.8f;
         float stateDecay = 0.45f;
         float stateDiffusion = 0.02f;
@@ -132,9 +132,9 @@ private:
         float foamHardnessIntensity = 0.5f; // FF _FoamHardnessIntensity
         float foamHardnessWidth = 0.2f;     // FF _FoamHardnessWidth
         float foamSoftVelocity = 0.5f;      // 软晕随流速加宽
-        float foamSoftBase = 0.0f;          // 软晕基底宽度
+        float foamSoftBase = 1.1f;          // 软晕基底宽度
         float foamSoftMax = 1.0f;           // 软晕上限
-        float foamAlpha = 0.7f;             // FF _FoamColorBase.a：泡沫总不透明度
+        float foamAlpha = 0.85f;            // FF _FoamColorBase.a：泡沫总不透明度
     };
 
     struct WaterMaterialGuiParams
@@ -192,7 +192,7 @@ private:
     {
         glm::vec2 rootCenter{0.0f};
         float rootSize = 16384.0f;
-        int maxLevel = 10;
+        int maxLevel = 8;
         int patchCellCount = 32;
         float fovYDegrees = 45.0f;
         float splitPixels = 9.0f;
@@ -209,7 +209,7 @@ private:
         float maxSpawnInterval = 60.0f;
         float retryMinInterval = 0.5f;
         float retryMaxInterval = 1.0f;
-        float baseSpeed = 32.0f;
+        float baseSpeed = 48.0f;
         float removeMargin = 120.0f;
         float minimumSeparationPadding = 10.0f;
         float lateralExtent = 0.85f;   // 潮头横向覆盖到河宽的百分比
@@ -224,16 +224,16 @@ private:
 
     struct CrestNoiseGuiParams
     {
-        float lateralFrequency = 12.0f;  // 横向(河宽)团块数
+        float lateralFrequency = 2.4f;   // 横向(河宽)团块数
         float alongFrequencyX = 0.0f;    // 沿河频率(x轴)
-        float alongFrequencyY = 0.07f;   // 沿河频率(y轴)
+        float alongFrequencyY = 0.0f;    // 沿河频率(y轴)
         float animationSpeed = 0.0f;     // 随潮头推进的流动速度
-        float detailFrequency = 16.0f;   // 细碎波动频率
+        float detailFrequency = 4.0f;    // 细碎波动频率
         float detailWeight = 0.0f;       // 大/细占比 [0,1]
-        float amplitudeMin = 1.0f;       // 振幅下限
-        float amplitudeMax = 2.5f;       // 振幅上限
-        float wobbleStrength = 0.12f;    // 浪脊顶抖强度
-        float wobbleFrequency = 1.0f;    // 浪脊顶抖频率
+        float amplitudeMin = 0.82f;      // 振幅下限
+        float amplitudeMax = 1.18f;      // 振幅上限
+        float wobbleStrength = 0.0f;     // 浪脊顶抖强度
+        float wobbleFrequency = 0.0f;    // 浪脊顶抖频率
     };
 
 private:
@@ -455,7 +455,7 @@ private:
     water::RiverSpline m_RiverSpline;
     std::unique_ptr<water::RiverField> m_RiverField;
     float m_RiverLength = 0.0f;
-    float m_RiverBoreCurvatureMeters = 0.0f;
+    float m_RiverBoreCurvatureMeters = 28.0f;
 
     water::Heightmap m_TerrainHeightmap;
     std::unique_ptr<water::WaterGrid> m_TerrainGrid;

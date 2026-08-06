@@ -10,7 +10,8 @@ public:
     WaterSampler(
         VkDevice device, 
         VkFilter filter,
-        VkSamplerAddressMode addressMode = VK_SAMPLER_ADDRESS_MODE_REPEAT
+        VkSamplerAddressMode addressMode = VK_SAMPLER_ADDRESS_MODE_REPEAT,
+        float maxLod = 0.0f
     );
     ~WaterSampler();
 

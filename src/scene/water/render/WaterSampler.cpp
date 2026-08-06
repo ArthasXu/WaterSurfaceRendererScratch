@@ -7,7 +7,8 @@ namespace water
 WaterSampler::WaterSampler(
     VkDevice device,
     VkFilter filter,
-    VkSamplerAddressMode addressMode
+    VkSamplerAddressMode addressMode,
+    float maxLod
 )
     : m_Device(device)
 {
@@ -15,7 +16,9 @@ WaterSampler::WaterSampler(
     samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
     samplerInfo.magFilter = filter;
     samplerInfo.minFilter = filter;
-    samplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+    samplerInfo.mipmapMode = maxLod > 0.0f
+        ? VK_SAMPLER_MIPMAP_MODE_LINEAR
+        : VK_SAMPLER_MIPMAP_MODE_NEAREST;
 
     // 控制的是当纹理坐标（UV）超出 0 到 1 范围时，GPU 如何读取纹理
     // VK_SAMPLER_ADDRESS_MODE_REPEAT：纹理坐标超出范围时，会重复使用纹理的边缘像素。
@@ -28,7 +31,7 @@ WaterSampler::WaterSampler(
 
     samplerInfo.mipLodBias = 0.0f;
     samplerInfo.minLod = 0.0f;
-    samplerInfo.maxLod = 0.0f;
+    samplerInfo.maxLod = maxLod;
 
     samplerInfo.anisotropyEnable = VK_FALSE;
     samplerInfo.maxAnisotropy = 1.0f;
