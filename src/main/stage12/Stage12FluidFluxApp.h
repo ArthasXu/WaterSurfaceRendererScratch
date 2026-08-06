@@ -201,6 +201,28 @@ private:
         float maxY = 20.0f;
     };
 
+    struct CrestRibbonGuiParams
+    {
+        bool enabled = true;
+        int lateralSegments = 384;          // 横向分段：越高越平滑，384 对 16km 江面够用
+        int depthSegments = 6;              // 前后方向分段：6~8 即可
+        float frontWidth = 18.0f;           // 潮头前方覆盖宽度(米)
+        float wakeWidth = 220.0f;           // 潮头后方白水带宽度(米)
+        float heightOffset = 0.22f;         // 整体抬离水面，避免 z-fighting
+        float crestHeightOffset = 0.55f;    // 主脊额外高度
+        float alpha = 0.92f;                // 主潮脊不透明度
+        float edgeFade = 0.12f;             // 两岸淡出宽度（归一化横向）
+    };
+
+    struct CrestRibbonVertex
+    {
+        glm::vec4 positionAlpha; // xyz=world position, w=alpha
+        glm::vec4 param;         // x=lateral[-1,1], y=depth01, z=signedDistance, w=randomSeed
+
+        static VkVertexInputBindingDescription GetBindingDescription();
+        static std::array<VkVertexInputAttributeDescription, 2> GetAttributeDescriptions();
+    };
+
     struct MultiBoreGuiParams
     {
         bool enabled = true;
@@ -288,6 +310,11 @@ private:
     void CreateFoamComputeDescriptorSets();
     void InitializeFoamStateImages();
     void RecordFoamSimulation(VkCommandBuffer commandBuffer, uint32_t frameIndex);
+    
+    water::RiverSamplePoint SampleRiverAtProgress(float progressMeters) const;
+    void CreateCrestRibbonResources();
+    void UpdateCrestRibbonBuffer(uint32_t frameIndex);
+    void DrawCrestRibbon(VkCommandBuffer commandBuffer, uint32_t currentFrame);
     
     void UpdateCamera(float deltaTime);        // 处理键盘输入（WASD/Space/LCtrl）移动相机
     void UpdateCameraUniformBuffer(uint32_t frameIndex); // 写入当前帧的 CameraUBO（MVP 矩阵 + 调试模式）
@@ -438,6 +465,14 @@ private:
 
     std::array<std::unique_ptr<water::ComputeImage2D>, 2> m_FoamStateImages;
     std::unique_ptr<water::ComputeImage2D> m_FoamSourceVelocityImage;
+
+    CrestRibbonGuiParams m_CrestRibbonGui{};
+
+    std::vector<std::unique_ptr<vkp::Buffer>> m_CrestRibbonVertexBuffers;
+    uint32_t m_CrestRibbonVertexCapacity = 0;
+    uint32_t m_CrestRibbonVertexCount = 0;
+
+    std::unique_ptr<vkp::Pipeline> m_CrestRibbonPipeline;
 
     std::vector<std::unique_ptr<vkp::Buffer>> m_FoamSimulationUniformBuffers;
 
