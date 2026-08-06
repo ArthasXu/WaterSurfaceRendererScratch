@@ -171,9 +171,11 @@ void main()
         1.0 - smoothstep(foam.runtime.z, foam.runtime.w, oceanFoamCameraDist);
     globalOceanFoam *= oceanFoamDistanceFade;
 
+    // 主潮线/白水主体由 CrestRibbon + Wake/Aeration 表现。
+    // 旧 bore foam 只保留少量用于局部破碎，避免出现一条笔直白线。
     float foamSource =
         max(
-            localBoreFoam,
+            localBoreFoam * 0.20,
             globalOceanFoam
         );
 
@@ -279,10 +281,38 @@ void main()
         : texture(foamState1, stateUV).r;
 
     float foamAmount =
-        clamp(SoftUnion(foamSource, stateFoam * foam.appearance.w), 0.0, 1.0);
+        clamp(SoftUnion(foamSource * 0.35, stateFoam * foam.appearance.w), 0.0, 1.0);
 
     // 宏观泡沫覆盖：远处也要保留，不能被细节 fade 清零
     float macroFoam = foamAmount;
+
+    float boreBehind =
+        max(-fragBoreRibbon.x, 0.0);
+
+    float analyticWake =
+        smoothstep(8.0, 35.0, boreBehind) *
+        exp(-boreBehind / 360.0) *
+        fragBoreRibbon.w;
+
+    float wakeMacroNoise =
+        texture(
+            foamDetailTexture,
+            vec2(
+                fragBoreRibbon.y * 0.18 + fragBoreRibbon.z * 9.1,
+                boreBehind * 0.010 + fragBoreRibbon.z * 4.7
+            )
+        ).r;
+
+    float aeration =
+        analyticWake *
+        smoothstep(0.28, 0.72, wakeMacroNoise);
+
+    foamAmount =
+        clamp(
+            SoftUnion(foamAmount, aeration * 0.75),
+            0.0,
+            1.0
+        );
     
     // 片元级潮头边缘抖动：只改变泡沫覆盖，不改变几何。
     // 大尺度 jitter 做宏观参差，小尺度 jitter 切碎边缘。
@@ -451,6 +481,14 @@ void main()
 
         vec3 waterColor = mediumColor;
 
+        // 含气白水：不是表面泡沫，而是水体内部大量气泡导致灰白、粗糙、不透明
+        waterColor =
+            mix(
+                waterColor,
+                vec3(0.72, 0.74, 0.70),
+                clamp(aeration * 0.85, 0.0, 1.0)
+            );
+
         // 钱塘江重泥沙：整体混入泥沙色，深水更浓（复用 opticalParams.w = 泥沙量）
         float sedimentDepth01 = clamp(waterDepth / max(material.shallowParams.y, 0.001), 0.0, 1.0);
         waterColor = mix(waterColor, material.sedimentColor.rgb,
@@ -498,6 +536,13 @@ void main()
             material.specularHorizon.w);
         roughness = clamp(mix(roughness, 0.3, foamNormalMask), 0.02, 1.0);
 
+        roughness =
+            mix(
+                roughness,
+                0.92,
+                clamp(aeration, 0.0, 1.0)
+            );
+
         float Dv  = D_GGX(NoH, roughness);
         float Vis = V_SmithGGX(NdotV, NoLs, roughness);
         vec3  sunColor = vec3(1.0, 0.96, 0.86);
@@ -530,6 +575,12 @@ void main()
         // 不透明度 = 1 - 亮度加权透射率（与上面的 absorption 完全同源）
         float lumT = dot(transmittance, vec3(0.2126, 0.7152, 0.0722));
         float waterAlpha = clamp(1.0 - lumT, 0.0, 1.0);
+
+        waterAlpha =
+            max(
+                waterAlpha,
+                clamp(aeration * 0.85, 0.0, 1.0)
+            );
 
         // 反射掉的能量不可能同时从水底透上来：不透明度至少等于反射比例。
         // 这让浅水在掠射角呈现镜面天空反射（图二的湿沙水膜），而不是半透明糊。

@@ -21,6 +21,10 @@ glslc -I shaders/water shaders/water/terrain.vert -o shaders/water/terrain.vert.
 glslc -I shaders/water shaders/water/sky.vert -o shaders/water/sky.vert.spv
 glslc -I shaders/water shaders/water/sky.frag -o shaders/water/sky.frag.spv
 
+# ===== 白色潮脊 =====
+glslc -I shaders/water shaders/water/bore_crest.vert -o shaders/water/bore_crest.vert.spv
+glslc -I shaders/water shaders/water/bore_crest.frag -o shaders/water/bore_crest.frag.spv
+
 
 增量编译
 cmake --build build --config Debug --parallel         
