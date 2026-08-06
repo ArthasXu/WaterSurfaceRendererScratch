@@ -199,6 +199,7 @@ void Stage12FluidFluxApp::Start()
 
     CreateUniformBuffers();
     CreateTileInstanceBuffers();
+    CreateCrestRibbonResources();
 
     CreateDescriptorPool();
     CreateAppearanceDescriptorPool();
@@ -226,14 +227,13 @@ void Stage12FluidFluxApp::ShutdownApp()
 
     m_SolidPipeline.reset();
     m_WireframePipeline.reset();
-
     m_FoamSourcePipeline.reset();
     m_FoamAdvectPipeline.reset();
-
     m_TerrainPipeline.reset(); 
     m_TerrainGrid.reset();
-
     m_SkyPipeline.reset();
+    m_CrestRibbonPipeline.reset();
+    m_CrestRibbonVertexBuffers.clear();
 
     m_DescriptorSets.clear();
     m_AppearanceDescriptorSets.clear();
@@ -287,6 +287,34 @@ void Stage12FluidFluxApp::ShutdownApp()
     m_WaterQuadtree.reset();
     m_WaterPatchMesh.reset();
     m_RiverField.reset();
+}
+
+VkVertexInputBindingDescription
+Stage12FluidFluxApp::CrestRibbonVertex::GetBindingDescription()
+{
+    VkVertexInputBindingDescription binding{};
+    binding.binding = 0;
+    binding.stride = sizeof(CrestRibbonVertex);
+    binding.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+    return binding;
+}
+
+std::array<VkVertexInputAttributeDescription, 2>
+Stage12FluidFluxApp::CrestRibbonVertex::GetAttributeDescriptions()
+{
+    std::array<VkVertexInputAttributeDescription, 2> attributes{};
+
+    attributes[0].binding = 0;
+    attributes[0].location = 0;
+    attributes[0].format = VK_FORMAT_R32G32B32A32_SFLOAT;
+    attributes[0].offset = offsetof(CrestRibbonVertex, positionAlpha);
+
+    attributes[1].binding = 0;
+    attributes[1].location = 1;
+    attributes[1].format = VK_FORMAT_R32G32B32A32_SFLOAT;
+    attributes[1].offset = offsetof(CrestRibbonVertex, param);
+
+    return attributes;
 }
 
 void Stage12FluidFluxApp::CreatePipelines()
@@ -343,6 +371,42 @@ void Stage12FluidFluxApp::CreatePipelines()
             wireframeConfig
         );
     }
+
+    // 泡沫源管线
+    vkp::PipelineConfig crestRibbonConfig{};
+    crestRibbonConfig.descriptorSetLayouts = {
+        *m_DescriptorSetLayout,
+        *m_AppearanceDescriptorSetLayout
+    };
+
+    auto crestBinding =
+        CrestRibbonVertex::GetBindingDescription();
+
+    auto crestAttributes =
+        CrestRibbonVertex::GetAttributeDescriptions();
+
+    crestRibbonConfig.bindingDescriptions = {crestBinding};
+    crestRibbonConfig.attributeDescriptions = {
+        crestAttributes[0],
+        crestAttributes[1]
+    };
+
+    crestRibbonConfig.depthTestEnable = true;
+    crestRibbonConfig.depthWriteEnable = false;
+    crestRibbonConfig.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
+    crestRibbonConfig.blendEnable = true;
+    crestRibbonConfig.cullMode = VK_CULL_MODE_NONE;
+    crestRibbonConfig.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+    crestRibbonConfig.polygonMode = VK_POLYGON_MODE_FILL;
+
+    m_CrestRibbonPipeline =
+        std::make_unique<vkp::Pipeline>(
+            GetDevice(),
+            GetRenderPass(),
+            "shaders/water/bore_crest.vert.spv",
+            "shaders/water/bore_crest.frag.spv",
+            crestRibbonConfig
+        );
 
     // 水面地形管线
     vkp::PipelineConfig terrainConfig{};
@@ -1288,6 +1352,40 @@ void Stage12FluidFluxApp::CreateTileInstanceBuffers()
     }
 }
 
+void Stage12FluidFluxApp::CreateCrestRibbonResources()
+{
+    const uint32_t maxLateralSegments = 512;
+    const uint32_t maxDepthSegments = 8;
+
+    m_CrestRibbonVertexCapacity =
+        water::kMaxBoreEvents *
+        maxLateralSegments *
+        maxDepthSegments *
+        6;
+
+    m_CrestRibbonVertexBuffers.clear();
+    m_CrestRibbonVertexBuffers.reserve(GetMaxFramesInFlight());
+
+    VkDeviceSize bufferSize =
+        sizeof(CrestRibbonVertex) *
+        m_CrestRibbonVertexCapacity;
+
+    for(uint32_t i = 0; i < GetMaxFramesInFlight(); ++i){
+        auto buffer =
+            std::make_unique<vkp::Buffer>(
+                GetPhysicalDevice(),
+                GetDevice(),
+                bufferSize,
+                VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+                VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                    VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
+            );
+
+        buffer->Map();
+        m_CrestRibbonVertexBuffers.push_back(std::move(buffer));
+    }
+}
+
 void Stage12FluidFluxApp::CreateDescriptorPool()
 {
     m_DescriptorPool = vkp::DescriptorPool::Builder(GetDevice())
@@ -1932,6 +2030,7 @@ void Stage12FluidFluxApp::PrepareFrame(uint32_t frameIndex, uint32_t imageIndex)
 
     UpdateQuadtree(); // Tile 可见性依赖当前帧相机
     UpdateTileInstanceBuffer(frameIndex);
+    UpdateCrestRibbonBuffer(frameIndex);
 }
 
 void Stage12FluidFluxApp::UpdateCameraUniformBuffer(uint32_t frameIndex)
@@ -2671,6 +2770,71 @@ bool Stage12FluidFluxApp::ClassifyRiverTile(
     return tile.intersectsWater;
 }
 
+water::RiverSamplePoint Stage12FluidFluxApp::SampleRiverAtProgress(
+    float progressMeters
+) const
+{
+    const std::vector<water::RiverSamplePoint>& samples =
+        m_RiverSpline.GetSamples();
+
+    if(samples.empty()){
+        water::RiverSamplePoint fallback{};
+        fallback.position = glm::vec2(0.0f);
+        fallback.tangent = glm::vec2(1.0f, 0.0f);
+        fallback.progressMeters = 0.0f;
+        fallback.halfWidth = 100.0f;
+        fallback.boreAmplitude = 1.0f;
+        fallback.curvatureWeight = 0.0f;
+        return fallback;
+    }
+
+    progressMeters =
+        glm::clamp(
+            progressMeters,
+            samples.front().progressMeters,
+            samples.back().progressMeters
+        );
+
+    auto it = std::lower_bound(
+        samples.begin(),
+        samples.end(),
+        progressMeters,
+        [](const water::RiverSamplePoint& sample, float value){
+            return sample.progressMeters < value;
+        }
+    );
+
+    if(it == samples.begin()){
+        return samples.front();
+    }
+
+    if(it == samples.end()){
+        return samples.back();
+    }
+
+    const water::RiverSamplePoint& b = *it;
+    const water::RiverSamplePoint& a = *(it - 1);
+
+    float denom =
+        glm::max(b.progressMeters - a.progressMeters, 0.001f);
+
+    float t =
+        glm::clamp(
+            (progressMeters - a.progressMeters) / denom,
+            0.0f,
+            1.0f
+        );
+
+    water::RiverSamplePoint result{};
+    result.position = glm::mix(a.position, b.position, t);
+    result.tangent = glm::normalize(glm::mix(a.tangent, b.tangent, t));
+    result.progressMeters = progressMeters;
+    result.halfWidth = glm::mix(a.halfWidth, b.halfWidth, t);
+    result.boreAmplitude = glm::mix(a.boreAmplitude, b.boreAmplitude, t);
+    result.curvatureWeight = glm::mix(a.curvatureWeight, b.curvatureWeight, t);
+    return result;
+}
+
 // 强制河岸区域使用高 LOD, 为河岸 Tile 指定最低 LOD 层级
     // coarse tile 先至少分到 Level 4
     // 岸边至少 Level 5
@@ -2858,6 +3022,250 @@ void Stage12FluidFluxApp::UpdateTileInstanceBuffer(
     );
 }
 
+void Stage12FluidFluxApp::UpdateCrestRibbonBuffer(uint32_t frameIndex)
+{
+    m_CrestRibbonVertexCount = 0;
+
+    if(!m_CrestRibbonGui.enabled || !m_CrestRibbonVertexBuffers[frameIndex]){
+        return;
+    }
+
+    int lateralSegments =
+        glm::clamp(m_CrestRibbonGui.lateralSegments, 16, 512);
+
+    int depthSegments =
+        glm::clamp(m_CrestRibbonGui.depthSegments, 2, 8);
+
+    std::vector<CrestRibbonVertex> vertices;
+    vertices.reserve(
+        static_cast<size_t>(water::kMaxBoreEvents) *
+        lateralSegments *
+        depthSegments *
+        6
+    );
+
+    auto makeVertex =
+        [&](const water::BoreEvent& event,
+            float lateralNorm,
+            float depth01) -> CrestRibbonVertex
+        {
+            float localS =
+                glm::mix(
+                    -m_CrestRibbonGui.wakeWidth,
+                    m_CrestRibbonGui.frontWidth,
+                    depth01
+                );
+
+            float normalizedLateral =
+                glm::clamp(lateralNorm, -1.0f, 1.0f);
+
+            float curveOffset =
+                m_RiverBoreCurvatureMeters *
+                event.curvatureScale *
+                (normalizedLateral * normalizedLateral - 0.20f);
+
+            float progress =
+                event.progressMeters +
+                localS +
+                curveOffset;
+
+            water::RiverSamplePoint sample =
+                SampleRiverAtProgress(progress);
+
+            glm::vec2 side =
+                glm::normalize(glm::vec2(
+                    -sample.tangent.y,
+                     sample.tangent.x
+                ));
+
+            float halfWidth =
+                sample.halfWidth *
+                m_MultiBoreGui.lateralExtent;
+
+            glm::vec2 worldXZ =
+                sample.position +
+                side * normalizedLateral * halfWidth;
+
+            float edgeAlpha =
+                1.0f -
+                glm::smoothstep(
+                    m_MultiBoreGui.lateralExtent - m_CrestRibbonGui.edgeFade,
+                    m_MultiBoreGui.lateralExtent,
+                    std::abs(normalizedLateral)
+                );
+
+            float crestShape =
+                std::exp(
+                    -(localS * localS) /
+                    glm::max(
+                        2.0f *
+                        m_BoreProfileConfig.crestWidth *
+                        m_BoreProfileConfig.crestWidth,
+                        0.001f
+                    )
+                );
+
+            float wakeShape =
+                localS < 0.0f
+                ? std::exp(localS / glm::max(m_CrestRibbonGui.wakeWidth * 0.55f, 1.0f))
+                : 0.0f;
+
+            float alpha =
+                m_CrestRibbonGui.alpha *
+                edgeAlpha *
+                glm::clamp(
+                    glm::max(crestShape, wakeShape * 0.55f),
+                    0.0f,
+                    1.0f
+                );
+
+            float y =
+                m_WaterMaterialGui.waterLevel +
+                m_BoreProfileGui.waterRiseHeight +
+                m_CrestRibbonGui.heightOffset +
+                m_CrestRibbonGui.crestHeightOffset * crestShape;
+
+            CrestRibbonVertex vertex{};
+            vertex.positionAlpha =
+                glm::vec4(worldXZ.x, y, worldXZ.y, alpha);
+            vertex.param =
+                glm::vec4(
+                    normalizedLateral,
+                    depth01,
+                    localS,
+                    static_cast<float>(event.seed) / 4294967295.0f
+                );
+
+            return vertex;
+        };
+
+    const std::vector<water::BoreEvent>& events =
+        m_BoreEventManager.GetActiveEvents();
+
+    for(const water::BoreEvent& event : events){
+        if(!event.active){
+            continue;
+        }
+
+        for(int z = 0; z < depthSegments; ++z){
+            float v0 = static_cast<float>(z) /
+                static_cast<float>(depthSegments);
+            float v1 = static_cast<float>(z + 1) /
+                static_cast<float>(depthSegments);
+
+            for(int x = 0; x < lateralSegments; ++x){
+                float u0 =
+                    glm::mix(
+                        -m_MultiBoreGui.lateralExtent,
+                         m_MultiBoreGui.lateralExtent,
+                        static_cast<float>(x) /
+                            static_cast<float>(lateralSegments)
+                    );
+
+                float u1 =
+                    glm::mix(
+                        -m_MultiBoreGui.lateralExtent,
+                         m_MultiBoreGui.lateralExtent,
+                        static_cast<float>(x + 1) /
+                            static_cast<float>(lateralSegments)
+                    );
+
+                CrestRibbonVertex a = makeVertex(event, u0, v0);
+                CrestRibbonVertex b = makeVertex(event, u1, v0);
+                CrestRibbonVertex c = makeVertex(event, u1, v1);
+                CrestRibbonVertex d = makeVertex(event, u0, v1);
+
+                vertices.push_back(a);
+                vertices.push_back(b);
+                vertices.push_back(c);
+
+                vertices.push_back(a);
+                vertices.push_back(c);
+                vertices.push_back(d);
+            }
+        }
+    }
+
+    m_CrestRibbonVertexCount =
+        static_cast<uint32_t>(
+            std::min<size_t>(
+                vertices.size(),
+                m_CrestRibbonVertexCapacity
+            )
+        );
+
+    if(m_CrestRibbonVertexCount == 0){
+        return;
+    }
+
+    m_CrestRibbonVertexBuffers[frameIndex]->CopyToMapped(
+        vertices.data(),
+        sizeof(CrestRibbonVertex) * m_CrestRibbonVertexCount
+    );
+}
+
+void Stage12FluidFluxApp::DrawCrestRibbon(
+    VkCommandBuffer commandBuffer,
+    uint32_t currentFrame
+)
+{
+    if(!m_CrestRibbonPipeline ||
+       m_CrestRibbonVertexCount == 0 ||
+       !m_CrestRibbonVertexBuffers[currentFrame]){
+        return;
+    }
+
+    vkCmdBindPipeline(
+        commandBuffer,
+        VK_PIPELINE_BIND_POINT_GRAPHICS,
+        *m_CrestRibbonPipeline
+    );
+
+    vkCmdBindDescriptorSets(
+        commandBuffer,
+        VK_PIPELINE_BIND_POINT_GRAPHICS,
+        m_CrestRibbonPipeline->GetLayout(),
+        0,
+        1,
+        &m_DescriptorSets[currentFrame],
+        0,
+        nullptr
+    );
+
+    vkCmdBindDescriptorSets(
+        commandBuffer,
+        VK_PIPELINE_BIND_POINT_GRAPHICS,
+        m_CrestRibbonPipeline->GetLayout(),
+        1,
+        1,
+        &m_AppearanceDescriptorSets[currentFrame],
+        0,
+        nullptr
+    );
+
+    VkBuffer vertexBuffers[] = {
+        *m_CrestRibbonVertexBuffers[currentFrame]
+    };
+
+    VkDeviceSize offsets[] = {0};
+
+    vkCmdBindVertexBuffers(
+        commandBuffer,
+        0,
+        1,
+        vertexBuffers,
+        offsets
+    );
+
+    vkCmdDraw(
+        commandBuffer,
+        m_CrestRibbonVertexCount,
+        1,
+        0,
+        0
+    );
+}
+
 void Stage12FluidFluxApp::DrawQuadtreeTiles(
     VkCommandBuffer commandBuffer
 )
@@ -3016,6 +3424,8 @@ void Stage12FluidFluxApp::Render(VkCommandBuffer commandBuffer, uint32_t imageIn
     // 因此地形绘制（会切换到 m_TerrainPipeline）必须放在水体 tile 之后。
     DrawQuadtreeTiles(commandBuffer);
 
+    DrawCrestRibbon(commandBuffer, currentFrame);
+
     if(m_GuiEnabled){
         DrawGui();
         gui::Render(commandBuffer);
@@ -3102,7 +3512,7 @@ void Stage12FluidFluxApp::DrawGui()
             m_StepOnce = true;
         }
         ImGui::Checkbox("Bore Paused - 暂停潮头推进时间", &m_BorePaused);
-        
+
         ImGui::Checkbox("FFT Enabled - 开关背景 FFT 海浪", &m_FFTEnabled);
         ImGui::Checkbox("Bore Enabled - 开关一线潮整体位移", &m_BoreEnabled);
         ImGui::Checkbox("Profile Enabled - 开关 Wave Profile 剖面效果", &m_ProfileEnabled);
@@ -3228,6 +3638,18 @@ void Stage12FluidFluxApp::DrawGui()
         ImGui::SliderFloat("Soft Base - 软晕基底", &m_FoamGui.foamSoftBase, 0.0f, 2.0f);
         ImGui::SliderFloat("Soft Max - 软晕上限", &m_FoamGui.foamSoftMax, 0.0f, 3.0f);
         ImGui::SliderFloat("Foam Alpha - 泡沫总不透明度", &m_FoamGui.foamAlpha, 0.0f, 1.0f);
+    }
+
+    if(ImGui::CollapsingHeader("Crest Ribbon - 独立白色潮脊")){
+        ImGui::Checkbox("Enable Crest Ribbon - 启用浪脊带", &m_CrestRibbonGui.enabled);
+        ImGui::SliderInt("Ribbon Lateral Segments - 横向分段数", &m_CrestRibbonGui.lateralSegments, 64, 512);
+        ImGui::SliderInt("Ribbon Depth Segments - 纵向分段数", &m_CrestRibbonGui.depthSegments, 2, 8);
+        ImGui::SliderFloat("Ribbon Front Width - 浪脊前缘宽度", &m_CrestRibbonGui.frontWidth, 2.0f, 60.0f);
+        ImGui::SliderFloat("Ribbon Wake Width - 浪脊尾迹宽度", &m_CrestRibbonGui.wakeWidth, 40.0f, 500.0f);
+        ImGui::SliderFloat("Ribbon Height Offset - 高度偏移", &m_CrestRibbonGui.heightOffset, 0.0f, 2.0f);
+        ImGui::SliderFloat("Ribbon Crest Height Offset - 浪峰高度偏移", &m_CrestRibbonGui.crestHeightOffset, 0.0f, 3.0f);
+        ImGui::SliderFloat("Ribbon Alpha - 透明度", &m_CrestRibbonGui.alpha, 0.0f, 1.0f);
+        ImGui::SliderFloat("Ribbon Edge Fade - 边缘淡出", &m_CrestRibbonGui.edgeFade, 0.01f, 0.4f);
     }
 
     if(ImGui::CollapsingHeader("Water Material - 水体材质：控制颜色、反射、高光、泥沙和远景雾")){

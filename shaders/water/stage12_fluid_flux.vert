@@ -1030,7 +1030,7 @@ void main(){
     
     // 开启 Skirt 裙边向下拉，遮住 LOD 接缝
     // if(false && inSkirt > 0.5){
-    if(inSkirt > 0.5){
+    if(false && inSkirt > 0.5){
         worldPosition.y -= 15.0;
     }
 
