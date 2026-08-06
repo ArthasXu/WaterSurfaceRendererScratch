@@ -28,8 +28,12 @@ ShoreFieldData BakeShoreField(
     data.riverLength = spline.GetLength();
     data.field.resize(config.resolution * config.resolution);
 
-    for(uint32_t y = 0; y < config.resolution; ++y){
-        for(uint32_t x = 0; x < config.resolution; ++x){
+    const unsigned int threadCount =
+        std::max(1u, std::thread::hardware_concurrency());
+
+    auto worker = [&](uint32_t yBegin, uint32_t yEnd){
+        for(uint32_t y = yBegin; y < yEnd; ++y){
+            for(uint32_t x = 0; x < config.resolution; ++x){
             float u = (static_cast<float>(x) + 0.5f) / static_cast<float>(config.resolution);
             float v = (static_cast<float>(y) + 0.5f) / static_cast<float>(config.resolution);
 
@@ -80,8 +84,19 @@ ShoreFieldData BakeShoreField(
                 sand,           // B
                 terrainHeight   // A
             );
+            }
         }
+    };
+
+    std::vector<std::thread> pool;
+    uint32_t rowsPerThread = (config.resolution + threadCount - 1) / threadCount;
+    for(unsigned int t = 0; t < threadCount; ++t){
+        uint32_t yBegin = t * rowsPerThread;
+        uint32_t yEnd = std::min(yBegin + rowsPerThread, config.resolution);
+        if(yBegin >= yEnd) break;
+        pool.emplace_back(worker, yBegin, yEnd);
     }
+    for(std::thread& th : pool) th.join();
 
     return data;
 }

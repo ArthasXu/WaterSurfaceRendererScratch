@@ -33,7 +33,7 @@ private:
     // 河流中轴线控制点（GUI 可增删改）
     std::vector<water::RiverControlPoint> m_ControlPoints;
     // spline.Build 每段插值采样数，越大曲线越平滑，烘焙越慢
-    int m_SamplesPerSegment = 24;
+    int m_SamplesPerSegment = 48;
     // 场配置：世界范围/分辨率/河岸淡出
     water::RiverFieldConfig m_FieldConfig{};
     // 岸线场参数：湿润带/沙滩/岸上地形
@@ -47,7 +47,7 @@ private:
 
     // ===== 高度图程序化生成参数 =====
     char  m_HeightmapPath[256] = "assets/terrain/heightmap.png"; // 输出路径
-    int   m_HeightmapResolution = 8192;   // 高度图分辨率(NxN)
+    int   m_HeightmapResolution = 4096;   // 高度图分辨率(NxN)
     float m_HmBankRunout = 400.0f;        // 岸上地形爬升到最高所需的离岸距离(米)
     float m_HmBankLevel  = 0.6f;          // 离岸最远处的归一化高度[0,1]
     float m_HmNoiseFreq  = 0.01f;         // 噪声频率(每米)，越大起伏越碎

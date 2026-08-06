@@ -22,19 +22,19 @@ struct BoreWaveProfileConfig
     uint32_t phaseResolution = 128;      // 相位轴(V轴)的采样点数，决定动画的帧数/平滑度
 
     // ===== 空间范围 =====
-    float profileHalfWidth = 200.0f;     // 剖面覆盖的半宽度(米)，从波前峰向前后各延伸30米
+    float profileHalfWidth = 160.0f;     // 剖面覆盖的半宽度(米)，从波前峰向前后各延伸30米
                                          // 决定了波前影响的总宽度范围
 
     // ===== 潮头主体形状 =====
-    float crestHeight = 4.0f;            // 波峰最大高度(米)，潮头最高点相对于水平面的垂直位移
-    float forwardDisplacement = 2.5f;    // 最大前向水平位移(米)，潮头向前推进时的最大推拉量
-    float crestWidth = 6.0f;             // 波峰宽度(米)，控制潮头尖峰的横向范围
-    float rearTroughDepth = 0.6f;        // 后坡波谷深度(米)，潮头后方的水面下凹程度
+    float crestHeight = 2.2f;            // 波峰最大高度(米)，潮头最高点相对于水平面的垂直位移
+    float forwardDisplacement = 0.6f;    // 最大前向水平位移(米)，潮头向前推进时的最大推拉量
+    float crestWidth = 18.0f;            // 波峰宽度(米)，控制潮头尖峰的横向范围
+    float rearTroughDepth = 0.25f;       // 后坡波谷深度(米)，潮头后方的水面下凹程度
 
     // ===== 尾迹波纹 =====
-    float trailAmplitude = 0.25f;        // 尾迹波纹的振幅(米)，潮头后方跟随的次级波纹高度
-    float trailWavelength = 12.0f;       // 尾迹波纹的波长(米)，潮后波纹的间距
-    float trailDecayLength = 22.0f;      // 尾迹波纹的衰减距离(米)，潮后波纹逐渐消失的距离
+    float trailAmplitude = 0.0f;         // 尾迹波纹的振幅(米)，潮头后方跟随的次级波纹高度
+    float trailWavelength = 28.0f;       // 尾迹波纹的波长(米)，潮后波纹的间距
+    float trailDecayLength = 150.0f;     // 尾迹波纹的衰减距离(米)，潮后波纹逐渐消失的距离
 
     // ===== 流速 =====
     float baseFlowSpeed = 7.0f;          // 基础水流速度(米/秒)，潮头本体之外的背景流速

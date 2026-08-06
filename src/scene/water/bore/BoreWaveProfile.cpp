@@ -88,10 +88,13 @@ BoreProfileRowFields GenerateProfileRow(
         life;
 
     float animatedWidth =
-        glm::mix(
-            config.crestWidth * 1.3f,
-            config.crestWidth * 0.75f,
-            breakingPhase
+        glm::max(
+            glm::mix(
+                config.crestWidth * 1.15f,
+                config.crestWidth * 0.90f,
+                breakingPhase
+            ),
+            14.0f
         );
 
     float crestCenter =
@@ -110,6 +113,13 @@ BoreProfileRowFields GenerateProfileRow(
             (u * 2.0f - 1.0f) *
             config.profileHalfWidth;
 
+        float hydraulicRise =
+            0.45f *
+            config.crestHeight *
+            life *
+            0.5f *
+            (1.0f - std::tanh(s / glm::max(config.crestWidth * 1.4f, 1.0f)));
+        
         float crest =
             animatedHeight *
             water::BoreProfileGaussian(
@@ -142,20 +152,12 @@ BoreProfileRowFields GenerateProfileRow(
                 config.trailDecayLength
             );
 
-        float trail =
-            config.trailAmplitude *
-            life *
-            trailEnvelope *
-            std::sin(
-                glm::two_pi<float>() *
-                s /
-                config.trailWavelength
-            );
+        float trail = 0.0f;
 
         row.upward[x] =
+            hydraulicRise +
             crest +
-            rearTrough +
-            trail;
+            rearTrough * 0.25f;
 
         row.forward[x] =
             config.forwardDisplacement *
@@ -291,10 +293,11 @@ BoreWaveProfileData GenerateStaticBoreWaveProfile(
                 config.trailWavelength
             );
 
+        trail = 0.0f;
+
         upward[x] =
             crest +
-            rearTrough +
-            trail;
+            rearTrough * 0.25f;
 
         forward[x] =
             config.forwardDisplacement *

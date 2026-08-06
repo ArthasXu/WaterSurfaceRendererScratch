@@ -171,6 +171,8 @@ layout(location = 13) out vec4 fragFinalDisplacement;
 layout(location = 14) out vec4 fragRiverFlow;
 layout(location = 15) out vec4 fragRiverCoord;
 layout(location = 16) out vec4 fragShore;
+layout(location = 17) out vec4 fragBoreRibbon; // x=最近潮头signedDistance y=lateral z=seed w=crestMask
+layout(location = 18) out vec2 fragBaseWorldXZ;
 
 struct CascadeSample
 {
@@ -300,6 +302,8 @@ void main(){
             0.0,
             baseWorldXZ.y
         );
+
+    fragBaseWorldXZ = baseWorldPosition.xz;
 
     // 将顶点的世界坐标映射为河流场纹理的 UV
     vec2 riverUV =
@@ -784,6 +788,10 @@ void main(){
         float waterRiseMask = 0.0;
         float activeCount = float(min(multiBore.metadata.x, multiBore.metadata.y));
 
+        float nearestAbsDistance = 1.0e9;
+        float nearestSignedDistance = 1.0e9;
+        float nearestSeed = 0.0;
+        
         for(int eventIndex = 0; eventIndex < min(multiBore.metadata.x, multiBore.metadata.y); ++eventIndex){
             BoreEventGPU event = boreEvents.events[eventIndex];
 
@@ -796,6 +804,13 @@ void main(){
             float eventHalfWidth = profileHalfWidth * eventWidthScale;
             float eventCurvatureOffset = river.bore.y * event.shape.w * riverCoord.a * lateralSquared;
             float eventSignedDistance = progressMeters - eventProgress - eventCurvatureOffset;
+            
+            if(abs(eventSignedDistance) < nearestAbsDistance){
+                nearestAbsDistance = abs(eventSignedDistance);
+                nearestSignedDistance = eventSignedDistance;
+                nearestSeed = event.appearance.z;
+            }
+
             float eventProfileU = clamp(eventSignedDistance / (2.0 * eventHalfWidth) + 0.5, 0.0, 1.0);
             float eventProfileV = clamp(event.appearance.y, 0.0, 1.0);
 
@@ -819,14 +834,12 @@ void main(){
                         eventProgress * multiBore.crestNoiseA.w + progressMeters * multiBore.crestNoiseA.z)
                 + event.appearance.z;
 
-            crestUV = fract(crestUV * 0.01) * 100.0;
-
             float crestBig    = FBM2(crestUV);                              // 大尺度起伏
             float crestDetail = FBM2(crestUV * multiBore.crestNoiseB.x);    // 细小复杂波动
             float crestField  = mix(crestBig, crestDetail, multiBore.crestNoiseB.y);
 
             // 只用大尺度起伏调制振幅，且频率必须远低于顶点密度，否则浪脊沿横向撕成锯齿三角
-            float crestField = crestBig;
+            crestField = crestBig;
             float amplitudeVariation = mix(multiBore.crestNoiseB.z, multiBore.crestNoiseB.w, crestField);
 
             float eventCommonMask = commonBoreMask;
@@ -841,10 +854,13 @@ void main(){
                 event.shape.z *
                 eventStrength;
 
+            float heightVariation = clamp(amplitudeVariation, 0.82, 1.18);
+
             float eventLocalVertical =
                 eventProfile.g *
                 upwardScale *
-                eventStrength;
+                eventStrength *
+                heightVariation;
 
             // 浪脊顶边参差：高频噪声[-1,1]只叠在波峰(eventProfile.a)附近，
             // 让"墙顶"变成起伏的浪脊，只改高度不动 signedDistance，避免撕裂
@@ -852,20 +868,25 @@ void main(){
             // 顶抖是米级高频，只有最细 tile（顶点间距 < ~8m）才扛得住。
             // 域放大后绝大多数 tile 都比这粗，一律淡出，避免锯齿三角。
             float wobbleLodFade = 1.0 - smoothstep(4.0, 16.0, tile.originSize.z);
+
             // 单层 ValueNoise：最高频就等于 crestNoiseC.y，不会像 FBM 那样再翻 16 倍
-            float crestTopWobble = (ValueNoise(crestUV * min(multiBore.crestNoiseC.y, 0.4)) - 0.5) * 2.0;
-            eventLocalVertical +=
-                crestTopWobble *
-                eventProfile.a *
-                upwardScale *
-                eventStrength *
-                multiBore.crestNoiseC.x *
-                wobbleLodFade;
+            // 几何层禁止高频顶抖：当前 maxLevel=8 约 2m/顶点，
+            // 高频随机必须转移到片元泡沫，否则必然出现尖三角和闪烁。
+            // eventLocalVertical += 0.0;
+            // float crestTopWobble = (ValueNoise(crestUV * min(multiBore.crestNoiseC.y, 0.4)) - 0.5) * 2.0;
+            // eventLocalVertical +=
+            //     crestTopWobble *
+            //     eventProfile.a *
+            //     upwardScale *
+            //     eventStrength *
+            //     multiBore.crestNoiseC.x *
+            //     wobbleLodFade;
 
             float eventDUpwardDs =
                 eventDerivative.g *
                 upwardScale *
-                eventStrength;
+                eventStrength *
+                heightVariation;
 
             float eventDForwardDs =
                 clamp(
@@ -906,6 +927,15 @@ void main(){
             float eventBreakingFoam = eventDerivative.a * eventAmplitude * eventCommonMask * event.appearance.x
                                         * mix(0.6, 1.4, crestField)
                                         * eventFrontFoamWindow;
+
+            float foamHeightResponse =
+                mix(
+                    0.90,
+                    1.15,
+                    clamp((heightVariation - 0.85) / 0.30, 0.0, 1.0)
+                );
+            eventProfileFoam *= foamHeightResponse;
+            eventBreakingFoam *= foamHeightResponse;
             
             multiProfileFoam = 1.0 - (1.0 - multiProfileFoam) * (1.0 - eventProfileFoam);
             multiBreakingFoam = 1.0 - (1.0 - multiBreakingFoam) * (1.0 - eventBreakingFoam);
@@ -920,7 +950,9 @@ void main(){
         // 那是"每隔一段时间突然涨高一个 waterRise"的根源。
         // persistent.x 由 CPU 单调维护(只增不减)，领头潮头存活期间即等于它的位置，
         // 所以台阶仍跟着领头潮头推进，但与事件集合完全解耦。
-        float persistentWidth = riseWidth;
+        // 抬升过渡带必须宽到跨越多个顶点，否则浪尾（常已出高 LOD 区、顶点稀疏）
+        // 上呈锯齿；且钱塘江潮后是大范围缓慢涨水，本就不该是一道坎。
+        float persistentWidth = max(riseWidth, profileHalfWidth) * 3.0;
         float persistentDistance = progressMeters - multiBore.persistent.x;
 
         float persistentBack =
@@ -998,7 +1030,7 @@ void main(){
     
     // 开启 Skirt 裙边向下拉，遮住 LOD 接缝
     // if(false && inSkirt > 0.5){
-    if(false && inSkirt > 0.5){
+    if(inSkirt > 0.5){
         worldPosition.y -= 15.0;
     }
 
@@ -1090,6 +1122,14 @@ void main(){
             midWeight,
             longWeight,
             backMask
+        );
+
+    fragBoreRibbon = 
+        vec4(
+            nearestSignedDistance, 
+            lateral, 
+            nearestSeed, 
+            crestMask
         );
 
     fragFinalDisplacement =

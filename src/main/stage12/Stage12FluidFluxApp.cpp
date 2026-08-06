@@ -638,7 +638,7 @@ void Stage12FluidFluxApp::CreateRiverResources()
     water::RiverFieldConfig fieldConfig{};
     fieldConfig.worldMin = glm::vec2(-8192.0f, -8192.0f);
     fieldConfig.worldSize = 16384.0f;
-    fieldConfig.resolution = 8192;
+    fieldConfig.resolution = 4096;
     fieldConfig.bankFade = 4.0f;
     fieldConfig.bankFadeDistance = 16.0f;   
 
@@ -856,7 +856,8 @@ void Stage12FluidFluxApp::CreateSamplers()
     m_FoamDetailSampler = std::make_unique<water::WaterSampler>(
         GetDevice(),
         VK_FILTER_LINEAR,
-        VK_SAMPLER_ADDRESS_MODE_REPEAT
+        VK_SAMPLER_ADDRESS_MODE_REPEAT,
+        8.0f
     );
 
     m_FoamStateSampler = std::make_unique<water::WaterSampler>(
@@ -870,7 +871,7 @@ void Stage12FluidFluxApp::CreateBoreFrontResources()
 {
     m_BoreFrontParams.origin = glm::vec2(0.0f);
     m_BoreFrontParams.direction = glm::normalize(glm::vec2(1.0f, 0.15f));
-    m_BoreFrontParams.speed = 32.0f;
+    m_BoreFrontParams.speed = 48.0f;
     m_BoreFrontParams.frontLength = 1000.0f;
     m_BoreFrontParams.initialOffset = 300.0f;
     m_BoreFrontParams.edgeFadeFraction = 0.03f;
@@ -1029,7 +1030,8 @@ void Stage12FluidFluxApp::CreateFoamResources()
             static_cast<VkDeviceSize>(
                 m_FoamDetailData.pixels.size() *
                 sizeof(water::FoamDetailPixel)
-            )
+            ),
+            true
         );
 }
 
@@ -1867,14 +1869,14 @@ void Stage12FluidFluxApp::Update(core::Timestep timestep)
 
     float boreDeltaTime = 0.0f;
 
-    if(!m_BorePaused){
+    if(!m_BorePaused && !m_Paused){
         boreDeltaTime = deltaTime;
     }
 
     m_LastBoreDeltaTime = boreDeltaTime;
     m_BoreTime += boreDeltaTime;
 
-    if(!m_BorePaused){
+    if(!m_BorePaused && !m_Paused){
         m_BoreEventManager.Update(
             boreDeltaTime,
             m_RiverLength,
@@ -2576,21 +2578,35 @@ bool Stage12FluidFluxApp::ClassifyRiverTile(
         tile.worldMin +
         glm::vec2(tile.worldSize);
 
+    float classifyMargin =
+        std::max(
+            m_RiverFieldConfig.worldSize /
+                static_cast<float>(m_RiverFieldConfig.resolution),
+            tile.worldSize /
+                static_cast<float>(m_QuadtreeGui.patchCellCount)
+        );
+
+    minPoint -= glm::vec2(classifyMargin);
+    maxPoint += glm::vec2(classifyMargin);
+
     glm::vec2 center =
         (minPoint + maxPoint) * 0.5f;
 
-    glm::vec2 samplePoints[9] =
-    {
-        center,
-        glm::vec2(minPoint.x, minPoint.y),
-        glm::vec2(maxPoint.x, minPoint.y),
-        glm::vec2(minPoint.x, maxPoint.y),
-        glm::vec2(maxPoint.x, maxPoint.y),
-        glm::vec2(center.x, minPoint.y),
-        glm::vec2(center.x, maxPoint.y),
-        glm::vec2(minPoint.x, center.y),
-        glm::vec2(maxPoint.x, center.y)
-    };
+    // 粗 tile 覆盖上千米，9 点估 progress 范围会漏掉潮头 → 相邻 tile LOD 差 5 级出现立方体阶梯。
+    // 采样密度随 tile 尺寸自适应：保证采样间距不超过约 64m。
+    const int sampleDim = glm::clamp(
+        static_cast<int>(tile.worldSize / 64.0f) + 1, 3, 17);
+
+    std::vector<glm::vec2> samplePoints;
+    samplePoints.reserve(static_cast<size_t>(sampleDim) * sampleDim);
+    for(int j = 0; j < sampleDim; ++j){
+        for(int i = 0; i < sampleDim; ++i){
+            float fx = static_cast<float>(i) / static_cast<float>(sampleDim - 1);
+            float fz = static_cast<float>(j) / static_cast<float>(sampleDim - 1);
+            samplePoints.push_back(
+                minPoint + glm::vec2(fx, fz) * (maxPoint - minPoint));
+        }
+    }
 
     bool anyWater = false;
     bool anyDry = false;
@@ -2609,14 +2625,14 @@ bool Stage12FluidFluxApp::ClassifyRiverTile(
         glm::vec4 coord =
             m_RiverField->SampleCoordinateNearest(point);
 
-        if(flow.a > 0.25f){
+        if(flow.a > 0.01f){
             anyWater = true;
         }
         else{
             anyDry = true;
         }
 
-        if(flow.a > 0.05f){
+        if(flow.a > 0.01f){
             float progressMeters =
                 coord.r *
                 m_RiverLength;
@@ -2677,9 +2693,9 @@ uint32_t Stage12FluidFluxApp::GetRiverRequiredLevel(
 
     // 潮头前方留 profileHalfWidth，后方额外覆盖水位抬升过渡带(riseWidth)，
     // 否则浪后抬升坡在低 LOD tile 上呈锯齿
-    float highDetailForward = m_BoreProfileConfig.profileHalfWidth + 24.0f;
+    float highDetailForward = m_BoreProfileConfig.profileHalfWidth + 64.0f;
     float highDetailBack = m_BoreProfileConfig.profileHalfWidth
-                         + m_BoreProfileConfig.riseWidth + 64.0f;
+                         + m_BoreProfileGui.riseWidth + 256.0f;   // 后方大幅放宽
 
     bool hasProgressRange =
         tile.maxRiverProgress >
@@ -2688,35 +2704,36 @@ uint32_t Stage12FluidFluxApp::GetRiverRequiredLevel(
     bool intersectsBore = false;
 
     if(hasProgressRange){
-        // 多潮头模式：遍历所有活跃事件，任一潮头落在该 tile 的沿河进度范围内即强制最高 LOD，
-        // 避免真实潮头所在 tile 未被细分导致与相邻 tile 层级差过大出现裂缝。
         const std::vector<water::BoreEvent>& events =
             m_BoreEventManager.GetActiveEvents();
 
+        // 取该 tile 到最近潮头的进度距离
+        float nearestBoreDist = 1.0e9f;
         for(const water::BoreEvent& event : events){
-            if(!event.active){
-                continue;
-            }
-
-            float boreProgress = event.progressMeters;
-
-            if(boreProgress + highDetailForward >= tile.minRiverProgress &&
-               boreProgress - highDetailBack   <= tile.maxRiverProgress){
-                intersectsBore = true;
-                break;
-            }
+            if(!event.active) continue;
+            float bp = event.progressMeters;
+            // tile 进度区间到潮头的距离（区间内为 0）
+            float d = std::max(0.0f,
+                std::max(tile.minRiverProgress - bp, bp - tile.maxRiverProgress));
+            nearestBoreDist = std::min(nearestBoreDist, d);
         }
 
-        // 回退：多潮头未启用/无活跃事件时，沿用旧单潮头波前位置
-        if(!intersectsBore && events.empty()){
-            float boreProgress =
-                m_BoreFrontParams.initialOffset +
-                m_BoreFrontParams.speed *
-                    m_BoreTime;
+        if(nearestBoreDist < 1.0e8f){
+            // 距离分级：潮头带内=maxLevel，每远离一个 band 降一级 → 相邻 tile 最多差 1 级
+            float core = highDetailBack;                    // 核心高 LOD 半径
+            float band = std::max(tile.worldSize, 128.0f);  // 每级降一档的进度宽度
+            uint32_t maxL = static_cast<uint32_t>(m_QuadtreeGui.maxLevel);
 
-            intersectsBore =
-                boreProgress + highDetailMargin >= tile.minRiverProgress &&
-                boreProgress - highDetailMargin <= tile.maxRiverProgress;
+            if(nearestBoreDist <= core){
+                requiredLevel = std::max(requiredLevel, maxL);
+            } else {
+                float extra = (nearestBoreDist - core) / band;
+                int drop = static_cast<int>(extra) + 1;
+                int lvl = static_cast<int>(maxL) - drop;
+                if(lvl > static_cast<int>(requiredLevel)){
+                    requiredLevel = static_cast<uint32_t>(std::max(lvl, 0));
+                }
+            }
         }
     }
 
@@ -2784,6 +2801,14 @@ void Stage12FluidFluxApp::UpdateTileInstanceBuffer(
     uint32_t frameIndex
 )
 {
+    if(m_VisibleWaterTiles.size() > m_MaxVisibleWaterTiles){
+        VKP_WARN(
+            "Visible water tiles overflow: {} > {}",
+            m_VisibleWaterTiles.size(),
+            m_MaxVisibleWaterTiles
+        );
+    }
+
     m_CurrentVisibleWaterTileCount =
         static_cast<uint32_t>(
             std::min<size_t>(
@@ -3069,14 +3094,15 @@ void Stage12FluidFluxApp::DrawGui()
     ImGui::Text("Frame %.3f ms (%.1f FPS)", 1000.0f / io.Framerate, io.Framerate);
     ImGui::Text("Tiles: %u", m_CurrentVisibleWaterTileCount);
 
-    if(ImGui::CollapsingHeader("Debug - 调试开关：控制暂停、线框、功能开关和 shader 可视化模式")){
+    if(ImGui::CollapsingHeader("Debug - 调试开关：控制暂停、线框、功能开关和 shader 可视化模式", ImGuiTreeNodeFlags_DefaultOpen)){
         ImGui::Checkbox("Wireframe - 线框显示水面网格密度", &m_UseWireframe);
         ImGui::Checkbox("Pause All - 暂停整体时间推进", &m_Paused);
         ImGui::SameLine();
         if(ImGui::Button("Step - 单帧推进")){
             m_StepOnce = true;
         }
-
+        ImGui::Checkbox("Bore Paused - 暂停潮头推进时间", &m_BorePaused);
+        
         ImGui::Checkbox("FFT Enabled - 开关背景 FFT 海浪", &m_FFTEnabled);
         ImGui::Checkbox("Bore Enabled - 开关一线潮整体位移", &m_BoreEnabled);
         ImGui::Checkbox("Profile Enabled - 开关 Wave Profile 剖面效果", &m_ProfileEnabled);
@@ -3096,9 +3122,9 @@ void Stage12FluidFluxApp::DrawGui()
         ImGui::DragFloat("Short Patch - 短波纹理周期/高频细节尺度", &m_OceanConfig.spectrum.shortPatchLength, 1.0f, 1.0f, 512.0f);
         ImGui::DragFloat("Mid Patch - 中波纹理周期/主体波浪尺度", &m_OceanConfig.spectrum.midPatchLength, 1.0f, 1.0f, 2048.0f);
         ImGui::DragFloat("Long Patch - 长波纹理周期/大尺度涌浪范围", &m_OceanConfig.spectrum.longPatchLength, 1.0f, 1.0f, 4096.0f);
-        ImGui::SliderFloat("Short Amp - 短波振幅权重", &m_OceanConfig.amplitudeScales[0], 0.0f, 3.0f);
-        ImGui::SliderFloat("Mid Amp - 中波振幅权重", &m_OceanConfig.amplitudeScales[1], 0.0f, 3.0f);
-        ImGui::SliderFloat("Long Amp - 长波振幅权重", &m_OceanConfig.amplitudeScales[2], 0.0f, 3.0f);
+        ImGui::SliderFloat("Short Amp - 短波振幅权重", &m_OceanConfig.amplitudeScales[0], 0.0f, 5.0f);
+        ImGui::SliderFloat("Mid Amp - 中波振幅权重", &m_OceanConfig.amplitudeScales[1], 0.0f, 5.0f);
+        ImGui::SliderFloat("Long Amp - 长波振幅权重", &m_OceanConfig.amplitudeScales[2], 0.0f, 5.0f);
         ImGui::Text("Resolution/random seed require FFT resource rebuild.");
     }
 
@@ -3131,13 +3157,12 @@ void Stage12FluidFluxApp::DrawGui()
         }
 
         ImGui::Separator();
-        ImGui::Checkbox("Bore Paused - 暂停潮头推进时间", &m_BorePaused);
         // ImGui::Checkbox("（已弃用）Use Front LUT - 使用旧 LUT 横向波前扰动", &m_BoreUseLUT);
         ImGui::Checkbox("Debug Ridge - 启用调试浪脊增强", &m_BoreDebugRidgeEnabled);
         // ImGui::DragFloat2("（已弃用）Origin - 旧直线潮头世界起点 XZ", glm::value_ptr(m_BoreFrontParams.origin), 1.0f);
         // ImGui::DragFloat2("（已弃用）Direction - 旧直线潮头推进方向 XZ", glm::value_ptr(m_BoreFrontParams.direction), 0.01f, -1.0f, 1.0f);
-        ImGui::DragFloat("Speed - 潮头沿河推进速度 m/s", &m_BoreFrontParams.speed, 1.0f, 0.0f, 300.0f);
-        ImGui::DragFloat("Initial Offset - 初始沿河进度偏移 m", &m_BoreFrontParams.initialOffset, 1.0f, -500.0f, 5000.0f);
+        // ImGui::DragFloat("Speed - 潮头沿河推进速度 m/s", &m_BoreFrontParams.speed, 1.0f, 0.0f, 300.0f);
+        // ImGui::DragFloat("Initial Offset - 初始沿河进度偏移 m", &m_BoreFrontParams.initialOffset, 1.0f, -500.0f, 5000.0f);
         // ImGui::DragFloat("（已弃用）Front Length - 旧 LUT 波前横向长度 m", &m_BoreFrontParams.frontLength, 10.0f, 1.0f, 5000.0f);
         // ImGui::SliderFloat("（已弃用）Edge Fade - 旧 LUT 波前两端淡出比例", &m_BoreFrontParams.edgeFadeFraction, 0.0f, 0.5f);
         ImGui::DragFloat("Bore Time - 当前潮头累计时间 s", &m_BoreTime, 0.1f, 0.0f, 200.0f);
@@ -3248,7 +3273,7 @@ void Stage12FluidFluxApp::DrawGui()
     if(ImGui::CollapsingHeader("Quadtree LOD - 四叉树细分：控制水面覆盖范围、最细层级和屏幕误差阈值")){
         ImGui::DragFloat2("Root Center - 四叉树根节点中心 XZ", glm::value_ptr(m_QuadtreeGui.rootCenter), 1.0f);
         ImGui::DragFloat("Root Size - 四叉树根节点边长 m", &m_QuadtreeGui.rootSize, 16.0f, 128.0f, 32768.0f);
-        ImGui::SliderInt("Max Level - 最大细分层级", &m_QuadtreeGui.maxLevel, 1, 9);
+        ImGui::SliderInt("Max Level - 最大细分层级", &m_QuadtreeGui.maxLevel, 1, 10);
         ImGui::SliderInt("Patch Cells - WaterPatchMesh的网格数", &m_QuadtreeGui.patchCellCount, 8, 128);
         ImGui::DragFloat("FOV Y - 垂直视场角", &m_QuadtreeGui.fovYDegrees, 1.0f, 10.0f, 120.0f);
         ImGui::DragFloat("Split Pixels - 分裂阈值", &m_QuadtreeGui.splitPixels, 0.25f, 1.0f, 64.0f);
@@ -3262,7 +3287,7 @@ void Stage12FluidFluxApp::DrawGui()
     }
 
     if(ImGui::CollapsingHeader("River / Flow Map - 弯曲河道：调整弯曲河道涌潮的视觉表现")){
-        ImGui::DragFloat("River Bore Curvature - 河道涌潮曲率（暂未接入）", &m_RiverBoreCurvatureMeters, 0.25f, 0.0f, 50.0f);
+        ImGui::DragFloat("River Bore Curvature - 河道涌潮曲率", &m_RiverBoreCurvatureMeters, 0.25f, 0.0f, 50.0f);
         ImGui::Text("Flow Map control points require river resource rebuild.");
         ImGui::Text("Current river length - 当前河流中轴线的总长度: %.1f m", m_RiverLength);
     }

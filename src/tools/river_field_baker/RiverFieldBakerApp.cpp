@@ -15,6 +15,9 @@
 #include <chrono>
 #include <cstring>
 #include <stdexcept>
+#include <thread>
+#include <algorithm>
+#include <cmath>
 
 #include "scene/water/terrain/Heightmap.h"
 
@@ -79,7 +82,7 @@ void RiverFieldBakerApp::Start()
     // 场配置默认值：与运行时一致
     m_FieldConfig.worldMin = glm::vec2(-8192.0f, -8192.0f);
     m_FieldConfig.worldSize = 16384.0f;
-    m_FieldConfig.resolution = 8192;
+    m_FieldConfig.resolution = 4096;
     m_FieldConfig.bankFade = 4.0f;
     m_FieldConfig.bankFadeDistance = 16.0f;
 
@@ -347,40 +350,55 @@ void RiverFieldBakerApp::BakeAndSave()
 
 void RiverFieldBakerApp::GenerateHeightmap()
 {
-    const int res = m_HeightmapResolution;
+    const uint32_t res = static_cast<uint32_t>(m_HeightmapResolution);
     std::vector<unsigned char> pixels(static_cast<size_t>(res) * res);
 
     // 用当前控制点重建样条，使地形与河道走向对齐
     water::RiverSpline spline;
     spline.Build(m_ControlPoints, static_cast<uint32_t>(m_SamplesPerSegment));
 
-    for(int y = 0; y < res; ++y){
-        for(int x = 0; x < res; ++x){
-            float u = (static_cast<float>(x) + 0.5f) / static_cast<float>(res);
-            float v = (static_cast<float>(y) + 0.5f) / static_cast<float>(res);
-            glm::vec2 worldXZ =
-                m_FieldConfig.worldMin + glm::vec2(u, v) * m_FieldConfig.worldSize;
+    const unsigned int threadCount =
+        std::max(1u, std::thread::hardware_concurrency());
 
-            // 到河道中轴的投影：河内 bankDist>0，岸上 bankDist<0
-            water::RiverProjection proj = spline.Project(worldXZ);
-            float bankDist =
-                (proj.valid && proj.halfWidth > 0.001f)
-                ? proj.halfWidth - std::abs(proj.lateralMeters)
-                : -1000.0f;
+    auto worker = [&](uint32_t yBegin, uint32_t yEnd){
+        for(uint32_t y = yBegin; y < yEnd; ++y){
+            for(uint32_t x = 0; x < res; ++x){
+                float u = (static_cast<float>(x) + 0.5f) / static_cast<float>(res);
+                float v = (static_cast<float>(y) + 0.5f) / static_cast<float>(res);
+                glm::vec2 worldXZ =
+                    m_FieldConfig.worldMin + glm::vec2(u, v) * m_FieldConfig.worldSize;
 
-            // 离岸距离（米）→ 归一化基础高度：河道内=0，越往岸上越高
-            float outside = std::max(0.0f, -bankDist);
-            float base =
-                glm::clamp(outside / m_HmBankRunout, 0.0f, 1.0f) * m_HmBankLevel;
+                // 到河道中轴的投影：河内 bankDist>0，岸上 bankDist<0
+                water::RiverProjection proj = spline.Project(worldXZ);
+                float bankDist =
+                    (proj.valid && proj.halfWidth > 0.001f)
+                    ? proj.halfWidth - std::abs(proj.lateralMeters)
+                    : -1000.0f;
 
-            // FBM 噪声叠加沙丘/礁石细节（居中到 [-0.5,0.5] 再乘幅度）
-            float n = Fbm(worldXZ * m_HmNoiseFreq, m_HmNoiseOctaves);
-            float h = glm::clamp(base + (n - 0.5f) * m_HmNoiseAmp, 0.0f, 1.0f);
+                // 离岸距离（米）→ 归一化基础高度：河道内=0，越往岸上越高
+                float outside = std::max(0.0f, -bankDist);
+                float base =
+                    glm::clamp(outside / m_HmBankRunout, 0.0f, 1.0f) * m_HmBankLevel;
 
-            pixels[static_cast<size_t>(y) * res + x] =
-                static_cast<unsigned char>(h * 255.0f + 0.5f);
+                // FBM 噪声叠加沙丘/礁石细节（居中到 [-0.5,0.5] 再乘幅度）
+                float n = Fbm(worldXZ * m_HmNoiseFreq, m_HmNoiseOctaves);
+                float h = glm::clamp(base + (n - 0.5f) * m_HmNoiseAmp, 0.0f, 1.0f);
+
+                pixels[static_cast<size_t>(y) * res + x] =
+                    static_cast<unsigned char>(h * 255.0f + 0.5f);
+            }
         }
+    };
+
+    std::vector<std::thread> pool;
+    uint32_t rowsPerThread = (res + threadCount - 1) / threadCount;
+    for(unsigned int t = 0; t < threadCount; ++t){
+        uint32_t yBegin = t * rowsPerThread;
+        uint32_t yEnd = std::min(yBegin + rowsPerThread, res);
+        if(yBegin >= yEnd) break;
+        pool.emplace_back(worker, yBegin, yEnd);
     }
+    for(std::thread& th : pool) th.join();
 
     // 确保输出目录存在
     std::filesystem::path outPath(m_HeightmapPath);

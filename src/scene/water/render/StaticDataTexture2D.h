@@ -20,7 +20,8 @@ public:
         uint32_t height,
         VkFormat format,
         const void* data,
-        VkDeviceSize dataSize
+        VkDeviceSize dataSize,
+        bool generateMipmaps = false
     );
 
     ~StaticDataTexture2D();
@@ -30,6 +31,8 @@ public:
 
     VkDescriptorImageInfo GetDescriptorInfo(VkSampler sampler) const;
     VkFormat GetFormat() const;
+    
+    uint32_t GetMipLevels() const;
 
 private:
     uint32_t FindMemoryType(
@@ -59,6 +62,8 @@ private:
         VkAccessFlags dstAccess
     );
 
+    void GenerateMipmaps(VkCommandBuffer commandBuffer);
+
 private:
     VkPhysicalDevice m_PhysicalDevice = VK_NULL_HANDLE;
     VkDevice m_Device = VK_NULL_HANDLE;
@@ -70,5 +75,8 @@ private:
     VkImage m_Image = VK_NULL_HANDLE;
     VkDeviceMemory m_Memory = VK_NULL_HANDLE;
     VkImageView m_ImageView = VK_NULL_HANDLE;
+
+    uint32_t m_MipLevels = 1;
+    bool m_GenerateMipmaps = false;
 };
 }
