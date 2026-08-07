@@ -9,6 +9,7 @@
 #include "scene/water/river/ProgressFieldBaker.h"
 #include "scene/water/river/ShoreFieldBaker.h"
 #include "scene/water/river/RiverFieldBundle.h"
+#include "scene/water/bore/BoreWakeResourceContract.h"
 
 #include <GLFW/glfw3.h>
 #include <glm/gtc/constants.hpp>
@@ -193,8 +194,11 @@ void Stage12FluidFluxApp::Start()
     
     CreateFoamResources();
     CreateFoamStateResources();
+    CreateBoreWakeResources();
     CreateFoamComputeDescriptorSetLayouts();
+    CreateBoreWakeDescriptorSetLayouts();
     CreateFoamComputePipelines();
+    CreateBoreWakePipelines();
     CreateGPUFFTSource();
 
     CreateUniformBuffers();
@@ -204,14 +208,17 @@ void Stage12FluidFluxApp::Start()
     CreateDescriptorPool();
     CreateAppearanceDescriptorPool();
     CreateFoamComputeDescriptorPool();
+    CreateBoreWakeDescriptorPool();
 
     CreateDescriptorSets();
     CreateAppearanceDescriptorSets();
     CreateFoamComputeDescriptorSets();
+    CreateBoreWakeDescriptorSets();
 
     CreateTerrainResources();
 
     InitializeFoamStateImages();
+    InitializeBoreWakeImages();
     ResetMultiBoreEvents();
 
     SetupGui();
@@ -229,6 +236,8 @@ void Stage12FluidFluxApp::ShutdownApp()
     m_WireframePipeline.reset();
     m_FoamSourcePipeline.reset();
     m_FoamAdvectPipeline.reset();
+    m_BoreWakeSourcePipeline.reset();
+    m_BoreWakeAdvectPipeline.reset();
     m_TerrainPipeline.reset(); 
     m_TerrainGrid.reset();
     m_SkyPipeline.reset();
@@ -239,10 +248,16 @@ void Stage12FluidFluxApp::ShutdownApp()
     m_AppearanceDescriptorSets.clear();
     m_FoamSourceSets.clear();
     m_FoamAdvectSets.clear();
+    m_BoreWakeSourceSets.clear();
+    m_BoreWakeAdvectSets.clear();
 
     m_FoamSourceVelocityImage.reset();
     m_FoamStateImages[0].reset();
     m_FoamStateImages[1].reset();
+
+    m_BoreWakeSourceImage.reset();
+    m_BoreWakeStateImages[0].reset();
+    m_BoreWakeStateImages[1].reset();
 
     m_FoamDetailTexture.reset();
     m_FrontDerivativeTexture.reset();
@@ -255,11 +270,14 @@ void Stage12FluidFluxApp::ShutdownApp()
     m_ShoreMaskTexture.reset();
 
     m_FoamComputeDescriptorPool.reset();
+    m_BoreWakeDescriptorPool.reset();
     m_AppearanceDescriptorPool.reset();
     m_DescriptorPool.reset();
 
     m_FoamSourceSetLayout.reset();
     m_FoamAdvectSetLayout.reset();
+    m_BoreWakeSourceSetLayout.reset();
+    m_BoreWakeAdvectSetLayout.reset();
     m_AppearanceDescriptorSetLayout.reset();
     m_DescriptorSetLayout.reset();
 
@@ -273,6 +291,7 @@ void Stage12FluidFluxApp::ShutdownApp()
     m_RiverSampler.reset();
 
     m_FoamSimulationUniformBuffers.clear();
+    m_BoreWakeParamsBuffers.clear();
     m_FoamParamsUniformBuffers.clear();
     m_WaterMaterialUniformBuffers.clear();
     m_TileInstanceBuffers.clear();
@@ -286,6 +305,7 @@ void Stage12FluidFluxApp::ShutdownApp()
 
     m_WaterQuadtree.reset();
     m_WaterPatchMesh.reset();
+    m_WaterGrid.reset();
     m_RiverField.reset();
 }
 
@@ -499,6 +519,29 @@ void Stage12FluidFluxApp::CreateFoamComputePipelines()
         );
 }
 
+void Stage12FluidFluxApp::CreateBoreWakePipelines()
+{
+    water::ComputePipelineConfig sourceConfig{};
+    sourceConfig.descriptorSetLayouts = {*m_BoreWakeSourceSetLayout};
+
+    m_BoreWakeSourcePipeline =
+        std::make_unique<water::ComputePipeline>(
+            GetDevice(),
+            "shaders/water/bore/bore_wake_source.comp.spv",
+            sourceConfig
+        );
+
+    water::ComputePipelineConfig advectConfig{};
+    advectConfig.descriptorSetLayouts = {*m_BoreWakeAdvectSetLayout};
+
+    m_BoreWakeAdvectPipeline =
+        std::make_unique<water::ComputePipeline>(
+            GetDevice(),
+            "shaders/water/bore/bore_wake_advect.comp.spv",
+            advectConfig
+        );
+}
+
 // 它定义了一套接口规范：
     // 这个描述符集有多少个 binding。
     // 每个 binding 的类型是什么（UBO、纹理、存储缓冲等）。
@@ -586,6 +629,18 @@ void Stage12FluidFluxApp::CreateAppearanceDescriptorSetLayout()
                 VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
                 VK_SHADER_STAGE_FRAGMENT_BIT
             )
+            // Binding 5：BoreWakeState0（状态型白水/含气/泥沙/湍流 Ping）
+            .AddBinding(
+                5,
+                VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                VK_SHADER_STAGE_FRAGMENT_BIT
+            )
+            // Binding 6：BoreWakeState1（状态型白水/含气/泥沙/湍流 Pong）
+            .AddBinding(
+                6,
+                VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                VK_SHADER_STAGE_FRAGMENT_BIT
+            )
             .Build();
 }
 
@@ -625,6 +680,28 @@ void Stage12FluidFluxApp::CreateFoamComputeDescriptorSetLayouts()
             .AddBinding(3, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT)
             .AddBinding(4, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT)
             .AddBinding(5, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT)
+            .Build();
+}
+
+void Stage12FluidFluxApp::CreateBoreWakeDescriptorSetLayouts()
+{
+    m_BoreWakeSourceSetLayout =
+        vkp::DescriptorSetLayout::Builder(GetDevice())
+            .AddBinding(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT)
+            .AddBinding(1, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT)
+            .AddBinding(2, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT)
+            .AddBinding(3, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT)
+            .AddBinding(4, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT)
+            .AddBinding(5, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT)
+            .AddBinding(6, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT)
+            .Build();
+
+    m_BoreWakeAdvectSetLayout =
+        vkp::DescriptorSetLayout::Builder(GetDevice())
+            .AddBinding(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT)
+            .AddBinding(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT)
+            .AddBinding(2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT)
+            .AddBinding(3, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT)
             .Build();
 }
 
@@ -1092,6 +1169,57 @@ void Stage12FluidFluxApp::CreateBoreProfileResources()
     m_ProfilePaused = false;
 }
 
+void Stage12FluidFluxApp::CreateBoreWakeResources()
+{
+    uint32_t resolution =
+        static_cast<uint32_t>(
+            glm::clamp(m_BoreWakeGui.resolution, 256, 2048)
+        );
+
+    VkFormat wakeFormat =
+        VK_FORMAT_R16G16B16A16_SFLOAT;
+
+    VkFormatFeatureFlags wakeFeatures =
+        VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT |
+        VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT |
+        VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT;
+
+    if(!GetDevice().SupportsFormatFeatures(
+        wakeFormat,
+        VK_IMAGE_TILING_OPTIMAL,
+        wakeFeatures
+    )){
+        wakeFormat = VK_FORMAT_R32G32B32A32_SFLOAT;
+    }
+
+    VkImageUsageFlags wakeUsage =
+        VK_IMAGE_USAGE_STORAGE_BIT |
+        VK_IMAGE_USAGE_SAMPLED_BIT |
+        VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+
+    for(uint32_t i = 0; i < 2; ++i){
+        m_BoreWakeStateImages[i] =
+            std::make_unique<water::ComputeImage2D>(
+                GetPhysicalDevice(),
+                GetDevice(),
+                resolution,
+                resolution,
+                wakeFormat,
+                wakeUsage
+            );
+    }
+
+    m_BoreWakeSourceImage =
+        std::make_unique<water::ComputeImage2D>(
+            GetPhysicalDevice(),
+            GetDevice(),
+            resolution,
+            resolution,
+            wakeFormat,
+            wakeUsage
+        );
+}
+
 void Stage12FluidFluxApp::CreateFoamResources()
 {
     m_FoamDetailData =
@@ -1208,6 +1336,7 @@ void Stage12FluidFluxApp::CreateUniformBuffers()
     m_WaterMaterialUniformBuffers.clear();
     m_MultiBoreUniformBuffers.clear();
     m_BoreEventBuffers.clear();
+    m_BoreWakeParamsBuffers.clear();
 
     m_CameraUniformBuffers.reserve(GetMaxFramesInFlight());
     m_WaterParamsUniformBuffers.reserve(GetMaxFramesInFlight());
@@ -1218,6 +1347,7 @@ void Stage12FluidFluxApp::CreateUniformBuffers()
     m_WaterMaterialUniformBuffers.reserve(GetMaxFramesInFlight());
     m_MultiBoreUniformBuffers.reserve(GetMaxFramesInFlight());
     m_BoreEventBuffers.reserve(GetMaxFramesInFlight());
+    m_BoreWakeParamsBuffers.reserve(GetMaxFramesInFlight());
 
     // reserve — 只分配内存，不创建对象 resize — 让 vector 包含 n 个默认构造的对象(每帧传 river domain + 潮头 progress)
     m_RiverFieldUniformBuffers.resize(GetMaxFramesInFlight());
@@ -1337,6 +1467,18 @@ void Stage12FluidFluxApp::CreateUniformBuffers()
         );
         boreEventBuffer->Map();
         m_BoreEventBuffers.push_back(std::move(boreEventBuffer));
+
+        auto boreWakeParamsBuffer =
+            std::make_unique<vkp::Buffer>(
+                GetPhysicalDevice(),
+                GetDevice(),
+                sizeof(water::BoreWakeParamsUBO),
+                VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+                VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                    VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
+            );
+        boreWakeParamsBuffer->Map();
+        m_BoreWakeParamsBuffers.push_back(std::move(boreWakeParamsBuffer));
     }
 }
 
@@ -1436,7 +1578,7 @@ void Stage12FluidFluxApp::CreateAppearanceDescriptorPool()
             )
             .AddPoolSize(
                 VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-                GetMaxFramesInFlight() * 3
+                GetMaxFramesInFlight() * 5
             )
             .Build();
 }
@@ -1462,6 +1604,18 @@ void Stage12FluidFluxApp::CreateFoamComputeDescriptorPool()
                 VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
                 GetMaxFramesInFlight() * 3
             )
+            .Build();
+}
+
+void Stage12FluidFluxApp::CreateBoreWakeDescriptorPool()
+{
+    m_BoreWakeDescriptorPool =
+        vkp::DescriptorPool::Builder(GetDevice())
+            .SetMaxSets(GetMaxFramesInFlight() * 3)
+            .AddPoolSize(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, GetMaxFramesInFlight() * 4)
+            .AddPoolSize(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, GetMaxFramesInFlight())
+            .AddPoolSize(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, GetMaxFramesInFlight() * 6)
+            .AddPoolSize(VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, GetMaxFramesInFlight() * 3)
             .Build();
 }
 
@@ -1628,6 +1782,16 @@ void Stage12FluidFluxApp::CreateAppearanceDescriptorSets()
                 *m_FoamStateSampler
             );
 
+        VkDescriptorImageInfo boreWakeState0Info =
+            m_BoreWakeStateImages[0]->GetSampledDescriptorInfo(
+                *m_FoamStateSampler
+            );
+
+        VkDescriptorImageInfo boreWakeState1Info =
+            m_BoreWakeStateImages[1]->GetSampledDescriptorInfo(
+                *m_FoamStateSampler
+            );
+
         VkDescriptorBufferInfo waterMaterialInfo{};
         waterMaterialInfo.buffer = *m_WaterMaterialUniformBuffers[i];
         waterMaterialInfo.offset = 0;
@@ -1643,6 +1807,8 @@ void Stage12FluidFluxApp::CreateAppearanceDescriptorSets()
                 .WriteImage(2, &foamState0Info)
                 .WriteImage(3, &foamState1Info)
                 .WriteBuffer(4, &waterMaterialInfo)
+                .WriteImage(5, &boreWakeState0Info)
+                .WriteImage(6, &boreWakeState1Info)
                 .Build(m_AppearanceDescriptorSets[i]);
 
         if(!success){
@@ -1812,6 +1978,86 @@ void Stage12FluidFluxApp::CreateFoamComputeDescriptorSets()
     }
 }
 
+void Stage12FluidFluxApp::CreateBoreWakeDescriptorSets()
+{
+    m_BoreWakeSourceSets.resize(GetMaxFramesInFlight());
+    m_BoreWakeAdvectSets.resize(GetMaxFramesInFlight());
+
+    for(uint32_t i = 0; i < GetMaxFramesInFlight(); ++i){
+        VkDescriptorBufferInfo wakeParamsInfo{};
+        wakeParamsInfo.buffer = *m_BoreWakeParamsBuffers[i];
+        wakeParamsInfo.offset = 0;
+        wakeParamsInfo.range = sizeof(water::BoreWakeParamsUBO);
+
+        VkDescriptorBufferInfo multiBoreInfo{};
+        multiBoreInfo.buffer = *m_MultiBoreUniformBuffers[i];
+        multiBoreInfo.offset = 0;
+        multiBoreInfo.range = sizeof(water::MultiBoreUBO);
+
+        VkDescriptorBufferInfo boreEventInfo{};
+        boreEventInfo.buffer = *m_BoreEventBuffers[i];
+        boreEventInfo.offset = 0;
+        boreEventInfo.range = sizeof(water::BoreEventGPU) * water::kMaxBoreEvents;
+
+        VkDescriptorImageInfo riverFlowInfo =
+            m_RiverFlowTexture->GetDescriptorInfo(*m_RiverSampler);
+
+        VkDescriptorImageInfo progressFieldInfo =
+            m_ProgressFieldTexture->GetDescriptorInfo(*m_RiverSampler);
+
+        VkDescriptorImageInfo sourceInfo =
+            m_BoreWakeSourceImage->GetStorageDescriptorInfo();
+
+        bool success =
+            vkp::DescriptorWriter(*m_BoreWakeSourceSetLayout, *m_BoreWakeDescriptorPool)
+                .WriteBuffer(0, &wakeParamsInfo)
+                .WriteBuffer(1, &multiBoreInfo)
+                .WriteBuffer(2, &wakeParamsInfo)
+                .WriteBuffer(3, &boreEventInfo)
+                .WriteImage(4, &riverFlowInfo)
+                .WriteImage(5, &progressFieldInfo)
+                .WriteImage(6, &sourceInfo)
+                .Build(m_BoreWakeSourceSets[i]);
+
+        if(!success){
+            throw std::runtime_error("Failed to allocate BoreWake source descriptor set");
+        }
+    }
+
+    for(uint32_t frameIndex = 0; frameIndex < GetMaxFramesInFlight(); ++frameIndex){
+        for(uint32_t ping = 0; ping < 2; ++ping){
+            uint32_t readIndex = ping;
+            uint32_t writeIndex = 1 - ping;
+
+            VkDescriptorBufferInfo wakeParamsInfo{};
+            wakeParamsInfo.buffer = *m_BoreWakeParamsBuffers[frameIndex];
+            wakeParamsInfo.offset = 0;
+            wakeParamsInfo.range = sizeof(water::BoreWakeParamsUBO);
+
+            VkDescriptorImageInfo previousInfo =
+                m_BoreWakeStateImages[readIndex]->GetSampledDescriptorInfo(*m_FoamStateSampler);
+
+            VkDescriptorImageInfo sourceInfo =
+                m_BoreWakeSourceImage->GetSampledDescriptorInfo(*m_FoamStateSampler);
+
+            VkDescriptorImageInfo nextInfo =
+                m_BoreWakeStateImages[writeIndex]->GetStorageDescriptorInfo();
+
+            bool success =
+                vkp::DescriptorWriter(*m_BoreWakeAdvectSetLayout, *m_BoreWakeDescriptorPool)
+                    .WriteBuffer(0, &wakeParamsInfo)
+                    .WriteImage(1, &previousInfo)
+                    .WriteImage(2, &sourceInfo)
+                    .WriteImage(3, &nextInfo)
+                    .Build(m_BoreWakeAdvectSets[frameIndex][ping]);
+
+            if(!success){
+                throw std::runtime_error("Failed to allocate BoreWake advect descriptor set");
+            }
+        }
+    }
+}
+
 // 每帧录制泡沫计算的全部命令
 // 这是泡沫系统的核心调度入口。它将源项生成和平流求解串成一个完整的 Compute Pass，并负责 Ping-Pong 状态的翻转。
     // 确定读写索引：根据当前泡沫状态索引 m_CurrentFoamStateIndex，算出哪张状态图是读（上一帧的结果），哪张是写（将要生成的新状态）。
@@ -1902,6 +2148,100 @@ void Stage12FluidFluxApp::RecordFoamSimulation(
         writeIndex;
 }
 
+
+// 每帧录制涌潮尾流泡沫模拟的全部命令
+// 这是涌潮尾流泡沫系统的核心调度入口。它将源项生成和状态积累/衰减串成一个完整的 Compute Pass，并负责 Ping-Pong 状态的翻转。
+    // 确定读写索引：根据当前尾流状态索引 m_CurrentBoreWakeStateIndex，算出哪张状态图是读（上一帧的结果），哪张是写（将要生成的新状态）。
+    // 第一步：插入前置屏障
+        // 将要被写入的图片（源图、写状态图）从“片段着色器可读/计算着色器已读”状态转换为“计算着色器可写”状态，避免数据竞争。
+    // 第二步：执行涌潮尾流源计算 (bore_wake_source.comp)
+        // 绑定源描述符集（按帧索引），调度工作组。
+        // 这一步会根据当前涌潮事件位置和参数计算出尾流泡沫源，写入 m_BoreWakeSourceImage。
+    // 第三步：插入中间屏障
+        // 确保源写入完全对后续的状态更新计算可见。
+    // 第四步：执行涌潮尾流状态更新 (bore_wake_advect.comp)
+        // 绑定状态更新描述符集（用读索引来选择 m_BoreWakeAdvectSets[frameIndex][readIndex]），
+        // 也就是决定了“从哪张图读历史状态，向哪张图写新状态”。
+        // 调度工作组。这一步会结合本帧源项、上一帧尾流状态、衰减和扩散，生成新一帧的尾流状态图。
+    // 第五步：插入后置屏障
+        // 将刚写入的新状态图从“计算可写”转换为“片段可读”，这样后续的 Graphics Pass 才能正确采样新尾流泡沫。
+    // 翻转 Ping-Pong 索引：m_CurrentBoreWakeStateIndex = writeIndex。下一次调用时，读/写对象自动互换。
+void Stage12FluidFluxApp::RecordBoreWakeSimulation(
+    VkCommandBuffer commandBuffer,
+    uint32_t frameIndex
+)
+{
+    // 如果尾流效果未启用，直接返回，不录制任何命令
+    if(!m_BoreWakeGui.enabled){
+        return;
+    }
+
+    uint32_t readIndex = m_CurrentBoreWakeStateIndex;
+    uint32_t writeIndex = 1 - readIndex;
+
+    // ---------- 1. 前置屏障：准备写入源图和目标状态图 ----------
+    // 将源图从之前的读取状态转为可写入状态
+    m_BoreWakeSourceImage->RecordComputeReadToComputeWriteBarrier(commandBuffer);
+    // 将要写入的状态图从片段着色器可读（上一帧渲染可能还在用）转为计算着色器可写
+    m_BoreWakeStateImages[writeIndex]->RecordFragmentReadToComputeWriteBarrier(commandBuffer);
+
+    // ---------- 2. 源项生成：bore_wake_source.comp ----------
+    vkCmdBindPipeline(
+        commandBuffer,
+        VK_PIPELINE_BIND_POINT_COMPUTE,
+        m_BoreWakeSourcePipeline->GetHandle()
+    );
+
+    vkCmdBindDescriptorSets(
+        commandBuffer,
+        VK_PIPELINE_BIND_POINT_COMPUTE,
+        m_BoreWakeSourcePipeline->GetLayout(),
+        0,
+        1,
+        &m_BoreWakeSourceSets[frameIndex],
+        0,
+        nullptr
+    );
+
+    // 计算工作组数量（8x8 线程/组）
+    uint32_t groups =
+        (static_cast<uint32_t>(m_BoreWakeGui.resolution) + 7) / 8;
+    vkCmdDispatch(commandBuffer, groups, groups, 1);
+
+    // ---------- 3. 中间屏障：源写入 → 状态更新读取 ----------
+    // 确保源图已完成写入，后续状态更新着色器可以安全读取
+    m_BoreWakeSourceImage->RecordComputeWriteToComputeReadBarrier(commandBuffer);
+
+    // ---------- 4. 状态更新：bore_wake_advect.comp ----------
+    vkCmdBindPipeline(
+        commandBuffer,
+        VK_PIPELINE_BIND_POINT_COMPUTE,
+        m_BoreWakeAdvectPipeline->GetHandle()
+    );
+
+    // 使用读索引对应的描述符集，决定“从哪张状态图读，向哪张状态图写”
+    vkCmdBindDescriptorSets(
+        commandBuffer,
+        VK_PIPELINE_BIND_POINT_COMPUTE,
+        m_BoreWakeAdvectPipeline->GetLayout(),
+        0,
+        1,
+        &m_BoreWakeAdvectSets[frameIndex][readIndex],
+        0,
+        nullptr
+    );
+
+    vkCmdDispatch(commandBuffer, groups, groups, 1);
+
+    // ---------- 5. 后置屏障：状态图写入 → 片段着色器可读 ----------
+    // 将刚写入的新状态图从计算可写转为片段可读，后续水面渲染可以采样它
+    m_BoreWakeStateImages[writeIndex]->RecordComputeWriteToFragmentReadBarrier(commandBuffer);
+
+    // ---------- 6. 翻转 Ping-Pong 索引 ----------
+    m_CurrentBoreWakeStateIndex = writeIndex;
+}
+
+
 void Stage12FluidFluxApp::InitializeFoamStateImages()
 {
     VkCommandBuffer commandBuffer =
@@ -1914,6 +2254,26 @@ void Stage12FluidFluxApp::InitializeFoamStateImages()
     m_FoamStateImages[0]->RecordClear(commandBuffer, 0.0f);
     m_FoamStateImages[1]->RecordClear(commandBuffer, 0.0f);
     m_FoamSourceVelocityImage->RecordClear(commandBuffer, 0.0f);
+
+    GetCommandPool().EndOneTimeCommands(
+        GetDevice(),
+        GetDevice().GetGraphicsQueue(),
+        commandBuffer
+    );
+}
+
+void Stage12FluidFluxApp::InitializeBoreWakeImages()
+{
+    VkCommandBuffer commandBuffer =
+        GetCommandPool().BeginOneTimeCommands(GetDevice());
+
+    m_BoreWakeStateImages[0]->RecordTransitionToGeneral(commandBuffer);
+    m_BoreWakeStateImages[1]->RecordTransitionToGeneral(commandBuffer);
+    m_BoreWakeSourceImage->RecordTransitionToGeneral(commandBuffer);
+
+    m_BoreWakeStateImages[0]->RecordClear(commandBuffer, 0.0f);
+    m_BoreWakeStateImages[1]->RecordClear(commandBuffer, 0.0f);
+    m_BoreWakeSourceImage->RecordClear(commandBuffer, 0.0f);
 
     GetCommandPool().EndOneTimeCommands(
         GetDevice(),
@@ -2046,6 +2406,7 @@ void Stage12FluidFluxApp::PrepareFrame(uint32_t frameIndex, uint32_t imageIndex)
     UpdateMultiBoreBuffers(frameIndex);
     UpdateFoamParamsUniformBuffer(frameIndex);
     UpdateFoamSimulationUniformBuffer(frameIndex);
+    UpdateBoreWakeParamsUniformBuffer(frameIndex);
     UpdateWaterMaterialUniformBuffer(frameIndex);
 
     UpdateQuadtree(); // Tile 可见性依赖当前帧相机
@@ -2073,6 +2434,69 @@ void Stage12FluidFluxApp::UpdateCameraUniformBuffer(uint32_t frameIndex)
     ubo.debug = glm::ivec4(m_DebugMode, 0, 0, 0);
 
     m_CameraUniformBuffers[frameIndex]->CopyToMapped(
+        &ubo,
+        sizeof(ubo)
+    );
+}
+
+void Stage12FluidFluxApp::UpdateBoreWakeParamsUniformBuffer(uint32_t frameIndex)
+{
+    water::BoreWakeParamsUBO ubo{};
+
+    float resolution =
+        static_cast<float>(
+            glm::clamp(m_BoreWakeGui.resolution, 256, 2048)
+        );
+
+    ubo.domain =
+        glm::vec4(
+            m_RiverFieldConfig.worldMin.x,
+            m_RiverFieldConfig.worldMin.y,
+            m_RiverFieldConfig.worldSize,
+            resolution
+        );
+
+    ubo.simulation =
+        glm::vec4(
+            m_LastSimulationDeltaTime,
+            m_Time,
+            m_BoreWakeGui.enabled ? 1.0f : 0.0f,
+            m_BoreWakeGui.sourceStrength
+        );
+
+    ubo.range =
+        glm::vec4(
+            m_BoreWakeGui.wakeStart,
+            m_BoreWakeGui.wakeEnd,
+            m_BoreWakeGui.wakeFeather,
+            m_BoreWakeGui.advectionSpeed
+        );
+
+    ubo.decay =
+        glm::vec4(
+            m_BoreWakeGui.aerationDecay,
+            m_BoreWakeGui.foamDecay,
+            m_BoreWakeGui.sedimentDecay,
+            m_BoreWakeGui.turbulenceDecay
+        );
+
+    ubo.strength =
+        glm::vec4(
+            m_BoreWakeGui.aerationStrength,
+            m_BoreWakeGui.foamStrength,
+            m_BoreWakeGui.sedimentStrength,
+            m_BoreWakeGui.turbulenceStrength
+        );
+
+    ubo.noise =
+        glm::vec4(
+            m_BoreWakeGui.patchThreshold,
+            m_BoreWakeGui.warpStrength,
+            m_BoreWakeGui.lateralFrequency,
+            m_BoreWakeGui.backFrequency
+        );
+
+    m_BoreWakeParamsBuffers[frameIndex]->CopyToMapped(
         &ubo,
         sizeof(ubo)
     );
@@ -2525,11 +2949,28 @@ void Stage12FluidFluxApp::UpdateFoamParamsUniformBuffer(uint32_t frameIndex)
         m_FoamGui.foamShallowScale,
         m_FoamGui.foamHardnessIntensity,
         m_FoamGui.foamHardnessWidth);
+
     ubo.foamSoft = glm::vec4(
         m_FoamGui.foamSoftVelocity,
         m_FoamGui.foamSoftBase,
         m_FoamGui.foamSoftMax,
         m_FoamGui.foamAlpha);
+
+    ubo.boreWake0 =
+        glm::vec4(
+            static_cast<float>(m_CurrentBoreWakeStateIndex),
+            m_BoreWakeGui.enabled ? 1.0f : 0.0f,
+            m_BoreWakeGui.foamStrength,
+            m_BoreWakeGui.aerationStrength
+        );
+
+    ubo.boreWake1 =
+        glm::vec4(
+            m_BoreWakeGui.sedimentStrength,
+            m_BoreWakeGui.turbulenceStrength,
+            m_MultiBoreGui.lateralExtent,
+            m_MultiBoreGui.lateralFade
+        );
 
     m_FoamParamsUniformBuffers[frameIndex]->CopyToMapped(
         &ubo,
@@ -2872,58 +3313,66 @@ uint32_t Stage12FluidFluxApp::GetRiverRequiredLevel(
 
     if(tile.intersectsBank){
         requiredLevel =
-            std::max(requiredLevel, 5u);
+            std::max(requiredLevel, 4u);
     }
 
-    // 潮头前方留 profileHalfWidth，后方额外覆盖水位抬升过渡带(riseWidth)，
-    // 否则浪后抬升坡在低 LOD tile 上呈锯齿
-    float highDetailForward = m_BoreProfileConfig.profileHalfWidth + 64.0f;
-    float highDetailBack = m_BoreProfileConfig.profileHalfWidth
-                         + m_BoreProfileGui.riseWidth + 256.0f;   // 后方大幅放宽
-
+    // 不再把 500m 尾迹全拉到 maxLevel。核心仅 80m level 6，附近 220m level 5
     bool hasProgressRange =
         tile.maxRiverProgress >
         tile.minRiverProgress;
-
-    bool intersectsBore = false;
 
     if(hasProgressRange){
         const std::vector<water::BoreEvent>& events =
             m_BoreEventManager.GetActiveEvents();
 
-        // 取该 tile 到最近潮头的进度距离
         float nearestBoreDist = 1.0e9f;
+
         for(const water::BoreEvent& event : events){
-            if(!event.active) continue;
-            float bp = event.progressMeters;
-            // tile 进度区间到潮头的距离（区间内为 0）
-            float d = std::max(0.0f,
-                std::max(tile.minRiverProgress - bp, bp - tile.maxRiverProgress));
-            nearestBoreDist = std::min(nearestBoreDist, d);
-        }
-
-        if(nearestBoreDist < 1.0e8f){
-            // 距离分级：潮头带内=maxLevel，每远离一个 band 降一级 → 相邻 tile 最多差 1 级
-            float core = highDetailBack;                    // 核心高 LOD 半径
-            float band = std::max(tile.worldSize, 128.0f);  // 每级降一档的进度宽度
-            uint32_t maxL = static_cast<uint32_t>(m_QuadtreeGui.maxLevel);
-
-            if(nearestBoreDist <= core){
-                requiredLevel = std::max(requiredLevel, maxL);
-            } else {
-                float extra = (nearestBoreDist - core) / band;
-                int drop = static_cast<int>(extra) + 1;
-                int lvl = static_cast<int>(maxL) - drop;
-                if(lvl > static_cast<int>(requiredLevel)){
-                    requiredLevel = static_cast<uint32_t>(std::max(lvl, 0));
-                }
+            if(!event.active){
+                continue;
             }
-        }
-    }
 
-    if(intersectsBore){
-        requiredLevel =
-            std::max(requiredLevel, 6u);
+            float bp = event.progressMeters;
+
+            float d =
+                std::max(
+                    0.0f,
+                    std::max(
+                        tile.minRiverProgress - bp,
+                        bp - tile.maxRiverProgress
+                    )
+                );
+
+            nearestBoreDist =
+                std::min(nearestBoreDist, d);
+        }
+
+        uint32_t coreLevel =
+            static_cast<uint32_t>(
+                glm::clamp(
+                    m_QuadtreeGui.boreCoreLevel,
+                    0,
+                    m_QuadtreeGui.maxLevel
+                )
+            );
+
+        uint32_t nearLevel =
+            static_cast<uint32_t>(
+                glm::clamp(
+                    m_QuadtreeGui.boreNearLevel,
+                    0,
+                    m_QuadtreeGui.maxLevel
+                )
+            );
+
+        if(nearestBoreDist <= m_QuadtreeGui.boreCoreWidth){
+            requiredLevel =
+                std::max(requiredLevel, coreLevel);
+        }
+        else if(nearestBoreDist <= m_QuadtreeGui.boreNearWidth){
+            requiredLevel =
+                std::max(requiredLevel, nearLevel);
+        }
     }
 
     return requiredLevel;
@@ -3069,13 +3518,10 @@ void Stage12FluidFluxApp::UpdateCrestRibbonBuffer(uint32_t frameIndex)
             float lateralNorm,
             float depth01) -> CrestRibbonVertex
         {
-            float ribbonBackExtent =
-                std::max(m_CrestRibbonGui.wakeWidth,
-                         m_CrestRibbonGui.wakeEnd + m_CrestRibbonGui.wakeFeather);
-                         
+            // Ribbon 只负责潮脊。宽白水交给 Wake State
             float localS =
                 glm::mix(
-                    -ribbonBackExtent,
+                    -m_CrestRibbonGui.wakeWidth,
                     m_CrestRibbonGui.frontWidth,
                     depth01
                 );
@@ -3155,19 +3601,20 @@ void Stage12FluidFluxApp::UpdateCrestRibbonBuffer(uint32_t frameIndex)
                     )
                 );
 
-            float wakeShape =
-                localS < 0.0f
-                ? std::exp(localS / glm::max(m_CrestRibbonGui.wakeWidth * 0.55f, 1.0f))
-                : 0.0f;
+            float sigma =
+                std::max(m_CrestRibbonGui.hardCrestWidth, 0.001f);
+
+            float crestCore =
+                std::exp(
+                    -0.5f *
+                    localS * localS /
+                    (sigma * sigma)
+                );
 
             float alpha =
                 m_CrestRibbonGui.alpha *
                 edgeAlpha *
-                glm::clamp(
-                    glm::max(crestShape, wakeShape * 0.55f),
-                    0.0f,
-                    1.0f
-                );
+                glm::clamp(crestCore, 0.0f, 1.0f);
 
             // ribbon 永远在潮头水面上方；潮脊高度有缓慢明显变化
             float heightNoise =
@@ -3197,13 +3644,7 @@ void Stage12FluidFluxApp::UpdateCrestRibbonBuffer(uint32_t frameIndex)
                 sample.boreAmplitude *
                 event.amplitudeScale;
 
-            float wakeLift =
-                (
-                    persistentRise +
-                    m_CrestRibbonGui.heightOffset +
-                    eventHeight * 0.45f
-                ) *
-                wakeShape;
+            float wakeLift = 0.0f;
 
             float y =
                 m_WaterMaterialGui.waterLevel +
@@ -3448,6 +3889,12 @@ void Stage12FluidFluxApp::Render(VkCommandBuffer commandBuffer, uint32_t imageIn
         // foam_advect.comp：利用上一帧的泡沫状态、源和流速，求解平流‑扩散方程，更新泡沫状态图。
     RecordFoamSimulation(
         commandBuffer,
+        currentFrame
+    );
+
+    // Bore Wake Compute Pass
+    RecordBoreWakeSimulation(
+        commandBuffer, 
         currentFrame
     );
     
@@ -3783,6 +4230,40 @@ void Stage12FluidFluxApp::DrawGui()
         ImGui::SliderFloat("Wake Feather - 浮沫软边宽度(米)", &m_CrestRibbonGui.wakeFeather, 5.0f, 200.0f);
     }
 
+    if(ImGui::CollapsingHeader("Bore Wake State - 状态型含气白水")){
+        ImGui::Checkbox("Enable Bore Wake - 启用涌潮尾流白水", &m_BoreWakeGui.enabled);
+        // ImGui::SliderInt("Wake Resolution - 白水纹理分辨率", &m_BoreWakeGui.resolution, 256, 2048);
+        if(ImGui::Button("Clear Bore Wake State - 清空白水状态")){
+            InitializeBoreWakeImages();
+            m_CurrentBoreWakeStateIndex = 0;
+        }
+
+        ImGui::SeparatorText("Range - 白水区间");
+        ImGui::SliderFloat("Wake Start - 白水起始距离(米)", &m_BoreWakeGui.wakeStart, 0.0f, 150.0f);
+        ImGui::SliderFloat("Wake End - 白水结束距离(米)", &m_BoreWakeGui.wakeEnd, 80.0f, 900.0f);
+        ImGui::SliderFloat("Wake Feather - 白水边缘柔化宽度(米)", &m_BoreWakeGui.wakeFeather, 10.0f, 250.0f);
+        ImGui::SliderFloat("Advection Speed - 向后平流速度(米/秒)", &m_BoreWakeGui.advectionSpeed, 0.0f, 12.0f);
+
+        ImGui::SeparatorText("Source Strength - 源项强度");
+        ImGui::SliderFloat("Source Strength - 全局源强度倍率", &m_BoreWakeGui.sourceStrength, 0.0f, 3.0f);
+        ImGui::SliderFloat("Aeration Strength - 含气水(大气泡)强度", &m_BoreWakeGui.aerationStrength, 0.0f, 3.0f);
+        ImGui::SliderFloat("Foam Strength - 细泡沫强度", &m_BoreWakeGui.foamStrength, 0.0f, 3.0f);
+        ImGui::SliderFloat("Sediment Strength - 泥沙(棕黄浑浊)强度", &m_BoreWakeGui.sedimentStrength, 0.0f, 2.0f);
+        ImGui::SliderFloat("Turbulence Strength - 湍流(水气混合)强度", &m_BoreWakeGui.turbulenceStrength, 0.0f, 2.0f);
+
+        ImGui::SeparatorText("Decay - 衰减速度");
+        ImGui::SliderFloat("Aeration Decay - 含气水衰减速率", &m_BoreWakeGui.aerationDecay, 0.0f, 1.0f);
+        ImGui::SliderFloat("Foam Decay - 细泡沫衰减速率", &m_BoreWakeGui.foamDecay, 0.0f, 0.5f);
+        ImGui::SliderFloat("Sediment Decay - 泥沙衰减速率", &m_BoreWakeGui.sedimentDecay, 0.0f, 0.2f);
+        ImGui::SliderFloat("Turbulence Decay - 湍流衰减速率", &m_BoreWakeGui.turbulenceDecay, 0.0f, 1.0f);
+
+        ImGui::SeparatorText("Noise - 白水团形态");
+        ImGui::SliderFloat("Patch Threshold - 泡沫团块密度阈值", &m_BoreWakeGui.patchThreshold, 0.25f, 0.85f);
+        ImGui::SliderFloat("Warp Strength - 噪声扭曲强度", &m_BoreWakeGui.warpStrength, 0.0f, 4.0f);
+        ImGui::SliderFloat("Lateral Frequency - 横向噪声频率", &m_BoreWakeGui.lateralFrequency, 0.2f, 8.0f);
+        ImGui::SliderFloat("Back Frequency - 纵向噪声频率", &m_BoreWakeGui.backFrequency, 1.0f, 16.0f);
+    }
+
     if(ImGui::CollapsingHeader("Water Material - 水体材质：控制颜色、反射、高光、泥沙和远景雾")){
         ImGui::ColorEdit3("Shallow - 浅水颜色 RGB", glm::value_ptr(m_WaterMaterialGui.shallowColor));
         ImGui::ColorEdit3("Deep - 深水颜色 RGB", glm::value_ptr(m_WaterMaterialGui.deepColor));
@@ -3834,6 +4315,12 @@ void Stage12FluidFluxApp::DrawGui()
         ImGui::DragFloat("Min Y - 水面 AABB 的最小 Y 坐标（米）", &m_QuadtreeGui.minY, 0.5f, -100.0f, 0.0f);
         ImGui::DragFloat("Max Y - 水面 AABB 的最大 Y 坐标（米）", &m_QuadtreeGui.maxY, 0.5f, 0.0f, 100.0f);
 
+        ImGui::SeparatorText("Bore LOD - 潮头局部细分");
+        ImGui::SliderInt("Bore Core Level", &m_QuadtreeGui.boreCoreLevel, 0, m_QuadtreeGui.maxLevel);
+        ImGui::SliderInt("Bore Near Level", &m_QuadtreeGui.boreNearLevel, 0, m_QuadtreeGui.maxLevel);
+        ImGui::SliderFloat("Bore Core Width", &m_QuadtreeGui.boreCoreWidth, 0.0f, 300.0f);
+        ImGui::SliderFloat("Bore Near Width", &m_QuadtreeGui.boreNearWidth, 0.0f, 700.0f);
+        
         if(ImGui::Button("Apply Quadtree Rebuild")){
             RebuildQuadtreeFromGui();
         }

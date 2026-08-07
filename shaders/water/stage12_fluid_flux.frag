@@ -72,6 +72,8 @@ layout(set = 1, binding = 0) uniform FoamParamsUBO
     vec4 domain;
     vec4 foamShallow;
     vec4 foamSoft;
+    vec4 boreWake0;
+    vec4 boreWake1;
 } foam;
 
 layout(set = 1, binding = 1) uniform sampler2D foamDetailTexture;
@@ -99,6 +101,9 @@ layout(set = 1, binding = 4) uniform WaterMaterialUBO
     vec4 specularHorizon;
     vec4 cheapScatter;
 } material;
+
+layout(set = 1, binding = 5) uniform sampler2D boreWakeState0;
+layout(set = 1, binding = 6) uniform sampler2D boreWakeState1;
 
 // 片段着色器输出颜色
 layout(location = 0) out vec4 outColor;
@@ -280,8 +285,51 @@ void main()
         ? texture(foamState0, stateUV).r
         : texture(foamState1, stateUV).r;
 
+    vec2 wakeUV =
+        clamp(
+            (fragBaseWorldXZ - river.domain.xy) / river.domain.z,
+            vec2(0.0),
+            vec2(1.0)
+        );
+
+    vec4 wakeState =
+        foam.boreWake0.x < 0.5
+        ? texture(boreWakeState0, wakeUV)
+        : texture(boreWakeState1, wakeUV);
+
+    wakeState *= foam.boreWake0.y;
+
+    // 历史白水也按潮头横向范围淡出，避免两岸残留白水贴岸。
+    float wakeLateralMask =
+        1.0 - smoothstep(
+            max(foam.boreWake1.z - foam.boreWake1.w, 0.0),
+            foam.boreWake1.z,
+            abs(clamp(fragRiverCoord.g, -1.0, 1.0))
+        );
+
+    wakeState *= wakeLateralMask;
+
+    float wakeAeration =
+        clamp(wakeState.r * foam.boreWake0.w, 0.0, 1.0);
+
+    float wakeSurfaceFoam =
+        clamp(wakeState.g * foam.boreWake0.z, 0.0, 1.0);
+
+    float wakeSediment =
+        clamp(wakeState.b * foam.boreWake1.x, 0.0, 1.0);
+
+    float wakeTurbulence =
+        clamp(wakeState.a * foam.boreWake1.y, 0.0, 1.0);
+
     float foamAmount =
-        clamp(SoftUnion(foamSource * 0.35, stateFoam * foam.appearance.w), 0.0, 1.0);
+        clamp(
+            SoftUnion(
+                SoftUnion(foamSource * 0.20, wakeSurfaceFoam),
+                stateFoam * foam.appearance.w
+            ),
+            0.0,
+            1.0
+        );
 
     // 宏观泡沫覆盖：远处也要保留，不能被细节 fade 清零
     float macroFoam = foamAmount;
@@ -303,13 +351,16 @@ void main()
             )
         ).r;
 
-    float aeration =
+    float analyticAeration =
         analyticWake *
         smoothstep(0.28, 0.72, wakeMacroNoise);
 
+    float aeration =
+        max(wakeAeration, analyticAeration * 0.25);
+
     foamAmount =
         clamp(
-            SoftUnion(foamAmount, aeration * 0.75),
+            SoftUnion(foamAmount, wakeSurfaceFoam),
             0.0,
             1.0
         );
@@ -365,7 +416,7 @@ void main()
     // FF: pow(·, 0.45) 抬升低值 → 软边大幅变宽，这就是"上岸渐渐散开"
     // 不对含高频细节的最终泡沫做 pow(0.45)，否则 0.01→0.126，
     // 会把欠采样噪声整体抬亮成大面积摩尔纹。
-    float farMacroFoam = smoothstep(0.08, 0.35, macroFoam);
+    float farMacroFoam = smoothstep(0.28, 0.62, macroFoam);
     float nearDetailedFoam = clamp(max(hardFoam, softFoam), 0.0, 1.0);
 
     float finalFoam = clamp(
@@ -485,8 +536,15 @@ void main()
         waterColor =
             mix(
                 waterColor,
-                vec3(0.72, 0.74, 0.70),
-                clamp(aeration * 0.85, 0.0, 1.0)
+                material.sedimentColor.rgb,
+                wakeSediment
+            );
+
+        waterColor =
+            mix(
+                waterColor,
+                vec3(0.62, 0.64, 0.60),
+                clamp(max(aeration, wakeAeration) * 0.45, 0.0, 0.75)
             );
 
         // 钱塘江重泥沙：整体混入泥沙色，深水更浓（复用 opticalParams.w = 泥沙量）
@@ -540,7 +598,7 @@ void main()
             mix(
                 roughness,
                 0.92,
-                clamp(aeration, 0.0, 1.0)
+                clamp(max(max(aeration, wakeAeration), wakeTurbulence), 0.0, 1.0)
             );
 
         float Dv  = D_GGX(NoH, roughness);
@@ -579,7 +637,7 @@ void main()
         waterAlpha =
             max(
                 waterAlpha,
-                clamp(aeration * 0.85, 0.0, 1.0)
+                clamp(max(aeration, wakeAeration) * 0.35, 0.0, 0.55)
             );
 
         // 反射掉的能量不可能同时从水底透上来：不透明度至少等于反射比例。

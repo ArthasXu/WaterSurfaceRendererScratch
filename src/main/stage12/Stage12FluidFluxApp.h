@@ -199,15 +199,20 @@ private:
         float mergePixels = 6.0f;
         float minY = -15.0f;
         float maxY = 20.0f;
+
+        int boreCoreLevel = 6;              // 潮头核心强制 LOD，不再等于 maxLevel
+        int boreNearLevel = 5;              // 潮头附近过渡 LOD
+        float boreCoreWidth = 80.0f;        // 潮头核心范围(沿河米)
+        float boreNearWidth = 220.0f;       // 潮头附近过渡范围(沿河米)
     };
 
     struct CrestRibbonGuiParams
     {
         bool enabled = true;
-        int lateralSegments = 384;          // 横向分段：越高越平滑，384 对 16km 江面够用
-        int depthSegments = 6;              // 前后方向分段：6~8 即可
-        float frontWidth = 18.0f;           // 潮头前方覆盖宽度(米)
-        float wakeWidth = 220.0f;           // 潮头后方白水带宽度(米)
+        int lateralSegments = 256;          // 横向分段：越高越平滑，384 对 16km 江面够用
+        int depthSegments = 4;              // 前后方向分段：6~8 即可
+        float frontWidth = 6.0f;            // 潮头前方覆盖宽度(米)
+        float wakeWidth = 18.0f;            // 潮头后方白水带宽度(米)
         float heightOffset = 0.22f;         // 整体抬离水面，避免 z-fighting
         float crestHeightOffset = 0.55f;    // 主脊额外高度
         float alpha = 0.92f;                // 主潮脊不透明度
@@ -223,10 +228,37 @@ private:
         float wakeFoamStrength = 2.0f;       // 白水团强度
         float wakeHoleStrength = 0.56f;      // 孔洞强度
 
-        float hardCrestWidth = 12.0f;        // 主白线半宽(米)
+        float hardCrestWidth = 6.0f;         // 主白线半宽(米)
         float wakeStart = 8.0f;              // 从潮头后方多少米开始出现大片浮沫
         float wakeEnd = 380.0f;              // 浮沫区结束距离(米)
         float wakeFeather = 80.0f;           // 浮沫区淡入/淡出宽度(米)
+    };
+
+    struct BoreWakeGuiParams
+    {
+        bool enabled = true;
+        int resolution = 512;
+
+        float wakeStart = 0.0f;
+        float wakeEnd = 220.0f;
+        float wakeFeather = 24.0f;
+        float advectionSpeed = 5.0f;
+
+        float sourceStrength = 1.0f;
+        float aerationStrength = 1.0f;
+        float foamStrength = 1.0f;
+        float sedimentStrength = 0.55f;
+        float turbulenceStrength = 0.75f;
+
+        float aerationDecay = 0.75f;
+        float foamDecay = 0.45f;
+        float sedimentDecay = 0.08f;
+        float turbulenceDecay = 0.55f;
+
+        float patchThreshold = 0.56f;
+        float warpStrength = 1.8f;
+        float lateralFrequency = 2.2f;
+        float backFrequency = 5.0f;
     };
 
     struct CrestRibbonVertex
@@ -320,6 +352,16 @@ private:
     void CreateGPUFFTSource();                 // 创建 GPU FFT 波浪模拟器（三层 Cascade + Compute Pipeline）
     void CreateDescriptorPool();               // 创建几何描述符池（set=0），为每帧几何描述符集分配空间
     void CreateDescriptorSets();               // 创建每帧几何描述符集，绑定 CameraUBO、FFT 纹理、Bore 纹理
+
+    // Bore Wake
+    void CreateBoreWakeResources();
+    void CreateBoreWakeDescriptorSetLayouts();
+    void CreateBoreWakePipelines();
+    void CreateBoreWakeDescriptorPool();
+    void CreateBoreWakeDescriptorSets();
+    void InitializeBoreWakeImages();
+    void UpdateBoreWakeParamsUniformBuffer(uint32_t frameIndex);
+    void RecordBoreWakeSimulation(VkCommandBuffer commandBuffer, uint32_t frameIndex);
 
     void CreateFoamStateResources();
     void CreateFoamComputeDescriptorSetLayouts();
@@ -485,6 +527,7 @@ private:
     std::unique_ptr<water::ComputeImage2D> m_FoamSourceVelocityImage;
 
     CrestRibbonGuiParams m_CrestRibbonGui{};
+    BoreWakeGuiParams m_BoreWakeGui{};
 
     std::vector<std::unique_ptr<vkp::Buffer>> m_CrestRibbonVertexBuffers;
     uint32_t m_CrestRibbonVertexCapacity = 0;
@@ -492,6 +535,7 @@ private:
 
     std::unique_ptr<vkp::Pipeline> m_CrestRibbonPipeline;
 
+    // Foam Simulation
     std::vector<std::unique_ptr<vkp::Buffer>> m_FoamSimulationUniformBuffers;
 
     std::unique_ptr<vkp::DescriptorSetLayout> m_FoamSourceSetLayout;
@@ -503,6 +547,23 @@ private:
 
     std::vector<VkDescriptorSet> m_FoamSourceSets;
     std::vector<std::array<VkDescriptorSet, 2>> m_FoamAdvectSets;
+
+    // Bore Wake
+    std::array<std::unique_ptr<water::ComputeImage2D>, 2> m_BoreWakeStateImages;
+    std::unique_ptr<water::ComputeImage2D> m_BoreWakeSourceImage;
+    uint32_t m_CurrentBoreWakeStateIndex = 0;
+
+    std::vector<std::unique_ptr<vkp::Buffer>> m_BoreWakeParamsBuffers;
+
+    std::unique_ptr<vkp::DescriptorSetLayout> m_BoreWakeSourceSetLayout;
+    std::unique_ptr<vkp::DescriptorSetLayout> m_BoreWakeAdvectSetLayout;
+    std::unique_ptr<vkp::DescriptorPool> m_BoreWakeDescriptorPool;
+
+    std::unique_ptr<water::ComputePipeline> m_BoreWakeSourcePipeline;
+    std::unique_ptr<water::ComputePipeline> m_BoreWakeAdvectPipeline;
+
+    std::vector<VkDescriptorSet> m_BoreWakeSourceSets;
+    std::vector<std::array<VkDescriptorSet, 2>> m_BoreWakeAdvectSets;
 
     // River Tile
     water::RiverSpline m_RiverSpline;
