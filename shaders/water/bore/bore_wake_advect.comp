@@ -1,0 +1,52 @@
+#version 450
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) uniform BoreWakeParamsUBO {
+    vec4 domain;
+    vec4 simulation;
+    vec4 range;
+    vec4 decay;
+    vec4 strength;
+    vec4 noise;
+} wake;
+
+layout(set = 0, binding = 1) uniform sampler2D previousWake;
+layout(set = 0, binding = 2) uniform sampler2D wakeSource;
+layout(rgba16f, set = 0, binding = 3) uniform writeonly image2D nextWake;
+
+void main()
+{
+    ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
+    int resolution = int(wake.domain.w);
+
+    if(pixel.x >= resolution || pixel.y >= resolution){
+        return;
+    }
+
+    vec2 uv = (vec2(pixel) + 0.5) / float(resolution);
+    float dt = max(wake.simulation.x, 0.0);
+
+    vec4 source = textureLod(wakeSource, uv, 0.0);
+
+    // 简版：世界空间向后平流很难没有流场，这里先做保守状态积累 + 衰减 + 轻微扩散。
+    // 后续再改成 progress/lateral 局部平流。
+    vec2 texel = vec2(1.0 / float(resolution));
+
+    vec4 center = textureLod(previousWake, uv, 0.0);
+    vec4 left = textureLod(previousWake, clamp(uv - vec2(texel.x, 0.0), vec2(0.0), vec2(1.0)), 0.0);
+    vec4 right = textureLod(previousWake, clamp(uv + vec2(texel.x, 0.0), vec2(0.0), vec2(1.0)), 0.0);
+    vec4 down = textureLod(previousWake, clamp(uv - vec2(0.0, texel.y), vec2(0.0), vec2(1.0)), 0.0);
+    vec4 up = textureLod(previousWake, clamp(uv + vec2(0.0, texel.y), vec2(0.0), vec2(1.0)), 0.0);
+
+    vec4 laplacian = left + right + down + up - 4.0 * center;
+
+    vec4 decay = wake.decay;
+
+    vec4 next =
+        center +
+        source * dt -
+        center * decay * dt +
+        laplacian * 0.20 * dt;
+
+    imageStore(nextWake, pixel, clamp(next, vec4(0.0), vec4(1.0)));
+}

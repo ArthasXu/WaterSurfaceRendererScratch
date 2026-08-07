@@ -17,6 +17,10 @@ struct alignas(16) FoamParamsUBO
     // ===== FF MF_FluidFoam =====
     glm::vec4 foamShallow{0.3f, 1.0f, -0.05f, 0.2f};  // 浅水偏置, 浅水尺度(1/米), 硬度强度, 硬度宽度
     glm::vec4 foamSoft{0.5f, 0.5f, 1.0f, 0.6f};       // 软晕随速度, 软晕基底, 软晕上限, 泡沫总不透明度
+    // boreWake0: x=当前 BoreWake state index(0/1) y=启用 z=白水泡沫混入强度 w=含气水体强度
+    glm::vec4 boreWake0{0.0f, 1.0f, 1.0f, 1.0f};
+    // boreWake1: x=泥沙强度 y=湍流粗糙强度 z=横向覆盖范围 w=两岸淡出宽度
+    glm::vec4 boreWake1{0.55f, 0.75f, 0.85f, 0.18f};
 };
 
 struct alignas(16) FoamSimulationUBO

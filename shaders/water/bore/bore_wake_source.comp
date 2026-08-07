@@ -1,0 +1,204 @@
+#version 450
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) uniform BoreWakeParamsUBO {
+    vec4 domain;
+    vec4 simulation;
+    vec4 range;
+    vec4 decay;
+    vec4 strength;
+    vec4 noise;
+} wake;
+
+layout(set = 0, binding = 1) uniform MultiBoreUBO {
+    ivec4 metadata;
+    vec4 riverInfo;
+    vec4 crestNoiseA;
+    vec4 crestNoiseB;
+    vec4 crestNoiseC;
+    vec4 persistent;
+} multiBore;
+
+layout(set = 0, binding = 3) readonly buffer BoreEventBuffer {
+    vec4 eventData[];
+} rawEvents;
+
+layout(set = 0, binding = 4) uniform sampler2D riverFlowTexture;
+layout(set = 0, binding = 5) uniform sampler2D riverProgressTexture;
+layout(rgba16f, set = 0, binding = 6) uniform writeonly image2D wakeSourceImage;
+
+struct BoreEventGPU
+{
+    vec4 motion;
+    vec4 shape;
+    vec4 appearance;
+    vec4 suppression;
+};
+
+BoreEventGPU LoadEvent(int index)
+{
+    BoreEventGPU e;
+    int base = index * 4;
+    e.motion = rawEvents.eventData[base + 0];
+    e.shape = rawEvents.eventData[base + 1];
+    e.appearance = rawEvents.eventData[base + 2];
+    e.suppression = rawEvents.eventData[base + 3];
+    return e;
+}
+
+float Hash21(vec2 p)
+{
+    p = fract(p * vec2(123.34, 456.21));
+    p += dot(p, p + 45.32);
+    return fract(p.x * p.y);
+}
+
+float ValueNoise(vec2 p)
+{
+    vec2 i = floor(p);
+    vec2 f = fract(p);
+    vec2 u = f * f * (3.0 - 2.0 * f);
+    float a = Hash21(i);
+    float b = Hash21(i + vec2(1.0, 0.0));
+    float c = Hash21(i + vec2(0.0, 1.0));
+    float d = Hash21(i + vec2(1.0, 1.0));
+    return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
+}
+
+float FBM2(vec2 p)
+{
+    float s = 0.0;
+    float a = 0.5;
+    float n = 0.0;
+    for(int i = 0; i < 4; ++i){
+        s += ValueNoise(p) * a;
+        n += a;
+        p *= 2.03;
+        a *= 0.5;
+    }
+    return s / n;
+}
+
+void main()
+{
+    ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
+    int resolution = int(wake.domain.w);
+
+    if(pixel.x >= resolution || pixel.y >= resolution){
+        return;
+    }
+
+    if(wake.simulation.z < 0.5){
+        imageStore(wakeSourceImage, pixel, vec4(0.0));
+        return;
+    }
+
+    vec2 uv = (vec2(pixel) + 0.5) / float(resolution);
+    vec2 worldXZ = wake.domain.xy + uv * wake.domain.z;
+
+    vec2 riverUV =
+        clamp((worldXZ - multiBore.riverInfo.xy) / max(multiBore.riverInfo.z, 1.0),
+              vec2(0.0), vec2(1.0));
+
+    vec4 flow = textureLod(riverFlowTexture, riverUV, 0.0);
+    vec4 progressField = textureLod(riverProgressTexture, riverUV, 0.0);
+
+    float waterMask = smoothstep(0.01, 0.20, max(flow.a, progressField.g));
+    float progressMeters = progressField.r * max(multiBore.riverInfo.w, 1.0);
+    float lateral = clamp(progressField.a, -1.0, 1.0);
+
+    // 与潮头一致的两岸淡出：persistent.y=覆盖范围, persistent.z=淡出宽度
+    float lateralMask =
+        1.0 - smoothstep(
+            max(multiBore.persistent.y - multiBore.persistent.z, 0.0),
+            multiBore.persistent.y,
+            abs(lateral)
+        );
+
+    vec4 source = vec4(0.0);
+
+    int eventCount = min(multiBore.metadata.x, multiBore.metadata.y);
+
+    for(int i = 0; i < eventCount; ++i){
+        BoreEventGPU event = LoadEvent(i);
+        if(event.motion.w < 0.5){
+            continue;
+        }
+
+        float signedDistance =
+            progressMeters - event.motion.x;
+
+        float behind =
+            max(-signedDistance, 0.0);
+
+        // 连接潮头和白水：原 band 在 behind=0 时为 0，会留下缝隙。
+        // crestBridge 只在潮头后方很近处生效，用来把白水贴到潮头根部。
+        float behindOnly =
+            1.0 - smoothstep(-0.5, 0.5, signedDistance);
+
+        float attachWidth =
+            max(wake.range.z, 6.0);
+
+        float crestBridge =
+            behindOnly *
+            (1.0 - smoothstep(0.0, attachWidth, behind));
+
+        float mainBand =
+            smoothstep(wake.range.x, wake.range.x + wake.range.z, behind) *
+            (1.0 - smoothstep(wake.range.y, wake.range.y + wake.range.z, behind));
+
+        float band =
+            max(mainBand, crestBridge * 0.85);
+
+        vec2 coord =
+            vec2(
+                lateral * wake.noise.z + event.appearance.z * 17.3,
+                behind / max(wake.range.y - wake.range.x, 1.0) * wake.noise.w -
+                    wake.simulation.y * 0.10 +
+                    event.appearance.z * 31.7
+            );
+
+        vec2 warp =
+            vec2(
+                FBM2(coord * 0.43 + vec2(3.1, 7.9)),
+                FBM2(coord * 0.39 + vec2(11.7, 2.3))
+            ) - 0.5;
+
+        vec2 warped = coord + warp * wake.noise.y;
+
+        float patchs = smoothstep(wake.noise.x, wake.noise.x + 0.26, FBM2(warped));
+        float holes = smoothstep(0.50, 0.74, FBM2(warped * 1.9 + vec2(8.3, 13.1)));
+        float foamIsland = patchs * (1.0 - holes * 0.98);
+
+        float eventStrength =
+            event.shape.x *
+            event.appearance.x *
+            waterMask *
+            lateralMask *
+            wake.simulation.w;
+
+        vec4 eventSource =
+            vec4(
+                max(
+                    band * mix(0.35, 1.0, FBM2(warped * 0.55)),
+                    crestBridge * 0.70
+                ) * wake.strength.x,
+
+                max(
+                    band * foamIsland,
+                    crestBridge * 0.85
+                ) * wake.strength.y,
+
+                band * patchs * wake.strength.z,
+
+                max(
+                    band * patchs,
+                    crestBridge * 0.65
+                ) * wake.strength.w
+            ) * eventStrength;
+
+        source = max(source, eventSource);
+    }
+
+    imageStore(wakeSourceImage, pixel, clamp(source, vec4(0.0), vec4(1.0)));
+}

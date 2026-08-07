@@ -103,10 +103,10 @@ cmake --build build --config Debug --parallel
 | `.\build\Debug\stage7_bore_front.exe` | 一线潮 Bore Front + Front LUT |
 | `.\build\Debug\stage8_bore_profile.exe` | Wave Profile 驱动的涌潮剖面 |
 | `.\build\Debug\stage9_water.exe` | 浪潮泡沫 + 水体光学渲染（FFT + Bore + Foam） |
-| `.\build\Debug\stage10_river_water.exe` | **推荐**：四叉树 LOD + U 形河流 + 多潮头系统 + GUI |
+| `.\build\Debug\stage10_river_water.exe` | 四叉树 LOD + U 形河流 + 多潮头系统 + GUI |
 | `.\build\Debug\stage11-progress-bore.exe` | Progress Map 驱动潮头 + 水平面噪声 |
 | `.\build\Debug\stage12-fluid-flux.exe` | **最新**：类 Fluid Flux 水体光学 + 浪脊飘带 |
-| `.\build\Debug\river-field-baker.exe` | 河流场贴图烘焙工具（带 ImGui 参数编辑器） |
+| `.\build\Debug\river-field-baker.exe` | **预烘焙**：河流场贴图烘焙工具（带 ImGui 参数编辑器） |
 
 所有程序均支持 **线框模式**（Tab 键切换）、**暂停**（P 键）、**单步**（O 键）以及 **多种调试视图**（F1~F12）。
 
@@ -117,8 +117,8 @@ cmake --build build --config Debug --parallel
 - **GitHub**：`https://github.com/ArthasXu/WaterSurfaceRendererScratch`
 - 推送命令：
   ```bash
-  git push origin stage12-visual-realism
-  git push -u gitlab stage12-visual-realism
+  git push origin main
+  git push -u gitlab main
   ```
 
 ---
