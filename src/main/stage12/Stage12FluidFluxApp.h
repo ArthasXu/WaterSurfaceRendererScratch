@@ -129,12 +129,12 @@ private:
 
         float foamShallowOffset = 0.3f;     // FF _FoamShallowOffset
         float foamShallowScale = 1.0f;      // 浅水淡出尺度(1/米)，越大淡出带越窄
-        float foamHardnessIntensity = 0.5f; // FF _FoamHardnessIntensity
-        float foamHardnessWidth = 0.2f;     // FF _FoamHardnessWidth
+        float foamHardnessIntensity = 1.0f; // FF _FoamHardnessIntensity
+        float foamHardnessWidth = 0.02f;    // FF _FoamHardnessWidth
         float foamSoftVelocity = 0.5f;      // 软晕随流速加宽
-        float foamSoftBase = 1.1f;          // 软晕基底宽度
-        float foamSoftMax = 1.0f;           // 软晕上限
-        float foamAlpha = 0.85f;            // FF _FoamColorBase.a：泡沫总不透明度
+        float foamSoftBase = 0.0f;          // 软晕基底宽度
+        float foamSoftMax = 0.0f;           // 软晕上限
+        float foamAlpha = 0.8f;             // FF _FoamColorBase.a：泡沫总不透明度
     };
 
     struct WaterMaterialGuiParams
@@ -208,7 +208,7 @@ private:
 
     struct CrestRibbonGuiParams
     {
-        bool enabled = true;
+        bool enabled = false;
         int lateralSegments = 256;          // 横向分段：越高越平滑，384 对 16km 江面够用
         int depthSegments = 4;              // 前后方向分段：6~8 即可
         float frontWidth = 6.0f;            // 潮头前方覆盖宽度(米)
@@ -229,7 +229,7 @@ private:
         float wakeHoleStrength = 0.56f;      // 孔洞强度
 
         float hardCrestWidth = 6.0f;         // 主白线半宽(米)
-        float wakeStart = 8.0f;              // 从潮头后方多少米开始出现大片浮沫
+        float wakeStart = 0.0f;              // 从潮头后方多少米开始出现大片浮沫
         float wakeEnd = 380.0f;              // 浮沫区结束距离(米)
         float wakeFeather = 80.0f;           // 浮沫区淡入/淡出宽度(米)
     };
@@ -240,25 +240,25 @@ private:
         int resolution = 512;
 
         float wakeStart = 0.0f;
-        float wakeEnd = 220.0f;
-        float wakeFeather = 24.0f;
+        float wakeEnd = 160.0f;
+        float wakeFeather = 50.0f;
         float advectionSpeed = 5.0f;
 
-        float sourceStrength = 1.0f;
-        float aerationStrength = 1.0f;
-        float foamStrength = 1.0f;
-        float sedimentStrength = 0.55f;
-        float turbulenceStrength = 0.75f;
+        float sourceStrength = 2.4f;
+        float aerationStrength = 0.0f;
+        float foamStrength = 0.86f;
+        float sedimentStrength = 0.0f;
+        float turbulenceStrength = 0.0f;
 
         float aerationDecay = 0.75f;
-        float foamDecay = 0.45f;
+        float foamDecay = 0.5f;
         float sedimentDecay = 0.08f;
         float turbulenceDecay = 0.55f;
 
         float patchThreshold = 0.56f;
-        float warpStrength = 1.8f;
-        float lateralFrequency = 2.2f;
-        float backFrequency = 5.0f;
+        float warpStrength = 4.0f;
+        float lateralFrequency = 8.0f;
+        float backFrequency = 16.0f;
     };
 
     struct CrestRibbonVertex
