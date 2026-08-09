@@ -24,8 +24,9 @@ layout(set = 0, binding = 3) readonly buffer BoreEventBuffer {
 } rawEvents;
 
 layout(set = 0, binding = 4) uniform sampler2D riverFlowTexture;
-layout(set = 0, binding = 5) uniform sampler2D riverProgressTexture;
-layout(rgba16f, set = 0, binding = 6) uniform writeonly image2D wakeSourceImage;
+layout(set = 0, binding = 5) uniform sampler2D riverCoordinateTexture;
+layout(set = 0, binding = 6) uniform sampler2D riverProgressTexture;
+layout(rgba16f, set = 0, binding = 7) uniform writeonly image2D wakeSourceImage;
 
 struct BoreEventGPU
 {
@@ -79,6 +80,11 @@ float FBM2(vec2 p)
     return s / n;
 }
 
+float CurveBasis(float lateralValue, float curvatureWeight)
+{
+    return curvatureWeight * lateralValue * lateralValue;
+}
+
 void main()
 {
     ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
@@ -101,6 +107,7 @@ void main()
               vec2(0.0), vec2(1.0));
 
     vec4 flow = textureLod(riverFlowTexture, riverUV, 0.0);
+    vec4 coord = textureLod(riverCoordinateTexture, riverUV, 0.0);
     vec4 progressField = textureLod(riverProgressTexture, riverUV, 0.0);
 
     float waterMask = smoothstep(0.01, 0.20, max(flow.a, progressField.g));
@@ -125,8 +132,9 @@ void main()
             continue;
         }
 
+        float eventCurveScale = multiBore.crestNoiseC.z * event.shape.w;
         float signedDistance =
-            progressMeters - event.motion.x;
+            progressMeters - event.motion.x - eventCurveScale * CurveBasis(lateral, coord.a);
 
         float behind =
             max(-signedDistance, 0.0);

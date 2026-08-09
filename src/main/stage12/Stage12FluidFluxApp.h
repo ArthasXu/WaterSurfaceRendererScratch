@@ -246,7 +246,7 @@ private:
 
         float sourceStrength = 2.4f;
         float aerationStrength = 0.0f;
-        float foamStrength = 0.86f;
+        float foamStrength = 1.50f;
         float sedimentStrength = 0.0f;
         float turbulenceStrength = 0.0f;
 
@@ -440,6 +440,7 @@ private:
     float m_LastSimulationDeltaTime = 0.0f;
     float m_BoreTime = 0.0f;
     float m_LastBoreDeltaTime = 0.0f;
+    float m_BoreAccumulator = 0.0f;
 
     bool m_BorePaused = false;
     bool m_BoreEnabled = true;
