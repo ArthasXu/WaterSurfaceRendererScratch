@@ -190,20 +190,23 @@ private:
 
     struct QuadtreeGuiParams
     {
-        glm::vec2 rootCenter{0.0f};
-        float rootSize = 16384.0f;
-        int maxLevel = 8;
-        int patchCellCount = 32;
-        float fovYDegrees = 45.0f;
-        float splitPixels = 9.0f;
-        float mergePixels = 6.0f;
-        float minY = -15.0f;
-        float maxY = 20.0f;
+        glm::vec2 rootCenter{0.0f};           // 四叉树根节点中心
+        float rootSize = 16384.0f;            // 根节点覆盖范围（米）
+        int maxLevel = 8;                     // 最大细分层级
+        int patchCellCount = 32;              // 每个 Tile 的网格单元数
+        float fovYDegrees = 45.0f;            // 垂直视场角（度）
+        float splitPixels = 9.0f;             // 分裂阈值（像素）
+        float mergePixels = 6.0f;             // 合并阈值（像素）
+        float minY = -15.0f;                  // 水面 AABB 最小 Y（米）
+        float maxY = 20.0f;                   // 水面 AABB 最大 Y（米）
 
-        int boreCoreLevel = 6;              // 潮头核心强制 LOD，不再等于 maxLevel
-        int boreNearLevel = 5;              // 潮头附近过渡 LOD
-        float boreCoreWidth = 80.0f;        // 潮头核心范围(沿河米)
-        float boreNearWidth = 220.0f;       // 潮头附近过渡范围(沿河米)
+        int boreCoreLevel = 6;                // 潮头核心区域强制 LOD 层级
+        int boreNearLevel = 5;                // 潮头附近过渡区域 LOD 层级
+        float boreCoreWidth = 80.0f;          // 潮头核心范围（沿河距离，米）
+        float boreNearWidth = 220.0f;         // 潮头附近过渡范围（沿河距离，米）
+
+        int boreUltraLevel = 8;               // 潮头超精细区域 LOD 层级
+        float boreUltraWidth = 24.0f;         // 潮头超精细范围（沿河距离，米）
     };
 
     struct CrestRibbonGuiParams
