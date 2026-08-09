@@ -4239,8 +4239,8 @@ void Stage12FluidFluxApp::DrawGui()
         }
 
         ImGui::SeparatorText("Range - 白水区间");
-        ImGui::SliderFloat("Wake Start - 白水起始距离(米)", &m_BoreWakeGui.wakeStart, 0.0f, 150.0f);
-        ImGui::SliderFloat("Wake End - 白水结束距离(米)", &m_BoreWakeGui.wakeEnd, 80.0f, 900.0f);
+        ImGui::SliderFloat("Wake Start - 白水起始距离(米)", &m_BoreWakeGui.wakeStart, -50.0f, 150.0f);
+        ImGui::SliderFloat("Wake End - 白水结束距离(米)", &m_BoreWakeGui.wakeEnd, 50.0f, 900.0f);
         ImGui::SliderFloat("Wake Feather - 白水边缘柔化宽度(米)", &m_BoreWakeGui.wakeFeather, 10.0f, 250.0f);
         ImGui::SliderFloat("Advection Speed - 向后平流速度(米/秒)", &m_BoreWakeGui.advectionSpeed, 0.0f, 12.0f);
 
@@ -4320,7 +4320,7 @@ void Stage12FluidFluxApp::DrawGui()
         ImGui::SliderInt("Bore Near Level", &m_QuadtreeGui.boreNearLevel, 0, m_QuadtreeGui.maxLevel);
         ImGui::SliderFloat("Bore Core Width", &m_QuadtreeGui.boreCoreWidth, 0.0f, 300.0f);
         ImGui::SliderFloat("Bore Near Width", &m_QuadtreeGui.boreNearWidth, 0.0f, 700.0f);
-        
+
         if(ImGui::Button("Apply Quadtree Rebuild")){
             RebuildQuadtreeFromGui();
         }
