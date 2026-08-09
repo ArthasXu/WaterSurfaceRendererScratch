@@ -171,7 +171,7 @@ layout(location = 13) out vec4 fragFinalDisplacement;
 layout(location = 14) out vec4 fragRiverFlow;
 layout(location = 15) out vec4 fragRiverCoord;
 layout(location = 16) out vec4 fragShore;
-layout(location = 17) out vec4 fragBoreRibbon; // x=最近潮头signedDistance y=lateral z=seed w=crestMask
+layout(location = 17) out vec4 fragBoreRibbon; // x=多潮头主脊覆盖率 y=横向坐标 z/w=预留
 layout(location = 18) out vec2 fragBaseWorldXZ;
 
 struct CascadeSample
@@ -283,6 +283,20 @@ float FBM2(vec2 p){
     return sum / norm;
 }
 
+float CurveBasis(float lateralValue, float curvatureWeight)
+{
+    return curvatureWeight * lateralValue * lateralValue;
+}
+
+vec2 SafeNormalize(vec2 value, vec2 fallbackDirection)
+{
+    float lengthSquared = dot(value, value);
+    if(lengthSquared < 1.0e-8){
+        return fallbackDirection;
+    }
+    return value * inversesqrt(lengthSquared);
+}
+
 void main(){
     // 将顶点从模型空间变换到世界空间，得到未变形的水面基础位置
     // Patch 局部坐标映射到 Tile 世界坐标
@@ -347,28 +361,46 @@ void main(){
         river.domain.z /
         float(coordinateSize.x);
 
+    vec4 coordLeftSample =
+        textureLod(riverCoordinateTexture, riverUV - vec2(texelUV.x, 0.0), 0.0);
+    vec4 coordRightSample =
+        textureLod(riverCoordinateTexture, riverUV + vec2(texelUV.x, 0.0), 0.0);
+    vec4 coordDownSample =
+        textureLod(riverCoordinateTexture, riverUV - vec2(0.0, texelUV.y), 0.0);
+    vec4 coordUpSample =
+        textureLod(riverCoordinateTexture, riverUV + vec2(0.0, texelUV.y), 0.0);
+
+    vec4 progressLeftSample =
+        textureLod(riverProgressTexture, riverUV - vec2(texelUV.x, 0.0), 0.0);
+    vec4 progressRightSample =
+        textureLod(riverProgressTexture, riverUV + vec2(texelUV.x, 0.0), 0.0);
+    vec4 progressDownSample =
+        textureLod(riverProgressTexture, riverUV - vec2(0.0, texelUV.y), 0.0);
+    vec4 progressUpSample =
+        textureLod(riverProgressTexture, riverUV + vec2(0.0, texelUV.y), 0.0);
+
     float progressLeft =
         (useProgressField
-            ? textureLod(riverProgressTexture, riverUV - vec2(texelUV.x, 0.0), 0.0).r
-            : textureLod(riverCoordinateTexture, riverUV - vec2(texelUV.x, 0.0), 0.0).r)
+            ? progressLeftSample.r
+            : coordLeftSample.r)
          * river.domain.w;
 
     float progressRight =
         (useProgressField
-            ? textureLod(riverProgressTexture, riverUV + vec2(texelUV.x, 0.0), 0.0).r
-            : textureLod(riverCoordinateTexture, riverUV + vec2(texelUV.x, 0.0), 0.0).r)
+            ? progressRightSample.r
+            : coordRightSample.r)
          * river.domain.w;
     
     float progressDown =
         (useProgressField
-            ? textureLod(riverProgressTexture, riverUV - vec2(0.0, texelUV.y), 0.0).r
-            : textureLod(riverCoordinateTexture, riverUV - vec2(0.0, texelUV.y), 0.0).r)
+            ? progressDownSample.r
+            : coordDownSample.r)
          * river.domain.w;
 
     float progressUp =
         (useProgressField
-            ? textureLod(riverProgressTexture, riverUV + vec2(0.0, texelUV.y), 0.0).r
-            : textureLod(riverCoordinateTexture, riverUV + vec2(0.0, texelUV.y), 0.0).r)
+            ? progressUpSample.r
+            : coordUpSample.r)
          * river.domain.w;
 
     // progress 的梯度（世界空间），指向 progress 增加最快的方向，即河流的切线方向
@@ -394,10 +426,14 @@ void main(){
             ? normalize(riverFlow.rg)
             : vec2(0.0, 1.0));
 
-    // if(dot(localFlowDirection, riverFlow.rg) < 0.0){
-    //     localFlowDirection =
-    //         -localFlowDirection;
-    // }
+    vec2 fallbackFlowDirection =
+        length(riverFlow.rg) > 1.0e-4
+        ? normalize(riverFlow.rg)
+        : localFlowDirection;
+
+    if(dot(localFlowDirection, fallbackFlowDirection) < 0.0){
+        localFlowDirection = -localFlowDirection;
+    }
 
     // 顶点的沿河进度（米）：由归一化进度和河流总长度计算
     float progressMeters =
@@ -421,6 +457,22 @@ void main(){
 
     float lateralSquared =
         lateral * lateral;
+
+    float curveBasis =
+        CurveBasis(lateral, riverCoord.a);
+
+    float curveLeft =
+        CurveBasis(clamp(useProgressField ? progressLeftSample.a : coordLeftSample.g, -1.0, 1.0), coordLeftSample.a);
+    float curveRight =
+        CurveBasis(clamp(useProgressField ? progressRightSample.a : coordRightSample.g, -1.0, 1.0), coordRightSample.a);
+    float curveDown =
+        CurveBasis(clamp(useProgressField ? progressDownSample.a : coordDownSample.g, -1.0, 1.0), coordDownSample.a);
+    float curveUp =
+        CurveBasis(clamp(useProgressField ? progressUpSample.a : coordUpSample.g, -1.0, 1.0), coordUpSample.a);
+
+    vec2 curveBasisGradient =
+        vec2(curveRight - curveLeft, curveUp - curveDown) /
+        (2.0 * texelWorldSize);
 
     // float curvatureOffset =
     //     river.bore.y *
@@ -788,9 +840,7 @@ void main(){
         float waterRiseMask = 0.0;
         float activeCount = float(min(multiBore.metadata.x, multiBore.metadata.y));
 
-        float nearestAbsDistance = 1.0e9;
-        float nearestSignedDistance = 1.0e9;
-        float nearestSeed = 0.0;
+        float multiRibbonCoverage = 0.0;
         
         for(int eventIndex = 0; eventIndex < min(multiBore.metadata.x, multiBore.metadata.y); ++eventIndex){
             BoreEventGPU event = boreEvents.events[eventIndex];
@@ -802,14 +852,26 @@ void main(){
             float eventProgress = event.motion.x;
             float eventWidthScale = max(event.shape.y, 0.05);
             float eventHalfWidth = profileHalfWidth * eventWidthScale;
-            float eventCurvatureOffset = river.bore.y * event.shape.w * riverCoord.a * lateralSquared;
+            float eventCurveScale = river.bore.y * event.shape.w;
+            float eventCurvatureOffset = eventCurveScale * curveBasis;
             float eventSignedDistance = progressMeters - eventProgress - eventCurvatureOffset;
-            
-            if(abs(eventSignedDistance) < nearestAbsDistance){
-                nearestAbsDistance = abs(eventSignedDistance);
-                nearestSignedDistance = eventSignedDistance;
-                nearestSeed = event.appearance.z;
+
+            vec2 eventFieldGradient =
+                progressGradient - eventCurveScale * curveBasisGradient;
+
+            vec2 eventFrontNormal =
+                SafeNormalize(eventFieldGradient, fallbackFlowDirection);
+
+            if(dot(eventFrontNormal, fallbackFlowDirection) < 0.0){
+                eventFrontNormal = -eventFrontNormal;
             }
+
+            float eventRibbonCoverage =
+                (1.0 - smoothstep(14.0, 22.0, abs(eventSignedDistance))) *
+                commonBoreMask;
+
+            multiRibbonCoverage =
+                1.0 - (1.0 - multiRibbonCoverage) * (1.0 - eventRibbonCoverage);
 
             float eventProfileU = clamp(eventSignedDistance / (2.0 * eventHalfWidth) + 0.5, 0.0, 1.0);
             float eventProfileV = clamp(event.appearance.y, 0.0, 1.0);
@@ -848,7 +910,7 @@ void main(){
             float eventCrestMask = eventProfile.a * eventCommonMask;
 
             vec2 eventHorizontal =
-                localFrontNormal *
+                eventFrontNormal *
                 eventProfile.r *
                 forwardScale *
                 event.shape.z *
@@ -904,7 +966,7 @@ void main(){
 
             boreHorizontal += eventHorizontal;
             boreVertical += eventLocalVertical;
-            boreSlope += eventEffectiveSlope * localFrontNormal;
+            boreSlope += eventEffectiveSlope * eventFrontNormal;
             crestMask = max(crestMask, eventCrestMask);
             totalCrestWeight += eventCrestMask;
 
@@ -941,7 +1003,7 @@ void main(){
             multiBreakingFoam = 1.0 - (1.0 - multiBreakingFoam) * (1.0 - eventBreakingFoam);
 
             float eventFoamSource = max(eventProfileFoam, eventBreakingFoam);
-            multiFoamVelocity += localFrontNormal * eventDerivative.b * eventFoamSource;
+            multiFoamVelocity += eventFrontNormal * eventDerivative.b * eventFoamSource;
             multiFoamSourceWeight += eventFoamSource;
         }
 
@@ -1126,10 +1188,10 @@ void main(){
 
     fragBoreRibbon = 
         vec4(
-            nearestSignedDistance, 
-            lateral, 
-            nearestSeed, 
-            crestMask
+            multiRibbonCoverage,
+            lateral,
+            0.0,
+            multiRibbonCoverage
         );
 
     fragFinalDisplacement =

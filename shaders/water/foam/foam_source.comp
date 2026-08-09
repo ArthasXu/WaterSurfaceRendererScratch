@@ -74,6 +74,10 @@ layout(set = 0, binding = 16) uniform MultiBoreUBO
 {
     ivec4 metadata;
     vec4 riverInfo;
+    vec4 crestNoiseA;
+    vec4 crestNoiseB;
+    vec4 crestNoiseC;
+    vec4 persistent;
 } multiBore;
 
 layout(std430, set = 0, binding = 17) readonly buffer BoreEventBuffer
@@ -145,6 +149,20 @@ float SoftUnion(float a, float b)
         (1.0 - b);
 }
 
+float CurveBasis(float lateralValue, float curvatureWeight)
+{
+    return curvatureWeight * lateralValue * lateralValue;
+}
+
+vec2 SafeNormalize(vec2 value, vec2 fallbackDirection)
+{
+    float lengthSquared = dot(value, value);
+    if(lengthSquared < 1.0e-8){
+        return fallbackDirection;
+    }
+    return value * inversesqrt(lengthSquared);
+}
+
 void main() {
     ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
     int resolution = int(foamSim.solver.y);
@@ -174,13 +192,34 @@ void main() {
     ivec2 coordinateSize = textureSize(riverCoordinateTexture, 0);
     vec2 texelUV = 1.0 / vec2(coordinateSize);
     float texelWorldSize = multiBore.riverInfo.z / float(coordinateSize.x);
-    float progressLeft  = (useProgressField ? textureLod(riverProgressTexture, riverUV - vec2(texelUV.x, 0.0), 0.0).r : textureLod(riverCoordinateTexture, riverUV - vec2(texelUV.x, 0.0), 0.0).r) * multiBore.riverInfo.w;
-    float progressRight = (useProgressField ? textureLod(riverProgressTexture, riverUV + vec2(texelUV.x, 0.0), 0.0).r : textureLod(riverCoordinateTexture, riverUV + vec2(texelUV.x, 0.0), 0.0).r) * multiBore.riverInfo.w;
-    float progressDown  = (useProgressField ? textureLod(riverProgressTexture, riverUV - vec2(0.0, texelUV.y), 0.0).r : textureLod(riverCoordinateTexture, riverUV - vec2(0.0, texelUV.y), 0.0).r) * multiBore.riverInfo.w;
-    float progressUp    = (useProgressField ? textureLod(riverProgressTexture, riverUV + vec2(0.0, texelUV.y), 0.0).r : textureLod(riverCoordinateTexture, riverUV + vec2(0.0, texelUV.y), 0.0).r) * multiBore.riverInfo.w;
+
+    vec4 coordLeftSample = textureLod(riverCoordinateTexture, riverUV - vec2(texelUV.x, 0.0), 0.0);
+    vec4 coordRightSample = textureLod(riverCoordinateTexture, riverUV + vec2(texelUV.x, 0.0), 0.0);
+    vec4 coordDownSample = textureLod(riverCoordinateTexture, riverUV - vec2(0.0, texelUV.y), 0.0);
+    vec4 coordUpSample = textureLod(riverCoordinateTexture, riverUV + vec2(0.0, texelUV.y), 0.0);
+
+    vec4 progressLeftSample = textureLod(riverProgressTexture, riverUV - vec2(texelUV.x, 0.0), 0.0);
+    vec4 progressRightSample = textureLod(riverProgressTexture, riverUV + vec2(texelUV.x, 0.0), 0.0);
+    vec4 progressDownSample = textureLod(riverProgressTexture, riverUV - vec2(0.0, texelUV.y), 0.0);
+    vec4 progressUpSample = textureLod(riverProgressTexture, riverUV + vec2(0.0, texelUV.y), 0.0);
+
+    float progressLeft  = (useProgressField ? progressLeftSample.r : coordLeftSample.r) * multiBore.riverInfo.w;
+    float progressRight = (useProgressField ? progressRightSample.r : coordRightSample.r) * multiBore.riverInfo.w;
+    float progressDown  = (useProgressField ? progressDownSample.r : coordDownSample.r) * multiBore.riverInfo.w;
+    float progressUp    = (useProgressField ? progressUpSample.r : coordUpSample.r) * multiBore.riverInfo.w;
     vec2 progressGradient = vec2(progressRight - progressLeft, progressUp - progressDown) / (2.0 * max(texelWorldSize, 1.0e-4));
     vec2 fallbackFlowDirection = length(riverFlow.rg) > 1.0e-4 ? normalize(riverFlow.rg) : vec2(0.0, 1.0);
     vec2 riverDirection = length(progressGradient) > 1.0e-4 ? normalize(progressGradient) : fallbackFlowDirection;
+    if(dot(riverDirection, fallbackFlowDirection) < 0.0){
+        riverDirection = -riverDirection;
+    }
+
+    float curveBasis = CurveBasis(lateral, riverCoord.a);
+    float curveLeft = CurveBasis(clamp(useProgressField ? progressLeftSample.a : coordLeftSample.g, -1.0, 1.0), coordLeftSample.a);
+    float curveRight = CurveBasis(clamp(useProgressField ? progressRightSample.a : coordRightSample.g, -1.0, 1.0), coordRightSample.a);
+    float curveDown = CurveBasis(clamp(useProgressField ? progressDownSample.a : coordDownSample.g, -1.0, 1.0), coordDownSample.a);
+    float curveUp = CurveBasis(clamp(useProgressField ? progressUpSample.a : coordUpSample.g, -1.0, 1.0), coordUpSample.a);
+    vec2 curveBasisGradient = vec2(curveRight - curveLeft, curveUp - curveDown) / (2.0 * max(texelWorldSize, 1.0e-4));
 
     // ---------- 与顶点着色器完全一致的 BoreFront 计算 ----------
     vec2 direction = normalize(bore.directionLengthFade.xy);
@@ -247,8 +286,14 @@ void main() {
             }
 
             float eventHalfWidth = profileHalfWidth * max(event.shape.y, 0.05);
-            float curvatureOffset = 0.0;
+            float eventCurveScale = multiBore.crestNoiseC.z * event.shape.w;
+            float curvatureOffset = eventCurveScale * curveBasis;
             float eventSignedDistance = progressMeters - event.motion.x - curvatureOffset;
+            vec2 eventFieldGradient = progressGradient - eventCurveScale * curveBasisGradient;
+            vec2 eventFrontNormal = SafeNormalize(eventFieldGradient, fallbackFlowDirection);
+            if(dot(eventFrontNormal, fallbackFlowDirection) < 0.0){
+                eventFrontNormal = -eventFrontNormal;
+            }
             float eventProfileU = clamp(eventSignedDistance / (2.0 * eventHalfWidth) + 0.5, 0.0, 1.0);
             float eventProfileV = clamp(event.appearance.y, 0.0, 1.0);
 
@@ -267,7 +312,7 @@ void main() {
 
             profileFoam = SoftUnion(profileFoam, eventProfileFoam);
             boreBreakingFoam = SoftUnion(boreBreakingFoam, eventBreakingFoam);
-            velocitySum += riverDirection * eventDerivative.b * eventFoamSource;
+            velocitySum += eventFrontNormal * eventDerivative.b * eventFoamSource;
             sourceSum += eventFoamSource;
             breakingMax = max(breakingMax, eventDerivative.a);
         }

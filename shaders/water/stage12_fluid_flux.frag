@@ -334,55 +334,12 @@ void main()
     // 宏观泡沫覆盖：远处也要保留，不能被细节 fade 清零
     float macroFoam = foamAmount;
 
-    float boreBehind =
-        max(-fragBoreRibbon.x, 0.0);
+    float aeration = wakeAeration;
 
-    float analyticWake =
-        smoothstep(8.0, 35.0, boreBehind) *
-        exp(-boreBehind / 360.0) *
-        fragBoreRibbon.w;
-
-    float wakeMacroNoise =
-        texture(
-            foamDetailTexture,
-            vec2(
-                fragBoreRibbon.y * 0.18 + fragBoreRibbon.z * 9.1,
-                boreBehind * 0.010 + fragBoreRibbon.z * 4.7
-            )
-        ).r;
-
-    float analyticAeration =
-        analyticWake *
-        smoothstep(0.28, 0.72, wakeMacroNoise);
-
-    float aeration =
-        max(wakeAeration, analyticAeration * 0.25);
-
-    foamAmount =
-        clamp(
-            SoftUnion(foamAmount, wakeSurfaceFoam),
-            0.0,
-            1.0
-        );
-    
-    // 片元级潮头边缘抖动：只改变泡沫覆盖，不改变几何。
-    // 大尺度 jitter 做宏观参差，小尺度 jitter 切碎边缘。
-    float boreSd = fragBoreRibbon.x;
-    float boreLat = fragBoreRibbon.y;
-    float boreSeed = fragBoreRibbon.z;
-
-    float macroJitter =
-        (texture(foamDetailTexture, vec2(boreLat * 0.03 + boreSeed, 0.37)).r - 0.5) * 10.0;
-    float detailJitter =
-        (texture(foamDetailTexture, fragWorldPosition.xz * 0.035 + boreSeed).a - 0.5) * 3.0;
-
-    float jitteredSd = boreSd + macroJitter + detailJitter;
-    float edgeAA = max(fwidth(jitteredSd) * 1.5, 0.75);
-
-    float ribbonFoam =
-        1.0 - smoothstep(18.0, 18.0 + edgeAA, abs(jitteredSd));
-
-    foamAmount = clamp(SoftUnion(foamAmount, ribbonFoam * fragBoreRibbon.w), 0.0, 1.0);
+    // fragBoreRibbon.x 已在顶点阶段对所有潮头做 SoftUnion，只表示最终覆盖率。
+    // 不再插值“最近潮头 signed distance / seed”，避免三角形内跨事件插值导致弯道泡沫散射。
+    float ribbonFoam = fragBoreRibbon.x;
+    foamAmount = clamp(SoftUnion(foamAmount, ribbonFoam), 0.0, 1.0);
     macroFoam = foamAmount;
 
     // 远处泡沫细节纹理欠采样 → 摩尔纹。按相机距离把泡沫细节淡出，

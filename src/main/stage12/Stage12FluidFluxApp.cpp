@@ -693,7 +693,8 @@ void Stage12FluidFluxApp::CreateBoreWakeDescriptorSetLayouts()
             .AddBinding(3, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT)
             .AddBinding(4, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT)
             .AddBinding(5, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT)
-            .AddBinding(6, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT)
+            .AddBinding(6, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT)
+            .AddBinding(7, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT)
             .Build();
 
     m_BoreWakeAdvectSetLayout =
@@ -840,7 +841,6 @@ void Stage12FluidFluxApp::CreateRiverResources()
 
     // ===== 打包并上传为 GPU 纹理 =====
     std::vector<PackedHalf4> flowPacked = PackHalf4Vector(flowField);
-    std::vector<PackedHalf4> progressPacked = PackHalf4Vector(progressField);
     std::vector<PackedHalf4> shorePacked = PackHalf4Vector(shoreField);
 
     VkDeviceSize halfTextureSize =
@@ -850,6 +850,10 @@ void Stage12FluidFluxApp::CreateRiverResources()
 
     VkDeviceSize coordinateTextureSize =
         static_cast<VkDeviceSize>(coordinateField.size()) *
+        sizeof(glm::vec4);
+
+    VkDeviceSize progressTextureSize =
+        static_cast<VkDeviceSize>(progressField.size()) *
         sizeof(glm::vec4);
 
     m_RiverFlowTexture =
@@ -886,9 +890,9 @@ void Stage12FluidFluxApp::CreateRiverResources()
             GetDevice().GetGraphicsQueue(),
             fieldConfig.resolution,
             fieldConfig.resolution,
-            VK_FORMAT_R16G16B16A16_SFLOAT,
-            progressPacked.data(),
-            halfTextureSize
+            VK_FORMAT_R32G32B32A32_SFLOAT,
+            progressField.data(),
+            progressTextureSize
         );
 
     m_ShoreMaskTexture =
@@ -2002,11 +2006,14 @@ void Stage12FluidFluxApp::CreateBoreWakeDescriptorSets()
         VkDescriptorImageInfo riverFlowInfo =
             m_RiverFlowTexture->GetDescriptorInfo(*m_RiverSampler);
 
-        VkDescriptorImageInfo progressFieldInfo =
-            m_ProgressFieldTexture->GetDescriptorInfo(*m_RiverSampler);
+            VkDescriptorImageInfo progressFieldInfo =
+                m_ProgressFieldTexture->GetDescriptorInfo(*m_RiverSampler);
 
-        VkDescriptorImageInfo sourceInfo =
-            m_BoreWakeSourceImage->GetStorageDescriptorInfo();
+            VkDescriptorImageInfo riverCoordinateInfo =
+                m_RiverCoordinateTexture->GetDescriptorInfo(*m_RiverSampler);
+
+            VkDescriptorImageInfo sourceInfo =
+                m_BoreWakeSourceImage->GetStorageDescriptorInfo();
 
         bool success =
             vkp::DescriptorWriter(*m_BoreWakeSourceSetLayout, *m_BoreWakeDescriptorPool)
@@ -2015,8 +2022,9 @@ void Stage12FluidFluxApp::CreateBoreWakeDescriptorSets()
                 .WriteBuffer(2, &wakeParamsInfo)
                 .WriteBuffer(3, &boreEventInfo)
                 .WriteImage(4, &riverFlowInfo)
-                .WriteImage(5, &progressFieldInfo)
-                .WriteImage(6, &sourceInfo)
+                .WriteImage(5, &riverCoordinateInfo)
+                .WriteImage(6, &progressFieldInfo)
+                .WriteImage(7, &sourceInfo)
                 .Build(m_BoreWakeSourceSets[i]);
 
         if(!success){
@@ -2348,28 +2356,46 @@ void Stage12FluidFluxApp::Update(core::Timestep timestep)
     float boreDeltaTime = 0.0f;
 
     if(!m_BorePaused && !m_Paused){
-        boreDeltaTime = deltaTime;
-    }
+        float clampedDeltaTime =
+            std::min(deltaTime, 0.10f);
 
-    m_LastBoreDeltaTime = boreDeltaTime;
-    m_BoreTime += boreDeltaTime;
+        constexpr float fixedStep = 1.0f / 60.0f;
+        constexpr int maxSubsteps = 8;
 
-    if(!m_BorePaused && !m_Paused){
-        m_BoreEventManager.Update(
-            boreDeltaTime,
-            m_RiverLength,
-            m_BoreProfileConfig.profileHalfWidth,
-            BuildBoreEventManagerConfig()
-        );
+        m_BoreAccumulator += clampedDeltaTime;
+
+        int substepCount = 0;
+        while(m_BoreAccumulator >= fixedStep && substepCount < maxSubsteps){
+            m_BoreEventManager.Update(
+                fixedStep,
+                m_RiverLength,
+                m_BoreProfileConfig.profileHalfWidth,
+                BuildBoreEventManagerConfig()
+            );
+
+            m_BoreTime += fixedStep;
+            boreDeltaTime += fixedStep;
+            m_BoreAccumulator -= fixedStep;
+            ++substepCount;
+        }
+
+        if(substepCount == maxSubsteps){
+            m_BoreAccumulator = std::min(m_BoreAccumulator, fixedStep);
+        }
 
         // 历史高水位标记：只增不减，事件被移除后水位不回落
         for(const water::BoreEvent& boreEvent : m_BoreEventManager.GetActiveEvents()){
-        if(boreEvent.active){
-            m_MaxBorePassedProgress =
-                std::max(m_MaxBorePassedProgress, boreEvent.progressMeters);
+            if(boreEvent.active){
+                m_MaxBorePassedProgress =
+                    std::max(m_MaxBorePassedProgress, boreEvent.progressMeters);
+            }
         }
     }
+    else{
+        m_BoreAccumulator = 0.0f;
     }
+
+    m_LastBoreDeltaTime = boreDeltaTime;
 
     UpdateWindowTitle();
 
@@ -2392,6 +2418,7 @@ void Stage12FluidFluxApp::Update(core::Timestep timestep)
 
     if(m_AutoRepeatEvent && m_BoreTime > m_EventRepeatDuration){
         m_BoreTime = 0.0f;
+        m_BoreAccumulator = 0.0f;
         m_ProfileTime = 0.0f;
     }
 }
@@ -2829,7 +2856,7 @@ void Stage12FluidFluxApp::UpdateMultiBoreBuffers(uint32_t frameIndex)
     ubo.crestNoiseC = glm::vec4(
         m_CrestNoiseGui.wobbleStrength,
         m_CrestNoiseGui.wobbleFrequency,
-        0.0f,
+        m_RiverBoreCurvatureMeters,
         0.0f
     );
 
@@ -4046,6 +4073,7 @@ void Stage12FluidFluxApp::RebuildQuadtreeFromGui()
 void Stage12FluidFluxApp::ResetBoreEvent()
 {
     m_BoreTime = 0.0f;
+    m_BoreAccumulator = 0.0f;
     m_ProfileTime = m_BoreProfileConfig.duration * m_BoreProfileGui.fixedPhase;
     m_CurrentFoamStateIndex = 0;
     ResetMultiBoreEvents();
