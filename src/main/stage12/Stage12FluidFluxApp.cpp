@@ -3392,13 +3392,23 @@ uint32_t Stage12FluidFluxApp::GetRiverRequiredLevel(
                 )
             );
 
-        if(nearestBoreDist <= m_QuadtreeGui.boreCoreWidth){
-            requiredLevel =
-                std::max(requiredLevel, coreLevel);
+        uint32_t ultraLevel =
+            static_cast<uint32_t>(
+                glm::clamp(
+                    m_QuadtreeGui.boreUltraLevel,
+                    0,
+                    m_QuadtreeGui.maxLevel
+                )
+            );
+
+        if(nearestBoreDist <= m_QuadtreeGui.boreUltraWidth){
+            requiredLevel = std::max(requiredLevel, ultraLevel);
+        }
+        else if(nearestBoreDist <= m_QuadtreeGui.boreCoreWidth){
+            requiredLevel = std::max(requiredLevel, coreLevel);
         }
         else if(nearestBoreDist <= m_QuadtreeGui.boreNearWidth){
-            requiredLevel =
-                std::max(requiredLevel, nearLevel);
+            requiredLevel = std::max(requiredLevel, nearLevel);
         }
     }
 
@@ -4344,10 +4354,12 @@ void Stage12FluidFluxApp::DrawGui()
         ImGui::DragFloat("Max Y - 水面 AABB 的最大 Y 坐标（米）", &m_QuadtreeGui.maxY, 0.5f, 0.0f, 100.0f);
 
         ImGui::SeparatorText("Bore LOD - 潮头局部细分");
-        ImGui::SliderInt("Bore Core Level", &m_QuadtreeGui.boreCoreLevel, 0, m_QuadtreeGui.maxLevel);
-        ImGui::SliderInt("Bore Near Level", &m_QuadtreeGui.boreNearLevel, 0, m_QuadtreeGui.maxLevel);
-        ImGui::SliderFloat("Bore Core Width", &m_QuadtreeGui.boreCoreWidth, 0.0f, 300.0f);
-        ImGui::SliderFloat("Bore Near Width", &m_QuadtreeGui.boreNearWidth, 0.0f, 700.0f);
+        ImGui::SliderInt("Bore Core Level - 潮头核心 LOD 层级", &m_QuadtreeGui.boreCoreLevel, 0, m_QuadtreeGui.maxLevel);
+        ImGui::SliderInt("Bore Near Level - 潮头附近过渡 LOD 层级", &m_QuadtreeGui.boreNearLevel, 0, m_QuadtreeGui.maxLevel);
+        ImGui::SliderFloat("Bore Core Width - 潮头核心范围(米)", &m_QuadtreeGui.boreCoreWidth, 0.0f, 300.0f);
+        ImGui::SliderFloat("Bore Near Width - 潮头附近过渡范围(米)", &m_QuadtreeGui.boreNearWidth, 0.0f, 700.0f);
+        ImGui::SliderInt("Bore Ultra Level - 潮头超精细 LOD 层级", &m_QuadtreeGui.boreUltraLevel, 0, m_QuadtreeGui.maxLevel);
+        ImGui::SliderFloat("Bore Ultra Width - 潮头超精细范围(米)", &m_QuadtreeGui.boreUltraWidth, 0.0f, 80.0f);
 
         if(ImGui::Button("Apply Quadtree Rebuild")){
             RebuildQuadtreeFromGui();
