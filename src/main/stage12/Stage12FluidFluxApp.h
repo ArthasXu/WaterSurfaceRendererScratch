@@ -148,7 +148,7 @@ private:
         glm::vec4 opticalParams{0.02f, 0.35f, 0.06f, 0.0f};  // 默认接近水物理值
 
         // 太阳方向（与天空太阳一致）
-        glm::vec3 sunDirection{0.3f, 0.6f, 0.4f};
+        glm::vec3 sunDirection{-0.63f, 0.11f, 1.0f};
         float specularStrength = 6.0f;                       // 太阳高光强度（5~10）
 
         glm::vec4 fogParams{120.0f, 6000.0f, 0.4f, 0.0f};     // 雾效参数
@@ -197,8 +197,8 @@ private:
         float fovYDegrees = 45.0f;            // 垂直视场角（度）
         float splitPixels = 9.0f;             // 分裂阈值（像素）
         float mergePixels = 6.0f;             // 合并阈值（像素）
-        float minY = -15.0f;                  // 水面 AABB 最小 Y（米）
-        float maxY = 20.0f;                   // 水面 AABB 最大 Y（米）
+        float minY = -40.0f;                  // 水面 AABB 最小 Y（米，包含 skirt）
+        float maxY = 40.0f;                   // 水面 AABB 最大 Y（米，包含高潮头）
 
         int boreCoreLevel = 6;                // 潮头核心区域强制 LOD 层级
         int boreNearLevel = 5;                // 潮头附近过渡区域 LOD 层级
@@ -284,7 +284,7 @@ private:
         float maxSpawnInterval = 60.0f;
         float retryMinInterval = 0.5f;
         float retryMaxInterval = 1.0f;
-        float baseSpeed = 48.0f;
+        float baseSpeed = 64.0f;
         float removeMargin = 120.0f;
         float minimumSeparationPadding = 10.0f;
         float lateralExtent = 0.85f;   // 潮头横向覆盖到河宽的百分比
@@ -322,6 +322,7 @@ private:
 
     // 依据当前 m_ShoreParams 重新烘焙岸线场并刷新 binding 21
     void RebakeShoreField();
+    void RebuildBoreProfileResources();
 
     void UpdateRiverFieldUniformBuffer(
         uint32_t frameIndex
@@ -430,6 +431,7 @@ private:
     water::ShoreFieldParams m_ShoreParams{};
     // GUI 请求重烘焙的延迟标志，在帧录制前的安全点执行
     bool m_ShoreRebakePending = false;
+    bool m_BoreProfileRebuildPending = false;
     // 记录烘焙时使用的场配置，供 RebakeShoreField 复用
     water::RiverFieldConfig m_RiverFieldConfig{};
 

@@ -179,8 +179,8 @@ void Stage12FluidFluxApp::Start()
 
     static_assert(sizeof(glm::vec4) == 16);
 
-    m_Camera.SetPosition(glm::vec3(2150.0f, 32.0f, 4400.0f));
-    m_Camera.LookAt(glm::vec3(1500.0f, -230.0f, 5000.0f));
+    m_Camera.SetPosition(glm::vec3(940.0f, 255.0f, -475.0f));
+    m_Camera.LookAt(glm::vec3(165.0f, 53.0f, -16.0f));
 
     CreateDescriptorSetLayout();
     CreateAppearanceDescriptorSetLayout();
@@ -978,6 +978,33 @@ void Stage12FluidFluxApp::RebakeShoreField()
     }
 }
 
+void Stage12FluidFluxApp::RebuildBoreProfileResources()
+{
+    vkDeviceWaitIdle(GetDevice());
+
+    CreateBoreProfileResources();
+
+    for(uint32_t i = 0; i < GetMaxFramesInFlight(); ++i){
+        VkDescriptorImageInfo boreProfileDisplacementInfo =
+            m_BoreProfileDisplacementTexture->GetDescriptorInfo(*m_BoreProfileSampler);
+
+        VkDescriptorImageInfo boreProfileDerivativeInfo =
+            m_BoreProfileDerivativeTexture->GetDescriptorInfo(*m_BoreProfileSampler);
+
+        vkp::DescriptorWriter(*m_DescriptorSetLayout, *m_DescriptorPool)
+            .WriteImage(12, &boreProfileDisplacementInfo)
+            .WriteImage(13, &boreProfileDerivativeInfo)
+            .Overwrite(m_DescriptorSets[i]);
+
+        vkp::DescriptorWriter(*m_FoamSourceSetLayout, *m_FoamComputeDescriptorPool)
+            .WriteImage(6, &boreProfileDisplacementInfo)
+            .WriteImage(7, &boreProfileDerivativeInfo)
+            .Overwrite(m_FoamSourceSets[i]);
+    }
+
+    m_ProfileTime = m_BoreProfileConfig.duration * m_BoreProfileGui.fixedPhase;
+}
+
 void Stage12FluidFluxApp::CreateSamplers()
 {
     VkFormatFeatureFlags linearFeatures =
@@ -1036,7 +1063,7 @@ void Stage12FluidFluxApp::CreateBoreFrontResources()
 {
     m_BoreFrontParams.origin = glm::vec2(0.0f);
     m_BoreFrontParams.direction = glm::normalize(glm::vec2(1.0f, 0.15f));
-    m_BoreFrontParams.speed = 48.0f;
+    m_BoreFrontParams.speed = 64.0f;
     m_BoreFrontParams.frontLength = 1000.0f;
     m_BoreFrontParams.initialOffset = 300.0f;
     m_BoreFrontParams.edgeFadeFraction = 0.03f;
@@ -1069,7 +1096,7 @@ void Stage12FluidFluxApp::CreateBoreFrontResources()
 
 void Stage12FluidFluxApp::CreateBoreProfileResources()
 {
-    m_BoreProfileConfig = water::BoreWaveProfileConfig{};
+    // 保留 GUI 中已修改的 m_BoreProfileConfig；不要在重建纹理时恢复默认值。
     m_BoreProfileData =
         water::GenerateAnimatedBoreWaveProfile(m_BoreProfileConfig);
 
@@ -3888,6 +3915,11 @@ void Stage12FluidFluxApp::Render(VkCommandBuffer commandBuffer, uint32_t imageIn
         m_ShoreRebakePending = false;
     }
 
+    if(m_BoreProfileRebuildPending){
+        RebuildBoreProfileResources();
+        m_BoreProfileRebuildPending = false;
+    }
+
     VkCommandBufferBeginInfo beginInfo{};
     beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
 
@@ -4201,7 +4233,14 @@ void Stage12FluidFluxApp::DrawGui()
     if(ImGui::CollapsingHeader("Bore Profile - 潮头剖面：控制 Wave Profile 的宽度、高度、前向推挤和水位抬升")){
         ImGui::Checkbox("Profile Paused - 固定剖面动画相位", &m_ProfilePaused);
         ImGui::Checkbox("Auto Repeat - 自动重复触发潮头事件", &m_AutoRepeatEvent);
-        ImGui::DragFloat("Profile Half Width - 剖面半宽/潮头影响距离 m", &m_BoreProfileConfig.profileHalfWidth, 0.5f, 1.0f, 200.0f);
+        ImGui::DragFloat("Profile Half Width - 剖面半宽/潮头影响距离 m", &m_BoreProfileConfig.profileHalfWidth, 0.5f, 1.0f, 240.0f);
+        ImGui::DragFloat("Crest Width - 波峰前缘宽度 m", &m_BoreProfileConfig.crestWidth, 0.2f, 4.0f, 80.0f);
+        ImGui::DragFloat("Rear Slope Length - 波后平滑回落长度 m", &m_BoreProfileConfig.rearSlopeLength, 0.5f, 10.0f, 220.0f);
+        ImGui::DragFloat("Rear Trough Depth - 后坡下凹深度 m", &m_BoreProfileConfig.rearTroughDepth, 0.02f, 0.0f, 3.0f);
+        ImGui::DragFloat("Hydraulic Rise In Profile - 剖面内部水跃台阶", &m_BoreProfileConfig.hydraulicRiseScale, 0.02f, 0.0f, 1.0f);
+        if(ImGui::Button("Rebuild Bore Profile Textures - 重建潮头剖面纹理")){
+            m_BoreProfileRebuildPending = true;
+        }
         ImGui::DragFloat("Duration - 剖面完整动画时长 s", &m_BoreProfileConfig.duration, 0.1f, 0.1f, 120.0f);
         ImGui::SliderFloat("Fixed Phase - 固定采样相位 0~1", &m_BoreProfileGui.fixedPhase, 0.0f, 1.0f);
         ImGui::DragFloat("Water Rise - 潮后整体水位抬升高度 m", &m_BoreProfileGui.waterRiseHeight, 0.1f, 0.0f, 20.0f);

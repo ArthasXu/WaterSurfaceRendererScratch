@@ -34,6 +34,7 @@ layout(location = 15) in vec4 fragRiverCoord;
 layout(location = 16) in vec4 fragShore;
 layout(location = 17) in vec4 fragBoreRibbon;
 layout(location = 18) in vec2 fragBaseWorldXZ;
+layout(location = 19) in float fragSkirt;
 
 // 摄像机 UBO（绑定 set=0, binding=0）
 layout(set = 0, binding = 0) uniform CameraUBO {
@@ -130,7 +131,11 @@ void main()
     // 不用顶点插值 mask，避免低 LOD 大三角在岸边整块错误裁剪。
     vec2 exactRiverUV =
         clamp((fragBaseWorldXZ - river.domain.xy) / river.domain.z, vec2(0.0), vec2(1.0));
-    float exactWaterMask = textureLod(riverFlowTexture, exactRiverUV, 0.0).a;
+    float exactWaterMask =
+        max(
+            textureLod(riverFlowTexture, exactRiverUV, 0.0).a,
+            fragRiverFlow.a
+        );
 
     float maskAA = max(fwidth(exactWaterMask) * 1.5, 0.002);
     float waterCoverage =
@@ -603,6 +608,13 @@ void main()
 
         // 泡沫是不透明白沫，不能让河床透过来
         waterAlpha = max(waterAlpha, finalFoam);
+        waterAlpha = max(waterAlpha, fragBoreRibbon.x * 0.95);
+
+        // Skirt 是用来遮 LOD 裂缝的垂直帘幕。若继续按水体透明/折射混合，会露出天空蓝。
+        // 这里把它压成不透明的深色水面侧壁，主要目标是遮缝而不是表现真实水体。
+        float skirtMask = smoothstep(0.5, 1.0, fragSkirt);
+        litColor = mix(litColor, mix(litColor, vec3(0.035, 0.055, 0.050), 0.85), skirtMask);
+        waterAlpha = mix(waterAlpha, 1.0, skirtMask);
 
         outColor = vec4(litColor, waterAlpha * waterCoverage);
         return;

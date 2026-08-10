@@ -173,6 +173,7 @@ layout(location = 15) out vec4 fragRiverCoord;
 layout(location = 16) out vec4 fragShore;
 layout(location = 17) out vec4 fragBoreRibbon; // x=多潮头主脊覆盖率 y=横向坐标 z/w=预留
 layout(location = 18) out vec2 fragBaseWorldXZ;
+layout(location = 19) out float fragSkirt;
 
 struct CascadeSample
 {
@@ -440,10 +441,9 @@ void main(){
         (useProgressField ? progressField.r : riverCoord.r) 
         * river.domain.w; // 该顶点沿河流中轴线的距离（米）
 
-    // 横向归一化坐标，[-1, 1]，用于 Front LUT 采样
-    float lateral = clamp(
-        useProgressField ? progressField.a : riverCoord.g, 
-        -1.0, 1.0);// 横向归一化坐标 [-1, 1]
+    // 横向坐标/两岸淡出必须使用未模糊的 Coordinate Map。
+    // Progress Field 为修弯道接缝会做大核模糊，若用 progressField.a，弯道两端淡出会轻微抖动。
+    float lateral = clamp(riverCoord.g, -1.0, 1.0);// 横向归一化坐标 [-1, 1]
 
     // Front LUT 的横向坐标（映射到 [0,1]）
     float frontUClamped =
@@ -462,13 +462,13 @@ void main(){
         CurveBasis(lateral, riverCoord.a);
 
     float curveLeft =
-        CurveBasis(clamp(useProgressField ? progressLeftSample.a : coordLeftSample.g, -1.0, 1.0), coordLeftSample.a);
+        CurveBasis(clamp(coordLeftSample.g, -1.0, 1.0), coordLeftSample.a);
     float curveRight =
-        CurveBasis(clamp(useProgressField ? progressRightSample.a : coordRightSample.g, -1.0, 1.0), coordRightSample.a);
+        CurveBasis(clamp(coordRightSample.g, -1.0, 1.0), coordRightSample.a);
     float curveDown =
-        CurveBasis(clamp(useProgressField ? progressDownSample.a : coordDownSample.g, -1.0, 1.0), coordDownSample.a);
+        CurveBasis(clamp(coordDownSample.g, -1.0, 1.0), coordDownSample.a);
     float curveUp =
-        CurveBasis(clamp(useProgressField ? progressUpSample.a : coordUpSample.g, -1.0, 1.0), coordUpSample.a);
+        CurveBasis(clamp(coordUpSample.g, -1.0, 1.0), coordUpSample.a);
 
     vec2 curveBasisGradient =
         vec2(curveRight - curveLeft, curveUp - curveDown) /
@@ -497,14 +497,9 @@ void main(){
         useProgressField ? progressField.g : riverFlow.a
         );
 
-    // 涌潮振幅倍率（钳位安全值）
-    // float boreAmplitude =
-    //     clamp(
-    //         riverFlow.b,
-    //         0.0,
-    //         2.0
-    //     );
-    float boreAmplitude = useProgressField ? progressField.b : riverFlow.b;
+    // 涌潮振幅来自 Flow Map 的 B 通道。Progress Field 主要负责进度/水域/横向坐标，
+    // 且会做大核模糊来修补弯道接缝；如果从 progress.b 取振幅，控制点的 boreAmplitude 变化会被模糊冲淡。
+    float boreAmplitude = clamp(riverFlow.b, 0.0, 4.0);
 
     // 波前长度掩码：在弯曲河道中直接用水域掩码替代直线波前的 lengthMask
     float lengthMask =
@@ -866,13 +861,6 @@ void main(){
                 eventFrontNormal = -eventFrontNormal;
             }
 
-            float eventRibbonCoverage =
-                (1.0 - smoothstep(14.0, 22.0, abs(eventSignedDistance))) *
-                commonBoreMask;
-
-            multiRibbonCoverage =
-                1.0 - (1.0 - multiRibbonCoverage) * (1.0 - eventRibbonCoverage);
-
             float eventProfileU = clamp(eventSignedDistance / (2.0 * eventHalfWidth) + 0.5, 0.0, 1.0);
             float eventProfileV = clamp(event.appearance.y, 0.0, 1.0);
 
@@ -908,6 +896,15 @@ void main(){
             float eventStrength = eventCommonMask * eventAmplitude * globalAmplitude;
 
             float eventCrestMask = eventProfile.a * eventCommonMask;
+
+            float eventRibbonCoverage =
+                max(
+                    (1.0 - smoothstep(10.0, 30.0, abs(eventSignedDistance))) * commonBoreMask,
+                    eventCrestMask
+                );
+
+            multiRibbonCoverage =
+                1.0 - (1.0 - multiRibbonCoverage) * (1.0 - eventRibbonCoverage);
 
             vec2 eventHorizontal =
                 eventFrontNormal *
@@ -1090,10 +1087,9 @@ void main(){
         baseWorldPosition +
         finalDisplacement;
     
-    // 开启 Skirt 裙边向下拉，遮住 LOD 接缝
-    // if(false && inSkirt > 0.5){
+    // 开启 Skirt 裙边向下拉，遮住 LOD 接缝。片元阶段会单独压暗/不透明化 skirt，避免露出蓝色天空。
     if(false && inSkirt > 0.5){
-        worldPosition.y -= 15.0;
+        worldPosition.y -= 8.0;
     }
 
     // ===== 第六步：合成最终坡度并重建法线 =====
@@ -1144,6 +1140,7 @@ void main(){
 
     // 将世界空间的位置、法线、UV 以及调试数据传递给片段着色器
     fragWorldPosition = worldPosition;
+    fragSkirt = inSkirt;
     fragWorldNormal = worldNormal;
     fragUV = fftUV;
     fragDisplacement = displacement;

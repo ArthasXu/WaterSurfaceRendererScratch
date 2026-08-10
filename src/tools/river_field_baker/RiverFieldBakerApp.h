@@ -10,6 +10,7 @@
 
 #include "scene/water/river/RiverFieldTypes.h"
 #include "scene/water/river/ShoreFieldTypes.h"
+#include "scene/water/river/RiverFieldBundle.h"
 
 #include <vulkan/vulkan.h>
 
@@ -29,6 +30,9 @@ private:
     void DrawGui();
     void BakeAndSave();
     void GenerateHeightmap();
+    void SaveDebugFieldImages(
+        const water::RiverFieldBundle& bundle
+    );
 
     // 河流中轴线控制点（GUI 可增删改）
     std::vector<water::RiverControlPoint> m_ControlPoints;
