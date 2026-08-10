@@ -68,15 +68,32 @@ void RiverFieldBakerApp::Start()
     // 默认控制点：与旧 CLI baker / Stage12 CreateRiverResources 保持一致
     m_ControlPoints = {
         // {世界XZ}, halfWidth(米), boreAmplitude, curvatureWeight
-        {{ -200.0f,  7600.0f}, 6000.0f, 0.60f, 0.60f},  // 入海口：极宽
-        {{ -400.0f,  6000.0f}, 4000.0f, 0.80f, 0.45f},
-        {{-1400.0f,  2900.0f}, 3200.0f, 0.92f, 0.35f},
-        {{-1500.0f,  1400.0f}, 2600.0f, 1.05f, 0.25f},
-        {{-1200.0f,     0.0f}, 2200.0f, 1.15f, 0.15f},
-        {{ -400.0f, -1600.0f}, 1800.0f, 1.20f, 0.10f},
-        {{  700.0f, -3200.0f}, 1500.0f, 1.15f, 0.05f},
-        {{ 2200.0f, -4800.0f}, 1300.0f, 1.05f, 0.00f},
-        {{ 4000.0f, -6400.0f}, 1200.0f, 1.00f, 0.00f}
+
+        // 入海口：宽阔但不爆，远处先看到潮线
+        {{ -200.0f,  7600.0f}, 6000.0f, 0.55f, 0.45f},
+        {{ -400.0f,  6000.0f}, 4000.0f, 0.75f, 0.55f},
+
+        // 弯前蓄势：开始增强
+        {{-1400.0f,  2900.0f}, 3200.0f, 1.05f, 0.75f},
+
+        // 主弯道入口：明显抬升、白水增强
+        {{-1500.0f,  1400.0f}, 2600.0f, 1.25f, 1.00f},
+
+        // 主弯道核心：视觉冲击最高
+        {{-1200.0f,     0.0f}, 2200.0f, 3.55f, 1.10f},
+        {{ -950.0f,  -700.0f}, 2000.0f, 4.05f, 1.00f},
+
+        // 出弯仍强，但开始回落
+        {{ -400.0f, -1600.0f}, 1800.0f, 1.95f, 0.75f},
+
+        // 出弯后快速衰减
+        {{  700.0f, -3200.0f}, 1500.0f, 1.25f, 0.35f},
+
+        // 下游弱化
+        {{ 2200.0f, -4800.0f}, 1300.0f, 0.65f, 0.10f},
+
+        // 末端几乎消失
+        {{ 4000.0f, -6400.0f}, 1200.0f, 0.08f, 0.00f}
     };
 
     // 场配置默认值：与运行时一致
@@ -338,6 +355,8 @@ void RiverFieldBakerApp::BakeAndSave()
         return;
     }
 
+    SaveDebugFieldImages(bundle);
+
     char buf[256];
     std::snprintf(
         buf, sizeof(buf),
@@ -346,6 +365,134 @@ void RiverFieldBakerApp::BakeAndSave()
     );
     m_StatusText = buf;
     VKP_INFO("[baker] {}", m_StatusText);
+}
+
+void RiverFieldBakerApp::SaveDebugFieldImages(
+    const water::RiverFieldBundle& bundle
+)
+{
+    std::filesystem::path outputPath(m_OutputPath);
+    std::filesystem::path outputDir =
+        outputPath.has_parent_path()
+        ? outputPath.parent_path()
+        : std::filesystem::path("assets/river");
+
+    std::filesystem::create_directories(outputDir);
+
+    const uint32_t resolution = bundle.config.resolution;
+    const size_t pixelCount =
+        static_cast<size_t>(resolution) *
+        static_cast<size_t>(resolution);
+
+    auto writeRgba8 =
+        [&](const char* fileName,
+            const std::vector<glm::vec4>& field,
+            const glm::vec4& minValue,
+            const glm::vec4& maxValue)
+        {
+            if(field.size() != pixelCount){
+                return;
+            }
+
+            std::vector<unsigned char> pixels(pixelCount * 4);
+
+            for(size_t i = 0; i < pixelCount; ++i){
+                glm::vec4 normalized =
+                    glm::clamp(
+                        (field[i] - minValue) /
+                            glm::max(maxValue - minValue, glm::vec4(1.0e-6f)),
+                        glm::vec4(0.0f),
+                        glm::vec4(1.0f)
+                    );
+
+                pixels[i * 4 + 0] = static_cast<unsigned char>(normalized.r * 255.0f + 0.5f);
+                pixels[i * 4 + 1] = static_cast<unsigned char>(normalized.g * 255.0f + 0.5f);
+                pixels[i * 4 + 2] = static_cast<unsigned char>(normalized.b * 255.0f + 0.5f);
+                pixels[i * 4 + 3] = static_cast<unsigned char>(normalized.a * 255.0f + 0.5f);
+            }
+
+            std::filesystem::path path = outputDir / fileName;
+            stbi_write_png(
+                path.string().c_str(),
+                static_cast<int>(resolution),
+                static_cast<int>(resolution),
+                4,
+                pixels.data(),
+                static_cast<int>(resolution * 4)
+            );
+        };
+
+    auto writeChannel8 =
+        [&](const char* fileName,
+            const std::vector<glm::vec4>& field,
+            int channel,
+            float minValue,
+            float maxValue)
+        {
+            if(field.size() != pixelCount || channel < 0 || channel > 3){
+                return;
+            }
+
+            std::vector<unsigned char> pixels(pixelCount);
+            float invRange = 1.0f / std::max(maxValue - minValue, 1.0e-6f);
+
+            for(size_t i = 0; i < pixelCount; ++i){
+                float normalized = glm::clamp((field[i][channel] - minValue) * invRange, 0.0f, 1.0f);
+                pixels[i] = static_cast<unsigned char>(normalized * 255.0f + 0.5f);
+            }
+
+            std::filesystem::path path = outputDir / fileName;
+            stbi_write_png(
+                path.string().c_str(),
+                static_cast<int>(resolution),
+                static_cast<int>(resolution),
+                1,
+                pixels.data(),
+                static_cast<int>(resolution)
+            );
+        };
+
+    writeRgba8(
+        "river_flow_debug.png",
+        bundle.flow,
+        glm::vec4(-1.0f, -1.0f, 0.0f, 0.0f),
+        glm::vec4( 1.0f,  1.0f, 4.0f, 1.0f)
+    );
+
+    writeRgba8(
+        "river_coordinate_debug.png",
+        bundle.coordinate,
+        glm::vec4(0.0f, -1.0f, -1.0f, 0.0f),
+        glm::vec4(1.0f,  1.0f,  1.0f, 1.0f)
+    );
+
+    writeRgba8(
+        "river_progress_debug.png",
+        bundle.progress,
+        glm::vec4(0.0f, 0.0f, 0.0f, -1.0f),
+        glm::vec4(1.0f, 1.0f, 4.0f,  1.0f)
+    );
+
+    writeRgba8(
+        "river_shore_debug.png",
+        bundle.shore,
+        glm::vec4(-100.0f, 0.0f, 0.0f, 0.0f),
+        glm::vec4( 100.0f, 1.0f, 1.0f, 1.0f)
+    );
+    writeChannel8("river_flow_direction_x.png", bundle.flow, 0, -1.0f, 1.0f);
+    writeChannel8("river_flow_direction_z.png", bundle.flow, 1, -1.0f, 1.0f);
+    writeChannel8("river_flow_bore_amplitude.png", bundle.flow, 2, 0.0f, 4.0f);
+    writeChannel8("river_flow_water_mask.png", bundle.flow, 3, 0.0f, 1.0f);
+
+    writeChannel8("river_coordinate_progress.png", bundle.coordinate, 0, 0.0f, 1.0f);
+    writeChannel8("river_coordinate_lateral.png", bundle.coordinate, 1, -1.0f, 1.0f);
+    writeChannel8("river_coordinate_bank_distance.png", bundle.coordinate, 2, -1.0f, 1.0f);
+    writeChannel8("river_coordinate_curvature.png", bundle.coordinate, 3, 0.0f, 1.0f);
+
+    writeChannel8("river_progress_progress.png", bundle.progress, 0, 0.0f, 1.0f);
+    writeChannel8("river_progress_water_mask.png", bundle.progress, 1, 0.0f, 1.0f);
+    writeChannel8("river_progress_bore_amplitude.png", bundle.progress, 2, 0.0f, 4.0f);
+    writeChannel8("river_progress_lateral.png", bundle.progress, 3, -1.0f, 1.0f);
 }
 
 void RiverFieldBakerApp::GenerateHeightmap()

@@ -13,8 +13,8 @@ struct Stage6OceanConfig
 
     std::array<float, kMaxFFTCascades> amplitudeScales{
         5.0f,
-        0.2f,
-        0.0f
+        1.0f,
+        0.03f
     };
 };
 

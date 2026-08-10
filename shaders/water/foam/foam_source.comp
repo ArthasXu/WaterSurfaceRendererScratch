@@ -184,7 +184,8 @@ void main() {
     bool useProgressField = (multiBore.metadata.w == 1);
     vec4 progressField = textureLod(riverProgressTexture, riverUV, 0.0);
     float waterMask = smoothstep(0.05, 0.95, useProgressField ? progressField.g : riverFlow.a);
-    float boreAmplitude = useProgressField ? progressField.b : riverFlow.b;
+    // 振幅固定从 Flow Map B 通道读取；Progress Field 会被模糊，不能用于空间振幅控制。
+    float boreAmplitude = riverFlow.b;
     float progressMeters = (useProgressField ? progressField.r : riverCoord.r) * max(multiBore.riverInfo.w, 1.0);
     float lateral = clamp(useProgressField ? progressField.a : riverCoord.g, -1.0, 1.0);
     float lateralSquared = lateral * lateral;

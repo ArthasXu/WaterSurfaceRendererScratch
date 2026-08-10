@@ -114,18 +114,29 @@ BoreProfileRowFields GenerateProfileRow(
             config.profileHalfWidth;
 
         float hydraulicRise =
-            0.45f *
+            config.hydraulicRiseScale *
             config.crestHeight *
             life *
             0.5f *
-            (1.0f - std::tanh(s / glm::max(config.crestWidth * 1.4f, 1.0f)));
+            (1.0f - std::tanh(s / glm::max(config.rearSlopeLength, 1.0f)));
         
+        float crestWidthFront =
+            glm::max(animatedWidth, 1.0f);
+
+        float crestWidthRear =
+            glm::max(config.rearSlopeLength, crestWidthFront);
+
+        float crestWidthForSide =
+            s < crestCenter
+            ? crestWidthRear
+            : crestWidthFront;
+
         float crest =
             animatedHeight *
             water::BoreProfileGaussian(
                 s,
                 crestCenter,
-                animatedWidth
+                crestWidthForSide
             );
 
         float rearTrough =
@@ -134,7 +145,7 @@ BoreProfileRowFields GenerateProfileRow(
             water::BoreProfileGaussian(
                 s,
                 -8.0f,
-                9.0f
+                config.rearSlopeLength * 0.45f
             );
 
         float behindMask =

@@ -196,9 +196,23 @@ bool WaterQuadtree::IsTileVisible(
     const WaterTile& tile
 ) const
 {
-    // Tile 的 3D AABB 最小点和最大点
-    glm::vec3 minPoint(tile.worldMin.x, m_Config.minY, tile.worldMin.y);
-    glm::vec3 maxPoint(tile.worldMin.x + tile.worldSize, m_Config.maxY, tile.worldMin.y + tile.worldSize);
+    float verticalMargin =
+        std::max(
+            16.0f,
+            tile.worldSize * 0.08f
+        );
+
+    glm::vec3 minPoint(
+        tile.worldMin.x,
+        m_Config.minY - verticalMargin,
+        tile.worldMin.y
+    );
+
+    glm::vec3 maxPoint(
+        tile.worldMin.x + tile.worldSize,
+        m_Config.maxY + verticalMargin,
+        tile.worldMin.y + tile.worldSize
+    );
 
     // 对每个视锥体平面，找到 AABB 上离平面最远的“正顶点”
     for(const FrustumPlane& plane : m_FrustumPlanes){
