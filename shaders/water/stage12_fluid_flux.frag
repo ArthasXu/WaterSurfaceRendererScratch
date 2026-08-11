@@ -575,12 +575,18 @@ void main()
         vec3 litColor = mix(diffuse, reflectedSky, fresnel);
         litColor += specular;
 
-        // 泡沫覆盖
-        // FF: lerp(FoamWetColor, _FoamColorBase, saturate(Foam * _FoamSoftIntensity))
-        // 钱塘江泡沫：亮白略偏暖。不掺泥沙色（泥沙只染泡沫"周围的水"，不染泡沫本体）
-        vec3 foamBright = vec3(0.96, 0.95, 0.92);
-        vec3 foamColor = foamBright;
-        litColor = mix(litColor, foamColor, finalFoam);
+        // 泡沫覆盖：去掉强颗粒/点阵层，只保留柔和的湿泡沫到白沫渐变。
+        vec3 foamWet = vec3(0.74, 0.72, 0.65);
+        vec3 foamBody = vec3(0.90, 0.89, 0.84);
+        vec3 foamBright = vec3(0.96, 0.95, 0.91);
+
+        float foamCore = smoothstep(0.35, 0.85, finalFoam);
+        vec3 foamColor = mix(foamWet, foamBody, foamCore);
+        foamColor = mix(foamColor, foamBright, smoothstep(0.82, 1.0, finalFoam) * 0.35);
+
+        float foamBlend = clamp(finalFoam * 0.88, 0.0, 1.0);
+
+        litColor = mix(litColor, foamColor, foamBlend);
 
         // ===== 7. 上岸渐隐已不再需要（真实地形通过 alpha 透出）=====
 
@@ -607,7 +613,7 @@ void main()
         waterAlpha = max(waterAlpha, fresnel);
 
         // 泡沫是不透明白沫，不能让河床透过来
-        waterAlpha = max(waterAlpha, finalFoam);
+        waterAlpha = max(waterAlpha, foamBlend);
         waterAlpha = max(waterAlpha, fragBoreRibbon.x * 0.95);
 
         // Skirt 是用来遮 LOD 裂缝的垂直帘幕。若继续按水体透明/折射混合，会露出天空蓝。
