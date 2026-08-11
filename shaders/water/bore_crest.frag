@@ -8,13 +8,6 @@ layout(location = 4) in vec4 vParam4;
 
 layout(location = 0) out vec4 outColor;
 
-layout(set = 1, binding = 1) uniform sampler2D foamDetailTexture;
-
-float SoftUnion(float a, float b)
-{
-    return 1.0 - (1.0 - a) * (1.0 - b);
-}
-
 float Hash21(vec2 p)
 {
     p = fract(p * vec2(123.34, 456.21));
@@ -55,86 +48,45 @@ float FBM2(vec2 p)
 void main()
 {
     float lateral = vParam.x;
-    float depth01 = vParam.y;
     float signedDistance = vParam.z;
     float seed = vParam.w;
 
-    vec2 worldXZ = vWorldAlpha.xz;
-
     float edgeJitterMeters = vParam2.x;
-    float wakePatchThreshold = vParam2.y;
-    float wakeFoamStrength = vParam2.z;
-    float wakeHoleStrength = vParam2.w;
-
     float time = vParam3.x;
-    float wakeWidth = max(vParam3.y, 1.0);
-    float frontWidth = max(vParam3.z, 1.0);
-
     float hardCrestWidth = max(vParam4.x, 1.0);
-    float wakeStart = max(vParam4.y, 0.0);
-    float wakeEnd = max(vParam4.z, wakeStart + 1.0);
-    float wakeFeather = max(vParam4.w, 1.0);
 
-    float hardCrestWidth = max(vParam4.x, 1.0);
+    float edgeFade =
+        1.0 - smoothstep(0.82, 1.0, abs(lateral));
 
     float frontMacro =
         (FBM2(vec2(lateral * 2.0 + seed * 17.3,
                    time * 0.08 + seed * 9.1)) - 0.5) *
         edgeJitterMeters;
 
-    float frontDetail =
-        (FBM2(vec2(lateral * 7.5 + seed * 31.7,
-                   time * 0.18 + seed * 5.4)) - 0.5) *
-        edgeJitterMeters * 0.35;
+    float jitteredSd = signedDistance + frontMacro;
+    float absSd = abs(jitteredSd);
 
-    float jitteredSd =
-        signedDistance + frontMacro + frontDetail;
+    float hardCore =
+        1.0 - smoothstep(hardCrestWidth * 0.55, hardCrestWidth * 1.15, absSd);
 
-    float crestCore =
-        exp(-(jitteredSd * jitteredSd) /
-            (2.0 * hardCrestWidth * hardCrestWidth));
+    float softEdge =
+        1.0 - smoothstep(hardCrestWidth * 1.10, hardCrestWidth * 3.50, absSd);
 
-    float softCrest =
-        exp(-(jitteredSd * jitteredSd) /
-            (2.0 * (hardCrestWidth * 2.4) * (hardCrestWidth * 2.4)));
-
-    float coverage =
-        max(crestCore, softCrest * 0.35);
+    float coverage = clamp(max(hardCore, softEdge * 0.50), 0.0, 1.0);
 
     float alpha =
-        vWorldAlpha.w *
-        coverage *
-        edgeFade;
+        vWorldAlpha.w * coverage * edgeFade;
 
-    if(alpha < 0.01){
+    if(alpha < 0.004){
         discard;
     }
 
-    vec3 foamWhite =
-        vec3(0.96, 0.95, 0.91);
+    vec3 foamWet = vec3(0.76, 0.74, 0.68);
+    vec3 foamWhite = vec3(0.95, 0.94, 0.90);
+    vec3 foamHighlight = vec3(0.99, 0.98, 0.94);
 
-    vec3 foamWarm =
-        vec3(0.82, 0.82, 0.76);
+    vec3 color = mix(foamWet, foamWhite, clamp(hardCore + softEdge * 0.25, 0.0, 1.0));
+    color = mix(color, foamHighlight, hardCore * 0.25);
 
-    float mistHint = 0.0;
-
-    vec3 color =
-        mix(
-            foamWarm,
-            foamWhite,
-            clamp(crestCore * 1.4, 0.0, 1.0)
-        );
-
-    color =
-        mix(
-            color,
-            vec3(0.80, 0.86, 0.90),
-            mistHint * 0.25
-        );
-
-    alpha =
-        max(alpha, mistHint * 0.12);
-
-    outColor =
-        vec4(color, alpha);
+    outColor = vec4(color, alpha);
 }

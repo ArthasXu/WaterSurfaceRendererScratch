@@ -28,8 +28,6 @@ void main()
 
     vec4 source = textureLod(wakeSource, uv, 0.0);
 
-    // 简版：世界空间向后平流很难没有流场，这里先做保守状态积累 + 衰减 + 轻微扩散。
-    // 后续再改成 progress/lateral 局部平流。
     vec2 texel = vec2(1.0 / float(resolution));
 
     vec4 center = textureLod(previousWake, uv, 0.0);
@@ -40,12 +38,10 @@ void main()
 
     vec4 laplacian = left + right + down + up - 4.0 * center;
 
-    vec4 decay = wake.decay;
-
     vec4 next =
         center +
         source * dt -
-        center * decay * dt +
+        center * wake.decay * dt +
         laplacian * 0.20 * dt;
 
     imageStore(nextWake, pixel, clamp(next, vec4(0.0), vec4(1.0)));

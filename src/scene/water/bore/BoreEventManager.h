@@ -47,6 +47,8 @@ struct alignas(16) MultiBoreUBO
     glm::vec4 crestNoiseA{2.0f, 0.01f, 0.008f, 0.06f}; // 横向频率 12→2：波长拉长到几百米
     glm::vec4 crestNoiseB{5.0f, 0.0f, 0.75f, 1.25f};   // 细节权重→0；振幅范围收窄到 0.75~1.25
     glm::vec4 crestNoiseC{0.15f, 0.3f, 0.0f, 0.0f};    // 顶抖强度 0.35→0.15，频率 3→0.3
+    // x=基础弯曲(米) y=不规则弯曲(米) z=弯曲频率 w=预留
+    glm::vec4 curve{28.0f, 0.0f, 1.35f, 0.0f};
     // x = 历史最远潮头推进距离(米)，单调不减；用于潮后水位永久保持
     glm::vec4 persistent{-1.0e9f, 0.85f, 0.18f, 0.0f}; // x=历史最远推进(米) y=横向覆盖[0..1] z=两岸淡出[0..1]
 };

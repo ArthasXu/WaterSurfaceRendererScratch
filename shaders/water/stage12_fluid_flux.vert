@@ -95,7 +95,8 @@ layout(set = 0, binding = 18) uniform MultiBoreUBO
     vec4 riverInfo;
     vec4 crestNoiseA;   // x=横向频率 y=沿河频率X z=沿河频率Y w=动画速度
     vec4 crestNoiseB;   // x=细节频率 y=细节权重 z=振幅下限 w=振幅上限
-    vec4 crestNoiseC;   // x=顶抖强度 y=顶抖频率
+    vec4 crestNoiseC;   // x=顶抖强度 y=顶抖频率 z=河道基础曲率(米)
+    vec4 curve;         // x=基础弯曲(米) y=不规则弯曲(米) z=弯曲频率 w=预留
     vec4 persistent;    // x=历史最远推进(米) y=横向覆盖[0..1] z=两岸淡出[0..1]
 } multiBore;
 
@@ -286,7 +287,15 @@ float FBM2(vec2 p){
 
 float CurveBasis(float lateralValue, float curvatureWeight)
 {
-    return curvatureWeight * lateralValue * lateralValue;
+    float x = clamp(lateralValue, -1.0, 1.0);
+    float baseCurve = multiBore.curve.x * (x * x - 0.20);
+    float irregularCurve = multiBore.curve.y *
+        (
+            0.70 * sin(3.14159265 * x * multiBore.curve.z) +
+            0.30 * sin(6.28318530 * x + 1.7)
+        );
+
+    return curvatureWeight * (baseCurve + irregularCurve);
 }
 
 vec2 SafeNormalize(vec2 value, vec2 fallbackDirection)
@@ -847,7 +856,7 @@ void main(){
             float eventProgress = event.motion.x;
             float eventWidthScale = max(event.shape.y, 0.05);
             float eventHalfWidth = profileHalfWidth * eventWidthScale;
-            float eventCurveScale = river.bore.y * event.shape.w;
+            float eventCurveScale = event.shape.w;
             float eventCurvatureOffset = eventCurveScale * curveBasis;
             float eventSignedDistance = progressMeters - eventProgress - eventCurvatureOffset;
 

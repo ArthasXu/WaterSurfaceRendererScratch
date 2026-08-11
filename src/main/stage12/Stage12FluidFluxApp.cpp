@@ -703,6 +703,7 @@ void Stage12FluidFluxApp::CreateBoreWakeDescriptorSetLayouts()
             .AddBinding(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT)
             .AddBinding(2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT)
             .AddBinding(3, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT)
+            .AddBinding(4, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT)
             .Build();
 }
 
@@ -1643,9 +1644,9 @@ void Stage12FluidFluxApp::CreateBoreWakeDescriptorPool()
     m_BoreWakeDescriptorPool =
         vkp::DescriptorPool::Builder(GetDevice())
             .SetMaxSets(GetMaxFramesInFlight() * 3)
-            .AddPoolSize(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, GetMaxFramesInFlight() * 4)
+            .AddPoolSize(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, GetMaxFramesInFlight() * 5)
             .AddPoolSize(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, GetMaxFramesInFlight())
-            .AddPoolSize(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, GetMaxFramesInFlight() * 6)
+            .AddPoolSize(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, GetMaxFramesInFlight() * 9)
             .AddPoolSize(VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, GetMaxFramesInFlight() * 3)
             .Build();
 }
@@ -2078,12 +2079,16 @@ void Stage12FluidFluxApp::CreateBoreWakeDescriptorSets()
             VkDescriptorImageInfo nextInfo =
                 m_BoreWakeStateImages[writeIndex]->GetStorageDescriptorInfo();
 
+            VkDescriptorImageInfo riverCoordinateInfo =
+                m_RiverCoordinateTexture->GetDescriptorInfo(*m_RiverSampler);
+
             bool success =
                 vkp::DescriptorWriter(*m_BoreWakeAdvectSetLayout, *m_BoreWakeDescriptorPool)
                     .WriteBuffer(0, &wakeParamsInfo)
                     .WriteImage(1, &previousInfo)
                     .WriteImage(2, &sourceInfo)
                     .WriteImage(3, &nextInfo)
+                    .WriteImage(4, &riverCoordinateInfo)
                     .Build(m_BoreWakeAdvectSets[frameIndex][ping]);
 
             if(!success){
@@ -2884,6 +2889,13 @@ void Stage12FluidFluxApp::UpdateMultiBoreBuffers(uint32_t frameIndex)
         m_CrestNoiseGui.wobbleStrength,
         m_CrestNoiseGui.wobbleFrequency,
         m_RiverBoreCurvatureMeters,
+        0.0f
+    );
+
+    ubo.curve = glm::vec4(
+        m_CrestRibbonGui.curveMeters,
+        m_CrestRibbonGui.irregularCurveMeters,
+        m_CrestRibbonGui.curveFrequency,
         0.0f
     );
 
@@ -4164,9 +4176,9 @@ void Stage12FluidFluxApp::DrawGui()
         ImGui::DragFloat("Short Patch - 短波纹理周期/高频细节尺度", &m_OceanConfig.spectrum.shortPatchLength, 1.0f, 1.0f, 512.0f);
         ImGui::DragFloat("Mid Patch - 中波纹理周期/主体波浪尺度", &m_OceanConfig.spectrum.midPatchLength, 1.0f, 1.0f, 2048.0f);
         ImGui::DragFloat("Long Patch - 长波纹理周期/大尺度涌浪范围", &m_OceanConfig.spectrum.longPatchLength, 1.0f, 1.0f, 4096.0f);
-        ImGui::SliderFloat("Short Amp - 短波振幅权重", &m_OceanConfig.amplitudeScales[0], 0.0f, 5.0f);
-        ImGui::SliderFloat("Mid Amp - 中波振幅权重", &m_OceanConfig.amplitudeScales[1], 0.0f, 5.0f);
-        ImGui::SliderFloat("Long Amp - 长波振幅权重", &m_OceanConfig.amplitudeScales[2], 0.0f, 5.0f);
+        ImGui::SliderFloat("Short Amp - 短波振幅权重", &m_OceanConfig.amplitudeScales[0], 0.0f, 10.0f);
+        ImGui::SliderFloat("Mid Amp - 中波振幅权重", &m_OceanConfig.amplitudeScales[1], 0.0f, 10.0f);
+        ImGui::SliderFloat("Long Amp - 长波振幅权重", &m_OceanConfig.amplitudeScales[2], 0.0f, 10.0f);
         ImGui::Text("Resolution/random seed require FFT resource rebuild.");
     }
 
@@ -4291,8 +4303,8 @@ void Stage12FluidFluxApp::DrawGui()
         ImGui::SliderFloat("Ribbon Edge Fade - 边缘淡出", &m_CrestRibbonGui.edgeFade, 0.01f, 0.4f);
 
         ImGui::SeparatorText("Ribbon Irregular Wake - 无规则白水");
-        ImGui::SliderFloat("Curve Meters - 主潮线基础弯曲", &m_CrestRibbonGui.curveMeters, 0.0f, 80.0f);
-        ImGui::SliderFloat("Irregular Curve - 不规则弯曲", &m_CrestRibbonGui.irregularCurveMeters, 0.0f, 40.0f);
+        ImGui::SliderFloat("Curve Meters - 主潮线基础弯曲", &m_CrestRibbonGui.curveMeters, 0.0f, 260.0f);
+        ImGui::SliderFloat("Irregular Curve - 不规则弯曲", &m_CrestRibbonGui.irregularCurveMeters, 0.0f, 140.0f);
         ImGui::SliderFloat("Curve Frequency - 弯曲频率", &m_CrestRibbonGui.curveFrequency, 0.2f, 4.0f);
         ImGui::SliderFloat("Height Variation - 高度起伏", &m_CrestRibbonGui.heightVariation, 0.0f, 2.0f);
 
@@ -4319,7 +4331,7 @@ void Stage12FluidFluxApp::DrawGui()
         ImGui::SliderFloat("Wake Start - 白水起始距离(米)", &m_BoreWakeGui.wakeStart, -50.0f, 150.0f);
         ImGui::SliderFloat("Wake End - 白水结束距离(米)", &m_BoreWakeGui.wakeEnd, 50.0f, 900.0f);
         ImGui::SliderFloat("Wake Feather - 白水边缘柔化宽度(米)", &m_BoreWakeGui.wakeFeather, 10.0f, 250.0f);
-        ImGui::SliderFloat("Advection Speed - 向后平流速度(米/秒)", &m_BoreWakeGui.advectionSpeed, 0.0f, 12.0f);
+        ImGui::SliderFloat("Advection Speed - 向后平流速度(米/秒)", &m_BoreWakeGui.advectionSpeed, 0.0f, 180.0f);
 
         ImGui::SeparatorText("Source Strength - 源项强度");
         ImGui::SliderFloat("Source Strength - 全局源强度倍率", &m_BoreWakeGui.sourceStrength, 0.0f, 3.0f);

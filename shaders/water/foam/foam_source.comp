@@ -77,6 +77,7 @@ layout(set = 0, binding = 16) uniform MultiBoreUBO
     vec4 crestNoiseA;
     vec4 crestNoiseB;
     vec4 crestNoiseC;
+    vec4 curve;
     vec4 persistent;
 } multiBore;
 
@@ -151,7 +152,15 @@ float SoftUnion(float a, float b)
 
 float CurveBasis(float lateralValue, float curvatureWeight)
 {
-    return curvatureWeight * lateralValue * lateralValue;
+    float x = clamp(lateralValue, -1.0, 1.0);
+    float baseCurve = multiBore.curve.x * (x * x - 0.20);
+    float irregularCurve = multiBore.curve.y *
+        (
+            0.70 * sin(3.14159265 * x * multiBore.curve.z) +
+            0.30 * sin(6.28318530 * x + 1.7)
+        );
+
+    return curvatureWeight * (baseCurve + irregularCurve);
 }
 
 vec2 SafeNormalize(vec2 value, vec2 fallbackDirection)
@@ -287,7 +296,7 @@ void main() {
             }
 
             float eventHalfWidth = profileHalfWidth * max(event.shape.y, 0.05);
-            float eventCurveScale = multiBore.crestNoiseC.z * event.shape.w;
+            float eventCurveScale = event.shape.w;
             float curvatureOffset = eventCurveScale * curveBasis;
             float eventSignedDistance = progressMeters - event.motion.x - curvatureOffset;
             vec2 eventFieldGradient = progressGradient - eventCurveScale * curveBasisGradient;

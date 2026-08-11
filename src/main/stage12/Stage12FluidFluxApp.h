@@ -134,7 +134,7 @@ private:
         float foamSoftVelocity = 0.5f;      // 软晕随流速加宽
         float foamSoftBase = 0.0f;          // 软晕基底宽度
         float foamSoftMax = 0.0f;           // 软晕上限
-        float foamAlpha = 0.8f;             // FF _FoamColorBase.a：泡沫总不透明度
+        float foamAlpha = 1.0f;             // FF _FoamColorBase.a：泡沫总不透明度
     };
 
     struct WaterMaterialGuiParams
@@ -145,7 +145,7 @@ private:
         glm::vec4 sedimentColor{0.42f, 0.30f, 0.16f, 1.0f};  // 泥沙颜色
 
         // 光学参数: x=F0基础反射率, y=反射强度, z=GGX粗糙度, w=泥沙混合量
-        glm::vec4 opticalParams{0.02f, 0.35f, 0.06f, 0.0f};  // 默认接近水物理值
+        glm::vec4 opticalParams{0.02f, 0.35f, 0.06f, 1.5f};  // 默认接近水物理值
 
         // 太阳方向（与天空太阳一致）
         glm::vec3 sunDirection{-0.63f, 0.11f, 1.0f};
@@ -221,9 +221,9 @@ private:
         float alpha = 0.92f;                // 主潮脊不透明度
         float edgeFade = 0.12f;             // 两岸淡出宽度（归一化横向）
 
-        float curveMeters = 32.0f;           // 主潮线基础弯曲(米)
-        float irregularCurveMeters = 0.0f;   // 主潮线不规则弯曲(米)
-        float curveFrequency = 1.35f;        // 横向弯曲频率
+        float curveMeters = 90.0f;           // 主潮线基础弯曲(米)
+        float irregularCurveMeters = 140.0f; // 主潮线不规则弯曲(米)
+        float curveFrequency = 3.0f;         // 横向弯曲频率
         float heightVariation = 0.75f;       // 潮脊高度低频起伏(米)
 
         float edgeJitterMeters = 18.0f;      // 片元级前沿抖动(米)
@@ -243,13 +243,13 @@ private:
         int resolution = 512;
 
         float wakeStart = 0.0f;
-        float wakeEnd = 160.0f;
+        float wakeEnd = 400.0f;
         float wakeFeather = 50.0f;
-        float advectionSpeed = 5.0f;
+        float advectionSpeed = 80.0f;
 
         float sourceStrength = 2.4f;
         float aerationStrength = 0.0f;
-        float foamStrength = 1.50f;
+        float foamStrength = 2.50f;
         float sedimentStrength = 0.0f;
         float turbulenceStrength = 0.0f;
 
