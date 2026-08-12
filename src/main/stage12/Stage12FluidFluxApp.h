@@ -323,6 +323,7 @@ private:
     // 依据当前 m_ShoreParams 重新烘焙岸线场并刷新 binding 21
     void RebakeShoreField();
     void RebuildBoreProfileResources();
+    void ExportBoreProfileDebug();
 
     void UpdateRiverFieldUniformBuffer(
         uint32_t frameIndex

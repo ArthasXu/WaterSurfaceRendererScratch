@@ -196,22 +196,28 @@ bool WaterQuadtree::IsTileVisible(
     const WaterTile& tile
 ) const
 {
+    float horizontalMargin =
+        std::max(
+            32.0f,
+            tile.worldSize * 0.05f
+        );
+
     float verticalMargin =
         std::max(
-            16.0f,
-            tile.worldSize * 0.08f
+            64.0f,
+            tile.worldSize * 0.12f
         );
 
     glm::vec3 minPoint(
-        tile.worldMin.x,
+        tile.worldMin.x - horizontalMargin,
         m_Config.minY - verticalMargin,
-        tile.worldMin.y
+        tile.worldMin.y - horizontalMargin
     );
 
     glm::vec3 maxPoint(
-        tile.worldMin.x + tile.worldSize,
+        tile.worldMin.x + tile.worldSize + horizontalMargin,
         m_Config.maxY + verticalMargin,
-        tile.worldMin.y + tile.worldSize
+        tile.worldMin.y + tile.worldSize + horizontalMargin
     );
 
     // 对每个视锥体平面，找到 AABB 上离平面最远的“正顶点”

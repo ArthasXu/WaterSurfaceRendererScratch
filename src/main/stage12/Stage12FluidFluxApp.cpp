@@ -21,6 +21,8 @@
 #include <sstream>
 #include <stdexcept>
 #include <iostream>
+#include <fstream>
+#include <filesystem>
 #include <algorithm>
 #include <limits>
 #include <imgui.h>
@@ -1004,6 +1006,84 @@ void Stage12FluidFluxApp::RebuildBoreProfileResources()
     }
 
     m_ProfileTime = m_BoreProfileConfig.duration * m_BoreProfileGui.fixedPhase;
+}
+
+void Stage12FluidFluxApp::ExportBoreProfileDebug()
+{
+    if(m_BoreProfileData.width == 0 || m_BoreProfileData.height == 0){
+        return;
+    }
+
+    std::filesystem::path outputDir("assets/water/bore_profile");
+    std::filesystem::create_directories(outputDir);
+
+    auto writeChannelPgm =
+        [&](const char* fileName, int displacementChannel){
+            float minValue = std::numeric_limits<float>::max();
+            float maxValue = std::numeric_limits<float>::lowest();
+
+            for(const glm::vec4& value : m_BoreProfileData.displacement){
+                float channelValue = value[displacementChannel];
+                minValue = std::min(minValue, channelValue);
+                maxValue = std::max(maxValue, channelValue);
+            }
+
+            float invRange = 1.0f / std::max(maxValue - minValue, 1.0e-6f);
+            std::ofstream out(outputDir / fileName, std::ios::binary);
+            out << "P5\n" << m_BoreProfileData.width << " " << m_BoreProfileData.height << "\n255\n";
+
+            for(const glm::vec4& value : m_BoreProfileData.displacement){
+                float normalized = glm::clamp((value[displacementChannel] - minValue) * invRange, 0.0f, 1.0f);
+                unsigned char byte = static_cast<unsigned char>(normalized * 255.0f + 0.5f);
+                out.write(reinterpret_cast<const char*>(&byte), 1);
+            }
+        };
+
+    writeChannelPgm("bore_profile_forward.pgm", 0);
+    writeChannelPgm("bore_profile_height.pgm", 1);
+    writeChannelPgm("bore_profile_foam.pgm", 2);
+    writeChannelPgm("bore_profile_crest_mask.pgm", 3);
+
+    uint32_t row =
+        static_cast<uint32_t>(
+            glm::clamp(
+                m_BoreProfileGui.fixedPhase,
+                0.0f,
+                1.0f
+            ) *
+            static_cast<float>(m_BoreProfileData.height - 1)
+        );
+
+    std::ofstream csv(outputDir / "bore_profile_row.csv");
+    csv << "s,forward,upward,foamSource,crestMask,dForwardDs,dUpwardDs,flowSpeed,breakingWeight\n";
+
+    for(uint32_t x = 0; x < m_BoreProfileData.width; ++x){
+        float u =
+            static_cast<float>(x) /
+            static_cast<float>(std::max(m_BoreProfileData.width - 1, 1u));
+
+        float s =
+            (u - 0.5f) *
+            2.0f *
+            m_BoreProfileData.profileHalfWidth;
+
+        uint32_t index = row * m_BoreProfileData.width + x;
+        const glm::vec4& displacement = m_BoreProfileData.displacement[index];
+        const glm::vec4& derivative = m_BoreProfileData.derivative[index];
+
+        csv
+            << s << ','
+            << displacement.r << ','
+            << displacement.g << ','
+            << displacement.b << ','
+            << displacement.a << ','
+            << derivative.r << ','
+            << derivative.g << ','
+            << derivative.b << ','
+            << derivative.a << '\n';
+    }
+
+    VKP_INFO("Exported bore profile debug files to assets/water/bore_profile");
 }
 
 void Stage12FluidFluxApp::CreateSamplers()
@@ -4252,6 +4332,9 @@ void Stage12FluidFluxApp::DrawGui()
         ImGui::DragFloat("Hydraulic Rise In Profile - 剖面内部水跃台阶", &m_BoreProfileConfig.hydraulicRiseScale, 0.02f, 0.0f, 1.0f);
         if(ImGui::Button("Rebuild Bore Profile Textures - 重建潮头剖面纹理")){
             m_BoreProfileRebuildPending = true;
+        }
+        if(ImGui::Button("Export Bore Profile - 导出剖面CSV/PGM")){
+            ExportBoreProfileDebug();
         }
         ImGui::DragFloat("Duration - 剖面完整动画时长 s", &m_BoreProfileConfig.duration, 0.1f, 0.1f, 120.0f);
         ImGui::SliderFloat("Fixed Phase - 固定采样相位 0~1", &m_BoreProfileGui.fixedPhase, 0.0f, 1.0f);
