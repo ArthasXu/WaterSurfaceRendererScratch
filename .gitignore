@@ -11,5 +11,5 @@ CMakeCache.txt
 *.pdb
 *.ilk
 *.exe
-*.pptx
-assets/river/*.bin
+WSRender.pptx
+*.bin

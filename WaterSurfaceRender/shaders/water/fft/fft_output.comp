@@ -1,0 +1,74 @@
+#version 450
+
+// 每个工作组 64 个线程，用于并行处理所有像素
+layout(local_size_x = 64) in;
+
+// 绑定：四个包含 IFFT 结果的打包缓冲区（只读）
+layout(set = 0, binding = 0) readonly buffer Packed0Buffer { vec4 packed0[]; };
+layout(set = 0, binding = 1) readonly buffer Packed1Buffer { vec4 packed1[]; };
+layout(set = 0, binding = 2) readonly buffer Packed2Buffer { vec4 packed2[]; };
+layout(set = 0, binding = 3) readonly buffer Packed3Buffer { vec4 packed3[]; };
+
+// 绑定：输出纹理，位移图（只写）
+layout(rgba32f, set = 0, binding = 4) uniform writeonly image2D displacementImage;
+// 绑定：输出纹理，法线辅助图（只写）
+layout(rgba32f, set = 0, binding = 5) uniform writeonly image2D normalAuxImage;
+
+// push constant：分辨率与 choppy 强度
+layout(push_constant) uniform OutputPushConstants {
+    uint resolution;        // FFT 分辨率（宽高相同）
+    float choppyLambda;     // 水平位移缩放系数
+} pc;
+
+// 主函数：计算并写入位移图和法线辅助图
+void main()
+{
+    uint index = gl_GlobalInvocationID.x;
+    uint total = pc.resolution * pc.resolution;
+
+    // 忽略超出范围的线程
+    if (index >= total) return;
+
+    // 归一化因子：IFFT 需要除以 N²
+    float normalization = 1.0 / float(total);
+
+    // 读取四个打包的 vec4，并乘以归一化因子
+    vec4 p0 = packed0[index] * normalization;
+    vec4 p1 = packed1[index] * normalization;
+    vec4 p2 = packed2[index] * normalization;
+    vec4 p3 = packed3[index] * normalization;
+
+    // 提取各物理量
+    float height        = p0.x;
+    float displacementX = p0.z;
+    float displacementZ = p1.x;
+
+    float slopeX = p1.z;
+    float slopeZ = p2.x;
+
+    float dDxdx = p2.z;
+    float dDzdz = p3.x;
+    float dDxdz = p3.z;
+
+    float lambda = pc.choppyLambda;
+
+    // 构造变形梯度的 Jacobian 行列式，用于判定波浪破碎（泡沫）
+    float jxx = 1.0 + lambda * dDxdx;
+    float jzz = 1.0 + lambda * dDzdz;
+    float jxz = lambda * dDxdz;
+    float jacobian = jxx * jzz - jxz * jxz;
+
+    // 将线性索引转换为图像像素坐标
+    ivec2 pixel = ivec2(
+        int(index % pc.resolution),
+        int(index / pc.resolution)
+    );
+
+    // 写入位移图：通道存储 (水平位移x, 高度, 水平位移z, Jacobian)
+    imageStore(displacementImage, pixel,
+        vec4(lambda * displacementX, height, lambda * displacementZ, jacobian));
+
+    // 写入法线辅助图：通道存储 (斜率x, 斜率z, dDxdx, dDzdz)
+    imageStore(normalAuxImage, pixel,
+        vec4(slopeX, slopeZ, dDxdx, dDzdz));
+}
