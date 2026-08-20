@@ -45,6 +45,17 @@ vcpkg install
 
 项目根目录下的 `vcpkg.json` 已声明所有必需库（glfw3、glm、spdlog、imgui、fftw3 等），vcpkg 会自动安装它们。
 
+安装 vcpkg：
+
+```
+cd D:\
+git clone https://github.com/microsoft/vcpkg.git
+cd D:\vcpkg
+.\bootstrap-vcpkg.bat
+
+[Environment]::SetEnvironmentVariable("Path", $env:Path + ";D:\vcpkg", [System.EnvironmentVariableTarget]::User)
+```
+
 ### 3. 生成 CMake 构建系统
 
 ```bash
@@ -52,6 +63,8 @@ cmake -S . -B build -G "Visual Studio 18 2026" -A x64 -DCMAKE_TOOLCHAIN_FILE=<�
 
 e.g. 
 cmake -S . -B build -G "Visual Studio 18 2026" -A x64 -DCMAKE_TOOLCHAIN_FILE=D:\vcpkg\scripts\buildsystems\vcpkg.cmake
+
+cmake -S . -B build -G "Visual Studio 17 2022" -A x64 -DCMAKE_TOOLCHAIN_FILE=D:\vcpkg\scripts\buildsystems\vcpkg.cmake
 ```
 
 如果你使用的是 Visual Studio 2022，将生成器改为 `"Visual Studio 17 2022"`。

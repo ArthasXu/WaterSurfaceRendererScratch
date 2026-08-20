@@ -1,0 +1,19 @@
+{
+  "packages": [
+{
+  "SPDXID" : "SPDXRef-resource-0",
+  "checksums" : 
+  [
+    {
+      "algorithm" : "SHA512",
+      "checksumValue" : "158602f1527392280744404bdeb80961ab972c076f9a99d5e35ba2ab37b96bd9c8d96041b93763787ec21a8a5b2587e4d40236afa6c4a0bc23255e9b3426ef31"
+    }
+  ],
+  "copyrightText" : "NOASSERTION",
+  "downloadLocation" : "git+https://github.com/KhronosGroup/Vulkan-Loader@vulkan-sdk-1.4.350.1",
+  "licenseConcluded" : "NOASSERTION",
+  "licenseDeclared" : "NOASSERTION",
+  "name" : "KhronosGroup/Vulkan-Loader"
+}
+  ]
+}

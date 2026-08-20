@@ -760,7 +760,6 @@ add_executable(stage8_bore_profile_cpu_test
     src/main/stage8/stage8_profile_cpu_test.cpp
 
     src/scene/water/bore/BoreWaveProfile.cpp
-    src/scene/water/debug/BoreProfileWriter.cpp
 )
 
 target_include_directories(stage8_bore_profile_cpu_test
