@@ -138,6 +138,43 @@ void Application::CreateSyncObjects() { // 创建同步对象
             std::make_unique<vkp::FrameSyncObjects>(*m_Device)
         );
     }
+
+    CreateRenderFinishedSemaphoresByImage();
+}
+
+void Application::CreateRenderFinishedSemaphoresByImage()
+{
+    DestroyRenderFinishedSemaphoresByImage();
+
+    m_RenderFinishedSemaphoresByImage.resize(
+        m_SwapChain->GetImageCount(),
+        VK_NULL_HANDLE
+    );
+
+    VkSemaphoreCreateInfo semaphoreInfo{};
+    semaphoreInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+
+    for(VkSemaphore& semaphore : m_RenderFinishedSemaphoresByImage){
+        if(vkCreateSemaphore(*m_Device, &semaphoreInfo, nullptr, &semaphore) != VK_SUCCESS){
+            throw std::runtime_error("Failed to create render-finished semaphore for swapchain image");
+        }
+    }
+}
+
+void Application::DestroyRenderFinishedSemaphoresByImage()
+{
+    if(!m_Device){
+        m_RenderFinishedSemaphoresByImage.clear();
+        return;
+    }
+
+    for(VkSemaphore semaphore : m_RenderFinishedSemaphoresByImage){
+        if(semaphore != VK_NULL_HANDLE){
+            vkDestroySemaphore(*m_Device, semaphore, nullptr);
+        }
+    }
+
+    m_RenderFinishedSemaphoresByImage.clear();
 }
 
 void Application::Loop() { // 主循环
@@ -181,7 +218,8 @@ void Application::DrawFrame() { // 绘制帧
 
     VkSemaphore waitSemaphores[] = {sync.ImageAvailable()}; // 等待信号量
     VkPipelineStageFlags waitStages[] = {VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT}; // 等待阶段
-    VkSemaphore signalSemaphores[] = {sync.RenderFinished()}; // 信号量
+    VkSemaphore renderFinished = m_RenderFinishedSemaphoresByImage[imageIndex];
+    VkSemaphore signalSemaphores[] = {renderFinished}; // 每个 swapchain image 独立的渲染完成信号量
 
     VkCommandBuffer commandBuffer = *m_CommandBuffers[m_CurrentFrame]; // 命令缓冲区
 
@@ -199,7 +237,7 @@ void Application::DrawFrame() { // 绘制帧
         throw std::runtime_error("Failed to submit draw command buffer!"); // 失败    
     }
 
-    result = m_SwapChain->Present(m_Device->GetPresentQueue(), sync.RenderFinished(), imageIndex); // 呈现图像
+    result = m_SwapChain->Present(m_Device->GetPresentQueue(), renderFinished, imageIndex); // 呈现图像
 
     if(result == VK_ERROR_OUT_OF_DATE_KHR || // 交换链已过期
         result == VK_SUBOPTIMAL_KHR || // 交换链已被调整大小或不支持的格式
@@ -228,6 +266,8 @@ void Application::RecreateSwapChain(){ // 重新创建交换链
 
     vkDeviceWaitIdle(*m_Device); // 等待设备空闲
 
+    DestroyRenderFinishedSemaphoresByImage();
+
     CleanupSwapChain(); // 清理交换链
 
     CreateSwapChain(); // 创建交换链
@@ -238,6 +278,8 @@ void Application::RecreateSwapChain(){ // 重新创建交换链
 
     m_SwapChain->CreateDepthResources(*m_PhysicalDevice, m_DepthFormat); // 创建深度资源
     m_SwapChain->CreateFramebuffers(*m_RenderPass); // 创建帧缓冲
+
+    CreateRenderFinishedSemaphoresByImage();
 }
 
 void Application::CleanupSwapChain(){ // 清理交换链
@@ -264,6 +306,8 @@ void Application::Shutdown()
     }
 
     ShutdownApp();
+
+    DestroyRenderFinishedSemaphoresByImage();
 
     CleanupSwapChain();
 

@@ -8,6 +8,7 @@ find_package(glm CONFIG REQUIRED)
 find_package(spdlog CONFIG REQUIRED)
 find_package(FFTW3 CONFIG REQUIRED)
 find_package(imgui CONFIG REQUIRED)
+find_package(nlohmann_json CONFIG REQUIRED)
 
 # 单一 shader 拷贝目标：所有 Debug/Release exe 共用 ${CMAKE_BINARY_DIR}/<CONFIG>/shaders，
 # 由这一个目标负责拷贝，避免多个 app 目标在 --parallel 下并发写同一目录导致的竞争

@@ -66,6 +66,8 @@ private:
     void CreateCommandPool();               // 创建命令池
     void CreateCommandBuffers();            // 创建命令缓冲区
     void CreateSyncObjects();               // 创建同步对象
+    void CreateRenderFinishedSemaphoresByImage(); // 为每个 swapchain image 创建 render-finished semaphore
+    void DestroyRenderFinishedSemaphoresByImage(); // 销毁每图像 render-finished semaphore
 
     void DrawFrame();                       // 绘制帧
     void RecordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t imageIndex); // 记录命令缓冲区
@@ -86,6 +88,7 @@ private:
     std::unique_ptr<vkp::CommandPool> m_CommandPool;        // 命令池
     std::vector<std::unique_ptr<vkp::CommandBuffer>> m_CommandBuffers; // 命令缓冲区
     std::vector<std::unique_ptr<vkp::FrameSyncObjects>> m_FrameSyncObjects; // 同步对象
+    std::vector<VkSemaphore> m_RenderFinishedSemaphoresByImage; // 每个 swapchain image 一个 present 等待 semaphore
 
     uint32_t m_CurrentFrame = 0; // 当前帧索引
     bool m_FramebufferResized = false; // 帧缓冲区大小是否改变
